@@ -6,8 +6,12 @@
 # open when an advisory lands regardless of it, and ci.yml's `pnpm audit` step
 # turns a new HIGH advisory red on the next run either way.
 #
-# open-pull-requests-limit: 0 holds version-update pull requests until the
-# public hygiene check accepts Dependabot's pull request text and sign-off.
+# At most five version-update pull requests are open per ecosystem, and none
+# for npm until its pull requests can pass the frozen install (#5). They are
+# held to the same checks as any other pull request, public hygiene among
+# them. Each Dependabot commit is signed off with an address that the hygiene
+# check allows only in a commit Dependabot authored
+# (scripts/check-public-hygiene.sh).
 version: 2
 updates:
   # npm / pnpm workspace (root + packages/* + clients/*)
@@ -15,6 +19,7 @@ updates:
     directory: '/'
     schedule:
       interval: monthly
+    # 0 until Dependabot's regenerated pnpm-lock.yaml keeps pnpm.overrides (#5).
     open-pull-requests-limit: 0
     groups:
       dev-dependencies:
@@ -25,7 +30,7 @@ updates:
     directory: '/python'
     schedule:
       interval: monthly
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 5
 
   # GitHub Actions. Every `uses:` is pinned to a commit SHA
   # (tests/ts/workflow-supply-chain.test.ts). Dependabot understands SHA pins
@@ -35,4 +40,4 @@ updates:
     directory: '/'
     schedule:
       interval: monthly
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 5

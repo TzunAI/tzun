@@ -50,9 +50,10 @@ var outOfScope = map[string]string{
 	"custody-entry-hash-vectors.json":  "length-prefixed custody entry hash chain; no tree, proof or log",
 	"evidence-log-origin-vectors.json": "log origin strings; no tree, proof or log",
 	"signoff-expectation-vectors.json": "a record's hashed signoff expectation against its sign-off material; no tree, proof or log",
-	"evm-anchor-vectors.json": "publisher-manifest validity bounds (tzun-anchor/1 §9), which no stock library reads; no tree, proof or log. " +
+	"evm-anchor-vectors.json": "publisher-manifest validity bounds (tzun-anchor/1 §9), which no stock library reads, and the signed transactions " +
+		"at each edge of what §10.4 item 2 refuses, which stock libraries read differently from each other; no tree, proof or log. " +
 		"Its one publication is anchor-e2e-vectors.json's epochs[0], byte for byte, whose EVM material evm/ checks with go-ethereum; " +
-		"tests/ts/evm-anchor-vectors.test.ts and tests/cross-sdk/test_evm_anchor_vectors.py hold the copy to it",
+		"tests/ts/evm-anchor-vectors.test.ts and tests/cross-sdk/test_evm_anchor_vectors.py hold the copy to it and the SDKs to every case",
 	"v1.0-worked-example-vectors.json": "the worked records W1 to W7 of the v1.0 revision: canonical bytes and digests of records; no tree, proof or log",
 	"decider-vectors.json":             "the decider member's grammar, schemes, commitments and freshness references (Record §6); no tree, proof or log",
 	"contributions-vectors.json":       "the contributions member's structure and binding rules (Record §7); no tree, proof or log",

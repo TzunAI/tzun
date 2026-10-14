@@ -62,7 +62,12 @@ export type EvmPublicationReason =
   | 'evm_tx_proof_invalid'
   /** The verifier's header source says the block, or the transaction's place in it, is not canonical. */
   | 'anchor_not_found_on_chain'
-  /** The publication is present but unreadable: a field is missing, mistyped, or the raw transaction does not parse or is unsigned. */
+  /**
+   * The publication is present but unreadable: a field is missing or
+   * mistyped, or §10.4 item 2 refuses the raw transaction (see
+   * {@link decodeEvmTransaction}): it does not parse, is unsigned, breaks a
+   * rule no transaction in a block breaks, or recovers no public key.
+   */
   | 'malformed_publication'
   /** Not decided. `checks` names what was missing: see {@link EvmNotCheckedReason}. */
   | 'publication_not_checked'
@@ -431,6 +436,106 @@ function rlpSafeInt(item: RlpStructuredData): number | null {
   return n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : null;
 }
 
+// ─── Signed transactions (tzun-anchor/1 §10.4 item 2) ──────────────────────
+
+/** The order n of the secp256k1 group; `SECP256K1_N` in the Python SDK's `evm_transaction`. */
+const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+/** ⌊n/2⌋: the largest s EIP-2 allows. */
+const SECP256K1_HALF_N = SECP256K1_N / 2n;
+
+/** A signed transaction as tzun-anchor/1 §10.4 item 2 reads it. */
+export interface EvmSignedTransaction {
+  /** 0 (legacy), 1 (EIP-2930) or 2 (EIP-1559). */
+  type: 0 | 1 | 2;
+  /** The chain id the sender signed; 0 for an unprotected legacy transaction (`v` 27 or 28). */
+  chainId: bigint;
+  /** The calldata, `0x` and lowercase hex. */
+  data: string;
+  /** The recovered sender, `0x` and 40 lowercase hex digits. */
+  sender: string;
+}
+
+/** An RLP scalar's value, leading zero bytes read by value; `null` for a list. */
+function rlpScalar(item: RlpStructuredData): bigint | null {
+  if (typeof item !== 'string') return null;
+  return item === '0x' ? 0n : BigInt(item);
+}
+
+/**
+ * Whether a signed transaction's RLP fields keep the rules of §10.4 item 2
+ * that no transaction in a block on any chain breaks, read before any library
+ * is asked for a sender:
+ *
+ * - a typed transaction (EIP-2930, EIP-1559) signs a chain id of 1 or more;
+ * - a legacy transaction's `v` is 27 or 28 (unprotected: item 5 decides its
+ *   chain), or `chainId * 2 + 35` or `+ 36` for a chain id of 1 or more, so
+ *   `v` 35 and 36, which would sign chain id 0, are refused;
+ * - `r` is in [1, n - 1] and `s` in [1, n/2] (EIP-2), n the secp256k1 order,
+ *   and a typed transaction's `yParity` is 0 or 1;
+ * - an EIP-1559 transaction's `maxPriorityFeePerGas` is at most its
+ *   `maxFeePerGas`.
+ *
+ * Stating them here makes the verdict independent of the Ethereum library,
+ * and libraries differ on each: ethers 6.17 recovers a sender for a typed
+ * transaction on chain id 0 and for a high `s`, where go-ethereum refuses
+ * both, and go-ethereum recovers one for a legacy `v` of 35 or 36 and for a
+ * tip above the fee cap, where ethers refuses both. A field count other than
+ * the signed form's is refused too.
+ */
+function itemTwoAdmits(type: 0 | 1 | 2, fields: RlpStructuredData): boolean {
+  if (!Array.isArray(fields)) return false;
+  const signedLength = type === 0 ? 9 : type === 1 ? 11 : 12;
+  if (fields.length !== signedLength) return false;
+  // The signature closes every signed form: legacy `v, r, s`, typed `yParity, r, s`.
+  const [vOrYParity, r, s] = fields.slice(signedLength - 3).map(rlpScalar);
+  if (vOrYParity === null || r === null || s === null) return false;
+  if (type === 0) {
+    const v = vOrYParity;
+    if (v !== 27n && v !== 28n && v < 37n) return false;
+  } else {
+    const chainId = rlpScalar(fields[0]);
+    if (chainId === null || chainId < 1n) return false;
+    if (vOrYParity !== 0n && vOrYParity !== 1n) return false;
+  }
+  if (r < 1n || r >= SECP256K1_N || s < 1n || s > SECP256K1_HALF_N) return false;
+  if (type === 2) {
+    const tip = rlpScalar(fields[2]);
+    const cap = rlpScalar(fields[3]);
+    if (tip === null || cap === null || tip > cap) return false;
+  }
+  return true;
+}
+
+/**
+ * Read a signed legacy, EIP-2930 or EIP-1559 transaction envelope and recover
+ * its sender (tzun-anchor/1 §10.4 item 2), or `null` when item 2 refuses it.
+ *
+ * `raw` is `type ‖ rlp(payload)` for a typed transaction, or `rlp(fields)`
+ * for a legacy one (first byte `0xc0` or above). The rules of item 2 that no
+ * real transaction breaks are applied first, from the RLP fields (see
+ * `itemTwoAdmits`); ethers then reads the fields' shapes and recovers the
+ * sender, and a signature from which no public key recovers is refused. Any
+ * other type is refused. The Python SDK's `decode_signed_transaction` accepts
+ * and refuses the same envelopes and recovers the same sender.
+ *
+ * Never throws.
+ */
+export function decodeEvmTransaction(raw: string): EvmSignedTransaction | null {
+  try {
+    if (!isHex(raw) || raw === '0x') return null;
+    const first = parseInt(raw.slice(2, 4), 16);
+    const type = first >= 0xc0 ? 0 : first === 1 || first === 2 ? first : null;
+    if (type === null) return null;
+    if (!itemTwoAdmits(type, decodeEvmRlp(type === 0 ? raw : '0x' + raw.slice(4)))) return null;
+    const tx = Transaction.from(raw);
+    // Recovering the sender fails on a signature that parses but recovers no public key.
+    if (!tx.isSigned() || !tx.from) return null;
+    return { type, chainId: tx.chainId, data: tx.data.toLowerCase(), sender: tx.from.toLowerCase() };
+  } catch {
+    return null;
+  }
+}
+
 export interface EvmBlockHeader {
   /** keccak256 of the header RLP. */
   hash: string;
@@ -755,27 +860,21 @@ export async function verifyEvmPublication(input: EvmPublicationInput): Promise<
       }
     }
 
-    let tx: Transaction;
-    let sender: string;
-    try {
-      tx = Transaction.from(rawTransaction);
-      // Recovering the sender can fail on a signature that parses but is not a point.
-      if (!tx.isSigned() || !tx.from) return txFailed('malformed_publication');
-      sender = tx.from.toLowerCase();
-    } catch {
-      return txFailed('malformed_publication');
-    }
+    // Item 2: the transaction decodes and its signature yields a sender.
+    const tx = decodeEvmTransaction(rawTransaction);
+    if (tx === null) return txFailed('malformed_publication');
+    const sender = tx.sender;
 
     const computedId = keccak256(rawTransaction);
     facts.transactionId = computedId;
-    if (tx.type !== null) facts.txType = tx.type;
+    facts.txType = tx.type;
     facts.sender = sender;
     facts.signedChainId = tx.chainId.toString();
 
     if (transactionId !== undefined && (transactionId as string).toLowerCase() !== computedId) {
       return txFailed('evm_tx_proof_invalid');
     }
-    if (tx.data.toLowerCase() !== pHex.toLowerCase()) return txFailed('evm_calldata_mismatch');
+    if (tx.data !== pHex.toLowerCase()) return txFailed('evm_calldata_mismatch');
 
     const entries = evmEntriesFor(input.manifest, input.anchorOrigin);
     if (entries === undefined) return txNotChecked('input_not_supplied:publisher_manifest');

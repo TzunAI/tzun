@@ -81,7 +81,9 @@ the manifest lists for this origin, or was not one at the block time),
 does not hash to the block hash or names another number, or the trie proof does
 not place the transaction under the header's ``transactionsRoot``),
 ``anchor_not_found_on_chain`` (the header source says the block, or the
-transaction's place in it, is not canonical) and ``malformed_publication``.
+transaction's place in it, is not canonical) and ``malformed_publication`` (a
+field is missing or mistyped, or §10.4 item 2 refuses the raw transaction: see
+:func:`~tzun_sdk.attestation.evm_transaction.decode_signed_transaction`).
 
 ``None`` reasons: ``publication_not_checked`` (the checks name what was
 missing), ``unsupported_publication_kind`` and ``unsupported_evm_tx_type``.
@@ -761,6 +763,7 @@ async def verify_evm_publication(
                 facts["txType"] = first_byte
                 return tx_abstained("unsupported_evm_tx_type")
 
+        # Item 2: the transaction decodes and its signature yields a sender.
         raw_bytes = _hex_bytes(raw)
         try:
             tx: SignedEvmTransaction = decode_signed_transaction(raw_bytes)

@@ -10,14 +10,17 @@ every check, reason and fact:
 - the RLP decoder, the transaction decoder and sender recovery, over
   ethers-signed transactions of every type the verifier reads and mutations the
   TypeScript side makes of them (non-canonical encodings, high s, bad parity,
-  out-of-range fields, bad access lists, legacy ``v`` values);
+  out-of-range fields, bad access lists, legacy ``v`` values), and signatures at
+  each edge of §10.4 item 2 (typed chain id 0, legacy ``v`` 35 to 38, ``s`` at
+  and above n/2, a tip at and above the fee cap, an ``r`` no key recovers from);
 - the block-header reader and the transactions-trie walk, over two real Sepolia
   blocks, the anvil vectors and tries the TypeScript trie builder makes;
 - Node's base64 and asn1js's ``UTCTime`` and ``GeneralizedTime``, which decide
   whether an ``rfc3161/1`` token is readable;
 - ``verifyEvmPublication``, over about 240 publications with scripted header
   sources (``ScriptedSource``: the JSON both sides build a source from), and
-  over every validity case of ``evm-anchor-vectors.json`` in each of its modes;
+  over every validity case of ``evm-anchor-vectors.json`` in each of its modes,
+  and its transaction cases;
 - ``verifyAnchor``, over anchored records with EVM and RFC 3161 publications,
   the checkpoint and anvil vectors whole, and hostile artifacts.
 
@@ -942,7 +945,7 @@ def _evm_vector_cases() -> list[dict[str, Any]]:
     """Every validity case of evm-anchor-vectors.json in each of its modes, as
     verify-evm cases: header (the publication as given, with the file's header
     source), noHeader (without blockHeader, txIndex and txProof) and offline (no
-    header source)."""
+    header source); then every transaction case of §10.4 item 2, offline."""
     spec = EVM_ANCHOR["headerSource"]
     source = {
         "chainId": str(spec["chainId"]),
@@ -979,12 +982,38 @@ def _evm_vector_cases() -> list[dict[str, Any]]:
                     "sources": None if mode == "offline" else {EVM_ANCHOR["chain"]: source},
                 }
             )
+    tx = EVM_ANCHOR["transactionCases"]
+    for case in tx["cases"]:
+        cases.append(
+            {
+                "input": {
+                    "publication": {
+                        "kind": "evm-calldata/1",
+                        "chain": tx["chain"],
+                        "transactionId": case["transactionId"],
+                        "rawTransaction": case["rawTransaction"],
+                        "blockNumber": tx["blockNumber"],
+                        "blockHash": tx["blockHash"],
+                    },
+                    "p": EVM_ANCHOR["p"],
+                    "anchorOrigin": origin,
+                    "manifest": {
+                        "publishers": {
+                            origin: [
+                                {"address": case["publisher"], "chain": tx["chain"], "namespace": "test"}
+                            ]
+                        }
+                    },
+                },
+                "sources": None,
+            }
+        )
     return cases
 
 
 def test_the_evm_anchor_vectors_get_the_same_whole_verdicts() -> None:
     """Both SDKs give every validity case of evm-anchor-vectors.json, in each mode,
-    the same verdict, every check and fact included. Each SDK's own suite holds it
+    and every transaction case the same verdict, every check and fact included. Each SDK's own suite holds it
     to the file's stated verdicts (tests/ts/evm-anchor-vectors.test.ts,
     test_evm_anchor_vectors.py)."""
     cases = _evm_vector_cases()

@@ -1,12 +1,15 @@
-"""The publisher-manifest validity vectors through the Python SDK (tzun-anchor/1 §9, §13).
+"""The EVM anchor vectors through the Python SDK (tzun-anchor/1 §9, §10.4 item 2, §13).
 
 ``vectors/evm-anchor-vectors.json`` holds §9's validity-bound cases
 (``scripts/generate-evm-anchor-vectors.ts``): a manifest entry for the real
 publisher whose ``validFrom`` or ``validUntil`` sits at, just inside or just
 outside the block time, compared at full precision, and dates
 §9 refuses. ``verify_evm_publication`` must give every case its stated verdict
-in each of the file's three modes. These need the ``anchor`` extra: without it
-they are skipped, except under CI, where they fail.
+in each of the file's three modes. It also holds §10.4 item 2's transaction
+cases: a transaction no block on any chain holds is false,
+``malformed_publication``, and the one just inside each edge is read, with the
+sender the file states. These need the ``anchor`` extra: without it they are
+skipped, except under CI, where they fail.
 
 This file needs no Node. ``tests/ts/evm-anchor-vectors.test.ts`` holds the
 TypeScript verifier to the same file, and ``test_anchor_verify_parity.py``
@@ -32,6 +35,8 @@ E2E: dict[str, Any] = json.loads(
 )
 CASES: list[dict[str, Any]] = VECTORS["validityBounds"]
 MODES = ("header", "noHeader", "offline")
+TX = VECTORS["transactionCases"]
+TX_CASES: list[dict[str, Any]] = TX["cases"]
 
 
 def _needs_anchor_extra() -> None:
@@ -154,4 +159,63 @@ def test_every_case_gets_its_stated_verdict(case: dict[str, Any], mode: str) -> 
         "tx": e["tx"],
         "canonical": e["canonical"],
         "inclusion": e.get("inclusion"),
+    }
+
+
+def test_the_transaction_cases_break_each_rule_and_meet_each_at_its_edge() -> None:
+    assert {c["rule"] for c in TX_CASES} == {
+        "typed-chain-id",
+        "legacy-v",
+        "signature-scalars",
+        "fee-cap",
+        "public-key-recovery",
+        None,
+    }
+    assert len({c["id"] for c in TX_CASES}) == len(TX_CASES)
+    for c in TX_CASES:
+        assert c["item2"] == ("reads" if c["rule"] is None else "refuses")
+
+
+@pytest.mark.parametrize("case", TX_CASES, ids=[c["id"] for c in TX_CASES])
+def test_every_transaction_case_gets_its_stated_verdict(case: dict[str, Any]) -> None:
+    _needs_anchor_extra()
+    from tzun_sdk.attestation.evm_publication import verify_evm_publication
+
+    publication = {
+        "kind": "evm-calldata/1",
+        "chain": TX["chain"],
+        "transactionId": case["transactionId"],
+        "rawTransaction": case["rawTransaction"],
+        "blockNumber": TX["blockNumber"],
+        "blockHash": TX["blockHash"],
+    }
+    manifest = {
+        "publishers": {
+            VECTORS["anchorOrigin"]: [
+                {"address": case["publisher"], "chain": TX["chain"], "namespace": "test"}
+            ]
+        }
+    }
+    v = asyncio.run(
+        verify_evm_publication(
+            publication,
+            p=VECTORS["p"],
+            anchor_origin=VECTORS["anchorOrigin"],
+            manifest=manifest,
+            header_sources=None,
+        )
+    )
+    e = case["expect"]
+    assert {
+        "valid": v["valid"],
+        "reason": v.get("reason"),
+        "tx": _check(v["checks"]["tx"]),
+        "canonical": _check(v["checks"]["canonical"]),
+        "sender": v["facts"].get("sender"),
+    } == {
+        "valid": e["valid"],
+        "reason": e.get("reason"),
+        "tx": e["tx"],
+        "canonical": e["canonical"],
+        "sender": case["sender"],
     }

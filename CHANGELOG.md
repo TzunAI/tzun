@@ -22,6 +22,39 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+## [0.8.3] — 2026-10-14
+
+### Changed
+
+- The `evm-calldata/1` publication verifier (`verifyEvmPublication`,
+  `verify_evm_publication`) states the rules of tzun-anchor/1 §10.4 item 2 it
+  applies, so its verdict no longer depends on what an Ethereum library
+  recovers. Each of these is now `false`, `malformed_publication`, in both
+  SDKs:
+  - a typed transaction (EIP-2930, EIP-1559) signed for chain id 0;
+  - a legacy transaction whose `v` is not 27, 28, or `chainId * 2 + 35` or
+    `+ 36` for a chain id of 1 or more, so `v` 35 and 36;
+  - a signature with `r` outside [1, n - 1], `s` outside [1, n/2] (EIP-2), or
+    a typed `yParity` other than 0 or 1;
+  - an EIP-1559 transaction whose `maxPriorityFeePerGas` exceeds its
+    `maxFeePerGas`;
+  - a signature from which no public key recovers.
+
+  No block on any chain a manifest can name holds such a transaction, so no
+  real anchor is refused. Before, ethers recovered a sender for a typed
+  transaction on chain id 0 and for a high `s` (read as `n - s`), so such a
+  publication from a listed publisher was `evm_chain_mismatch` or `true`;
+  go-ethereum recovers one for a legacy `v` of 35 or 36 and for a tip above
+  the fee cap, which ethers refuses. An unprotected legacy transaction (`v`
+  27 or 28) is read as before, and §10.4 item 5 refuses its chain. Types
+  other than 0, 1 and 2 abstain as before. See TzunAI/tzun-verify#37.
+- `decodeEvmTransaction` (`src/attestation/blockchain.ts`) reads a signed
+  transaction as item 2 does, and `decode_signed_transaction`
+  (`tzun_sdk.attestation.evm_transaction`) refuses what it refuses.
+- `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
+  transactions at each edge of item 2, those it refuses and those just inside
+  each rule, with the verdict for each. Its existing cases are unchanged.
+
 ## [0.8.2] — 2026-10-06
 
 **The first public release of the source.** Tzun records a tamper-evident

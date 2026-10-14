@@ -16,8 +16,13 @@
  * `transactionsRoot`.
  */
 import {
+  N,
+  Signature,
+  SigningKey,
   Wallet,
   type BaseWallet,
+  computeAddress,
+  decodeRlp,
   encodeRlp,
   hexlify,
   keccak256,
@@ -147,4 +152,117 @@ export function publicationFrom(block: FabricatedBlock, index: number) {
     txIndex: index,
     txProof: block.trie.proof(index),
   };
+}
+
+// ─── Signatures at the edges of tzun-anchor/1 §10.4 item 2 ─────────────────
+
+/** ⌊n/2⌋ for the secp256k1 order n: the largest s EIP-2 allows. */
+export const HALF_N = N / 2n;
+export { N as SECP256K1_N };
+
+/** The field prime of secp256k1. */
+const P_FIELD = 2n ** 256n - 2n ** 32n - 977n;
+
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  let b = base % mod;
+  for (let e = exp; e > 0n; e >>= 1n) {
+    if (e & 1n) result = (result * b) % mod;
+    b = (b * b) % mod;
+  }
+  return result;
+}
+
+/** Whether some point of secp256k1 has this x: x^3 + 7 is a square mod p. */
+export function isXCoordinate(x: bigint): boolean {
+  return modPow((x ** 3n + 7n) % P_FIELD, (P_FIELD - 1n) / 2n, P_FIELD) === 1n;
+}
+
+/** An envelope's type and its RLP fields. */
+export function envelopeFields(raw: string): { type: 0 | 1 | 2; fields: RlpStructuredData[] } {
+  const first = parseInt(raw.slice(2, 4), 16);
+  const type = first >= 0xc0 ? 0 : (first as 1 | 2);
+  return { type, fields: decodeRlp(type === 0 ? raw : '0x' + raw.slice(4)) as RlpStructuredData[] };
+}
+
+/** The envelope of these fields: `type ‖ rlp(fields)`, or `rlp(fields)` for legacy. */
+export function encodeEnvelope(type: 0 | 1 | 2, fields: RlpStructuredData[]): string {
+  const body = encodeRlp(fields);
+  return type === 0 ? body : `0x0${type}${body.slice(2)}`;
+}
+
+/** `raw` carrying another signature, which no key need have made: `v` is a legacy v or a typed yParity. */
+export function withSignature(raw: string, sig: { v: bigint; r: bigint; s: bigint }): string {
+  const { type, fields } = envelopeFields(raw);
+  const n = fields.length;
+  return encodeEnvelope(type, [...fields.slice(0, n - 3), q(sig.v), q(sig.r), q(sig.s)]);
+}
+
+/** A signed envelope's own signature: legacy v or typed yParity, r and s. */
+export function signatureOf(raw: string): { v: bigint; r: bigint; s: bigint } {
+  const { fields } = envelopeFields(raw);
+  const [v, r, s] = fields.slice(fields.length - 3).map((f) => BigInt(f === '0x' ? 0 : (f as string)));
+  return { v, r, s };
+}
+
+/** The same signature with s above n/2: n - s with the other parity, which recovers the same key. */
+export function highS(raw: string): string {
+  const { type } = envelopeFields(raw);
+  const { v, r, s } = signatureOf(raw);
+  // Legacy: v 27 ↔ 28, and an EIP-155 v ↔ its partner (odd ↔ even).
+  const flipped = type !== 0 ? v ^ 1n : v === 27n || v === 28n ? 55n - v : v % 2n === 1n ? v + 1n : v - 1n;
+  return withSignature(raw, { v: flipped, r, s: N - s });
+}
+
+/**
+ * The smallest r from which a public key recovers with this s and parity over
+ * `digest`, and the address it recovers: a valid signature that no key was
+ * asked to make, so s can sit anywhere in [1, n/2].
+ */
+export function firstRecoverableR(digest: string, s: bigint, yParity: 0 | 1): { r: bigint; sender: string } {
+  let r = 1n;
+  while (!isXCoordinate(r)) r++;
+  const sig = Signature.from({ r: toBeHex(r, 32), s: toBeHex(s, 32), yParity });
+  return { r, sender: computeAddress(SigningKey.recoverPublicKey(digest, sig)).toLowerCase() };
+}
+
+/** The smallest r that is no point's x-coordinate: no public key recovers from it. */
+export function firstUnrecoverableR(): bigint {
+  let r = 1n;
+  while (isXCoordinate(r)) r++;
+  return r;
+}
+
+/**
+ * A signature over `digest` from which public-key recovery gives the point at
+ * infinity: with R = (z / s) G and r = x(R), r^-1 (s R - z G) = O.
+ */
+export function infinitySignature(digest: string, s = 1n): { yParity: 0 | 1; r: bigint; s: bigint } {
+  const z = BigInt(digest) % N;
+  const k = (z * modPow(s, N - 2n, N)) % N;
+  const point = SigningKey.computePublicKey(toBeHex(k, 32), false);
+  const r = BigInt('0x' + point.slice(4, 68));
+  const yParity = (BigInt('0x' + point.slice(68)) & 1n) === 1n ? 1 : 0;
+  return { yParity, r, s };
+}
+
+/**
+ * A legacy transaction `key` signs: EIP-155 for `chainId` when `eip155` (so
+ * chain id 0 signs v 35 or 36), unprotected (v 27 or 28) otherwise, at the
+ * first nonce from `nonce` whose signature has parity `yParity`.
+ */
+export function signLegacy(
+  key: SigningKey,
+  opts: { data: string; chainId?: bigint; eip155: boolean; yParity: 0 | 1; nonce?: number; to?: string },
+): string {
+  const chainId = opts.chainId ?? 0n;
+  for (let nonce = opts.nonce ?? 0; nonce < (opts.nonce ?? 0) + 64; nonce++) {
+    const body: RlpStructuredData[] = [q(nonce), q(2_000_000_000), q(30_000), opts.to ?? computeAddress(key.publicKey), '0x', opts.data];
+    const unsigned = opts.eip155 ? [...body, q(chainId), '0x', '0x'] : body;
+    const sig = key.sign(keccak256(encodeRlp(unsigned)));
+    if (sig.yParity !== opts.yParity) continue;
+    const v = opts.eip155 ? chainId * 2n + 35n + BigInt(sig.yParity) : 27n + BigInt(sig.yParity);
+    return encodeRlp([...body, q(v), q(BigInt(sig.r)), q(BigInt(sig.s))]);
+  }
+  throw new Error('no nonce in 64 gives this parity');
 }

@@ -1,11 +1,14 @@
 # HAND-MAINTAINED. NOT generated.
 #
-# The TypeScript verifier reads a raw transaction with ethers v6
-# `Transaction.from(raw)` and recovers its sender with `tx.from`. This module
-# accepts and refuses the same raw transactions and recovers the same sender, for
-# the three types the verifier reads (tzun-anchor/1 §10.4 item 2): each field
-# rule below is the one ethers applies. tests/cross-sdk/test_anchor_verify_parity.py
-# runs ethers-signed transactions and their mutations through both SDKs.
+# The TypeScript verifier reads a raw transaction with `decodeEvmTransaction`
+# (src/attestation/blockchain.ts): first the rules of tzun-anchor/1 §10.4 item 2
+# that no transaction a block holds can break, read from the RLP fields, then
+# ethers v6 `Transaction.from(raw)` for the fields' shapes and `tx.from` for the
+# sender. This module accepts and refuses the same raw transactions and recovers
+# the same sender, for the three types the verifier reads: the item 2 rules as
+# that function states them, and each field-shape rule as ethers applies it.
+# tests/cross-sdk/test_anchor_verify_parity.py runs ethers-signed transactions,
+# their mutations and signatures at the edges of item 2 through both SDKs.
 """Signed EVM transactions: keccak-256, decoding and sender recovery.
 
 Needs the ``anchor`` extra (``pip install 'tzun-sdk[anchor]'``):
@@ -32,6 +35,7 @@ from tzun_sdk.errors import MissingExtraError
 
 #: The order of the secp256k1 group.
 SECP256K1_N: Final = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+#: floor(n / 2): the largest ``s`` EIP-2 allows.
 _HALF_N: Final = SECP256K1_N // 2
 _MAX_UINT256: Final = 2**256 - 1
 _MAX_SAFE_INTEGER: Final = 2**53 - 1
@@ -80,7 +84,7 @@ class SignedEvmTransaction:
 
     #: 0 (legacy), 1 (EIP-2930) or 2 (EIP-1559).
     type: int
-    #: The chain id the sender signed; 0 for a pre-EIP-155 legacy transaction.
+    #: The chain id the sender signed; 0 for an unprotected legacy transaction (``v`` 27 or 28).
     chain_id: int
     #: The calldata.
     data: bytes
@@ -89,6 +93,17 @@ class SignedEvmTransaction:
 
 
 # ---- Fields, read as ethers reads them --------------------------------------------
+#
+# What tzun-anchor/1 §10.4 item 2 refuses beyond the fields' shapes, because no
+# block on any chain a manifest can name holds such a transaction:
+#
+# - a typed transaction signing chain id 0 (``_eip2930``, ``_eip1559``);
+# - a legacy ``v`` other than 27, 28 or ``chainId * 2 + 35`` or ``+ 36`` for a
+#   chain id of 1 or more, so ``v`` 35 and 36 (chain id 0) (``_legacy``);
+# - ``r`` outside [1, n - 1], ``s`` outside [1, n/2] (EIP-2) (``_recover_sender``),
+#   or a typed ``yParity`` other than 0 or 1 (``_y_parity``);
+# - an EIP-1559 tip above its fee cap (``_eip1559``);
+# - a signature from which no public key recovers (``_recover_sender``).
 
 
 def _string(item: RlpItem) -> bytes:
@@ -148,6 +163,14 @@ def _access_list(item: RlpItem) -> list[RlpItem]:
     return out
 
 
+def _typed_chain_id(item: RlpItem) -> int:
+    """A typed transaction's chain id: 1 or more, read as ethers ``handleUint`` reads it."""
+    chain_id = _uint(item)
+    if chain_id == 0:
+        raise EvmTransactionError("a typed transaction signs chain id 0")
+    return chain_id
+
+
 def _y_parity(item: RlpItem) -> int:
     try:
         y = _number(item)
@@ -168,13 +191,11 @@ def _int_bytes(value: int) -> bytes:
 
 def _recover_sender(unsigned: bytes, r: int, s: int, y_parity: int) -> str:
     keccak_mod, coincurve = _extra()
-    # ethers recovers from the signature's canonical form: a high s becomes
-    # n - s with the other parity, which names the same public key.
-    if s > _HALF_N:
-        s = SECP256K1_N - s
-        y_parity ^= 1
-    if not (1 <= r < SECP256K1_N and 1 <= s < SECP256K1_N):
-        raise EvmTransactionError("signature scalar out of range")
+    # A high s is refused, not read as n - s with the other parity.
+    if not 1 <= r < SECP256K1_N:
+        raise EvmTransactionError("signature r out of range")
+    if not 1 <= s <= _HALF_N:
+        raise EvmTransactionError("signature s out of range, or above n/2 (EIP-2)")
     digest = bytes(keccak_mod.new(digest_bits=256, data=unsigned).digest())
     signature = r.to_bytes(32, "big") + s.to_bytes(32, "big") + bytes([y_parity])
     try:
@@ -205,9 +226,11 @@ def _legacy(raw: bytes) -> SignedEvmTransaction:
     s = _uint(fields[8])
     if r == 0 and s == 0:
         raise EvmTransactionError("the transaction is not signed (EIP-155 unsigned form)")
-    chain_id = (v - 35) // 2 if v >= 35 else 0
-    if chain_id == 0 and v not in (27, 28):
-        raise EvmTransactionError("non-canonical legacy v")
+    if v not in (27, 28) and v < 37:
+        raise EvmTransactionError(
+            "legacy v is not 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more"
+        )
+    chain_id = (v - 35) // 2 if v >= 37 else 0
     r = _padded_scalar(fields[7])
     s = _padded_scalar(fields[8])
     # 27 and odd EIP-155 values are parity 0; 28 and even ones are parity 1.
@@ -230,7 +253,7 @@ def _eip2930(raw: bytes) -> SignedEvmTransaction:
     fields = decode_rlp(raw[1:])
     if not isinstance(fields, list) or len(fields) not in (8, 11):
         raise EvmTransactionError("invalid field count for transaction type: 1")
-    chain_id = _uint(fields[0])
+    chain_id = _typed_chain_id(fields[0])
     nonce = _number(fields[1])
     gas_price = _uint(fields[2])
     gas_limit = _uint(fields[3])
@@ -263,7 +286,7 @@ def _eip1559(raw: bytes) -> SignedEvmTransaction:
     fields = decode_rlp(raw[1:])
     if not isinstance(fields, list) or len(fields) not in (9, 12):
         raise EvmTransactionError("invalid field count for transaction type: 2")
-    chain_id = _uint(fields[0])
+    chain_id = _typed_chain_id(fields[0])
     nonce = _number(fields[1])
     max_priority_fee = _uint(fields[2])
     max_fee = _uint(fields[3])
@@ -306,10 +329,13 @@ def decode_signed_transaction(raw: bytes) -> SignedEvmTransaction:
     the sender is recovered over the canonical encoding of the fields, as ethers
     does.
 
-    :raises EvmTransactionError: for anything ethers v6 ``Transaction.from`` and
-        ``.from`` refuse: a wrong field count, an unsigned transaction, a field
-        of the wrong shape or out of range, a signature no public key recovers
-        from, and any type other than these three.
+    :raises EvmTransactionError: for anything tzun-anchor/1 §10.4 item 2
+        refuses: a wrong field count, an unsigned transaction, a field of the
+        wrong shape or out of range (as ethers v6 ``Transaction.from`` reads
+        them), a typed transaction on chain id 0, a legacy ``v`` of 35 or 36,
+        ``r`` or ``s`` out of range or ``s`` above n/2, a tip above the fee cap,
+        a signature no public key recovers from, and any type other than these
+        three.
     :raises MissingExtraError: without the ``anchor`` extra.
     """
     _extra()

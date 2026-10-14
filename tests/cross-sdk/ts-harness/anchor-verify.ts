@@ -14,7 +14,9 @@
  *
  *   { action: "transactions" }
  *     → { cases: [{ name, raw }] }: ethers-signed transactions of every type
- *     the verifier reads, and mutations of them, for the "corpus" command.
+ *     the verifier reads, mutations of them, and signatures made at the
+ *     edges of tzun-anchor/1 §10.4 item 2, for the "corpus" command, which
+ *     reads each with `decodeEvmTransaction`.
  *
  *   { action: "evm-scenarios" }
  *     → { cases: [{ name, input, sources, verdict }] }: publications, blocks
@@ -47,6 +49,7 @@ import { UnreadableTrustAnchorError } from '../../../src/attestation/rfc3161-tok
 import {
   DEFAULT_EVM_NETWORKS,
   decodeEvmRlp,
+  decodeEvmTransaction,
   parseEvmBlockHeader,
   verifyEvmPublication,
   verifyEvmTransactionProof,
@@ -60,7 +63,27 @@ import {
   parseCheckpoint,
   parseOrigin,
 } from '../../../src/attestation/checkpoint';
-import { MAINNET, SEPOLIA, buildTxTrie, fabricateBlock, publicationFrom, randomP, signAnchorTx, type FabricatedBlock } from '../../ts/helpers/evm-fixtures';
+import {
+  HALF_N,
+  MAINNET,
+  SECP256K1_N,
+  SEPOLIA,
+  buildTxTrie,
+  encodeEnvelope,
+  envelopeFields,
+  fabricateBlock,
+  firstRecoverableR,
+  firstUnrecoverableR,
+  highS,
+  infinitySignature,
+  publicationFrom,
+  randomP,
+  signAnchorTx,
+  signLegacy,
+  signatureOf,
+  withSignature,
+  type FabricatedBlock,
+} from '../../ts/helpers/evm-fixtures';
 import { PLATFORM_PREFIX, TEST_PREFIX, anchoredRecord, sha256 } from '../../ts/helpers/anchor-fixtures';
 import { makeTsaFixture } from '../../ts/rfc3161-fixture';
 
@@ -202,9 +225,9 @@ function corpus(c: Corpus): Record<string, unknown[]> {
     rlp: (c.rlp ?? []).map((hex) => errorOr(() => ({ value: decodeEvmRlp(hex) }))),
     transactions: (c.transactions ?? []).map((raw) =>
       errorOr(() => {
-        const tx = Transaction.from(raw);
-        if (!tx.isSigned() || !tx.from) throw new Error('unsigned');
-        return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.from.toLowerCase() };
+        const tx = decodeEvmTransaction(raw);
+        if (tx === null) throw new Error('refused by tzun-anchor/1 §10.4 item 2');
+        return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.sender };
       }),
     ),
     headers: (c.headers ?? []).map((h) => parseEvmBlockHeader(h as string)),
@@ -310,7 +333,41 @@ async function transactions(): Promise<Array<{ name: string; raw: string }>> {
   add('legacy huge v', legacyWith(6, '0x' + 'ff'.repeat(32)));
   add('legacy r of 33 bytes', legacyWith(7, '0x00' + (legacy[7] as string).slice(2).padStart(64, '0')));
 
-  // Types the verifier does not parse still go through Transaction.from here.
+  // The edges of tzun-anchor/1 §10.4 item 2.
+  add('EIP-1559 on chain id 0', await signAnchorTx(wallet, { data: p, type: 2, chainId: 0n }));
+  add('EIP-2930 on chain id 0', await signAnchorTx(wallet, { data: p, type: 1, chainId: 0n }));
+  add('EIP-2930 on chain id 1', await signAnchorTx(wallet, { data: p, type: 1, chainId: MAINNET }));
+  for (const yParity of [0, 1] as const) {
+    add(`legacy v ${35 + yParity}, signed for chain id 0`, signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 0n, yParity }));
+    add(`legacy v ${37 + yParity}, signed for chain id 1`, signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: MAINNET, yParity }));
+    add(`legacy v ${27 + yParity}, unprotected`, signLegacy(wallet.signingKey, { data: p, eip155: false, yParity }));
+  }
+  add('legacy high s', highS(t0));
+  add('EIP-2930 high s', highS(t1));
+  const digest = Transaction.from(t2).unsignedHash;
+  const half = firstRecoverableR(digest, HALF_N, 0);
+  add('s exactly n/2', withSignature(t2, { v: 0n, r: half.r, s: HALF_N }));
+  add('s = n/2 + 1, the other parity', withSignature(t2, { v: 1n, r: half.r, s: HALF_N + 1n }));
+  add('s = 1', withSignature(t2, { v: 1n, r: firstRecoverableR(digest, 1n, 1).r, s: 1n }));
+  add('s = 0', withSignature(t2, { ...signatureOf(t2), s: 0n }));
+  add('r = n', withSignature(t2, { ...signatureOf(t2), r: SECP256K1_N }));
+  add('yParity 27', withSignature(t2, { ...signatureOf(t2), v: 27n }));
+  add('an r that is no x-coordinate', withSignature(t2, { v: 0n, r: firstUnrecoverableR(), s: 1n }));
+  const infinity = infinitySignature(digest);
+  add('a signature that recovers the point at infinity', withSignature(t2, { v: BigInt(infinity.yParity), r: infinity.r, s: infinity.s }));
+  const fees = { type: 2, chainId: SEPOLIA, nonce: 0, to: wallet.address, value: 0n, data: p, gasLimit: 30_000n } as const;
+  const atCap = await wallet.signTransaction({ ...fees, maxFeePerGas: 7n, maxPriorityFeePerGas: 7n });
+  add('a tip equal to the fee cap', atCap);
+  const aboveCap = envelopeFields(atCap).fields.slice(0, 9);
+  aboveCap[2] = '0x08';
+  const aboveSig = wallet.signingKey.sign(keccak256(encodeEnvelope(2, aboveCap)));
+  add('a tip one wei above the fee cap, signed', withSignature(encodeEnvelope(2, [...aboveCap, '0x', '0x', '0x']), {
+    v: BigInt(aboveSig.yParity),
+    r: BigInt(aboveSig.r),
+    s: BigInt(aboveSig.s),
+  }));
+
+  // Types the verifier does not parse are refused here too.
   add('type 3 header only', '0x03c0');
   add('EIP-2930 unsigned', '0x01' + encodeRlp((decodeRlp('0x' + t1.slice(4)) as RlpStructuredData[]).slice(0, 8)).slice(2));
   add('garbage', '0xc3010203');

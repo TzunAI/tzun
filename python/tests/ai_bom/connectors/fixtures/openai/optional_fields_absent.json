@@ -1,0 +1,14 @@
+{
+  "recordedAgainst": "openai-python 1.51.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Quick check."}]
+  },
+  "response": {
+    "id": "chatcmpl-3",
+    "model": "gpt-4o-2024-08-06",
+    "usage": {"prompt_tokens": 5, "completion_tokens": 3},
+    "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+  }
+}

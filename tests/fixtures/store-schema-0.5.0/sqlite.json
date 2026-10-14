@@ -1,0 +1,335 @@
+{
+  "generatedFrom": "the SDK at 0.5.0, SqliteStorageAdapter constructor",
+  "objects": [
+    {
+      "type": "index",
+      "name": "idx_chain_annotations_incident",
+      "tbl_name": "chain_annotations",
+      "sql": "CREATE INDEX idx_chain_annotations_incident ON chain_annotations(incident_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_chain_forks_incident",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE INDEX idx_chain_forks_incident ON chain_forks(incident_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_chain_forks_new_chain",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE INDEX idx_chain_forks_new_chain ON chain_forks(new_chain_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_chain_forks_old_chain",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE INDEX idx_chain_forks_old_chain ON chain_forks(old_chain_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_chain_relinks_incident",
+      "tbl_name": "chain_relinks",
+      "sql": "CREATE INDEX idx_chain_relinks_incident ON chain_relinks(incident_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_credential_events_cred",
+      "tbl_name": "credential_events",
+      "sql": "CREATE INDEX idx_credential_events_cred ON credential_events(credential_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_credential_events_user",
+      "tbl_name": "credential_events",
+      "sql": "CREATE INDEX idx_credential_events_user ON credential_events(user_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_custody_entries_record",
+      "tbl_name": "custody_entries",
+      "sql": "CREATE INDEX idx_custody_entries_record ON custody_entries(evidence_id, id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelope_revisions_capture",
+      "tbl_name": "envelope_revisions",
+      "sql": "CREATE INDEX idx_envelope_revisions_capture\n        ON envelope_revisions(evidence_id, canonical_digest) WHERE revision_no = 0"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelopes_ai_system_id",
+      "tbl_name": "envelopes",
+      "sql": "CREATE INDEX idx_envelopes_ai_system_id ON envelopes(ai_system_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelopes_attestation_status",
+      "tbl_name": "envelopes",
+      "sql": "CREATE INDEX idx_envelopes_attestation_status\n        ON envelopes(json_extract(envelope, '$.attestationStatus'), captured_at_ms)"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelopes_captured_at",
+      "tbl_name": "envelopes",
+      "sql": "CREATE INDEX idx_envelopes_captured_at ON envelopes(captured_at)"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelopes_captured_at_ms",
+      "tbl_name": "envelopes",
+      "sql": "CREATE INDEX idx_envelopes_captured_at_ms ON envelopes(captured_at_ms)"
+    },
+    {
+      "type": "index",
+      "name": "idx_envelopes_chain_id",
+      "tbl_name": "envelopes",
+      "sql": "CREATE INDEX idx_envelopes_chain_id ON envelopes(chain_id)"
+    },
+    {
+      "type": "index",
+      "name": "idx_md_parent",
+      "tbl_name": "model_descriptors",
+      "sql": "CREATE INDEX idx_md_parent ON model_descriptors(parent_model_descriptor_digest)"
+    },
+    {
+      "type": "index",
+      "name": "idx_md_vmv",
+      "tbl_name": "model_descriptors",
+      "sql": "CREATE INDEX idx_md_vmv ON model_descriptors(vendor, model_name, model_version)"
+    },
+    {
+      "type": "index",
+      "name": "idx_mda_digest",
+      "tbl_name": "model_descriptor_annotations",
+      "sql": "CREATE INDEX idx_mda_digest ON model_descriptor_annotations(model_descriptor_digest)"
+    },
+    {
+      "type": "index",
+      "name": "idx_mda_slug",
+      "tbl_name": "model_descriptor_aliases",
+      "sql": "CREATE INDEX idx_mda_slug ON model_descriptor_aliases(slug)"
+    },
+    {
+      "type": "index",
+      "name": "idx_mda_ts",
+      "tbl_name": "model_descriptor_annotations",
+      "sql": "CREATE INDEX idx_mda_ts ON model_descriptor_annotations(annotated_at)"
+    },
+    {
+      "type": "index",
+      "name": "idx_tamper_incidents_severity",
+      "tbl_name": "tamper_incidents",
+      "sql": "CREATE INDEX idx_tamper_incidents_severity ON tamper_incidents(severity)"
+    },
+    {
+      "type": "index",
+      "name": "idx_tamper_incidents_status",
+      "tbl_name": "tamper_incidents",
+      "sql": "CREATE INDEX idx_tamper_incidents_status ON tamper_incidents(status)"
+    },
+    {
+      "type": "table",
+      "name": "chain_annotations",
+      "tbl_name": "chain_annotations",
+      "sql": "CREATE TABLE chain_annotations (\n        id TEXT PRIMARY KEY,\n        incident_id TEXT NOT NULL,\n        affected_records JSON NOT NULL,\n        annotated_at TEXT NOT NULL,\n        annotated_by TEXT NOT NULL,\n        notes TEXT NOT NULL,\n        original_digests JSON NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "chain_forks",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE TABLE chain_forks (\n        id TEXT PRIMARY KEY,\n        incident_id TEXT NOT NULL,\n        forked_at TEXT NOT NULL,\n        forked_by TEXT NOT NULL,\n        reason TEXT NOT NULL,\n        old_chain_id TEXT NOT NULL,\n        new_chain_id TEXT NOT NULL,\n        fork_after_sequence INTEGER NOT NULL,\n        sealed_old_chain_length INTEGER NOT NULL,\n        sealed_old_chain_head INTEGER,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "chain_relinks",
+      "tbl_name": "chain_relinks",
+      "sql": "CREATE TABLE chain_relinks (\n        id TEXT PRIMARY KEY,\n        incident_id TEXT NOT NULL,\n        relinked_at TEXT NOT NULL,\n        relinked_by TEXT NOT NULL,\n        from_sequence INTEGER NOT NULL,\n        to_sequence INTEGER NOT NULL,\n        modified_links JSON NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "chain_state",
+      "tbl_name": "chain_state",
+      "sql": "CREATE TABLE chain_state (\n        chain_id TEXT PRIMARY KEY,\n        last_digest TEXT NOT NULL,\n        last_sequence INTEGER NOT NULL DEFAULT 0,\n        updated_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "chains",
+      "tbl_name": "chains",
+      "sql": "CREATE TABLE chains (\n        chain_id TEXT PRIMARY KEY,\n        parent_chain_id TEXT,\n        fork_point INTEGER,\n        status TEXT NOT NULL DEFAULT 'active',\n        created_at TEXT NOT NULL,\n        sealed_at TEXT\n      )"
+    },
+    {
+      "type": "table",
+      "name": "credential_counters",
+      "tbl_name": "credential_counters",
+      "sql": "CREATE TABLE credential_counters (\n    credential_id TEXT PRIMARY KEY,\n    counter       INTEGER NOT NULL,\n    updated_at    TEXT NOT NULL\n  )"
+    },
+    {
+      "type": "table",
+      "name": "credential_events",
+      "tbl_name": "credential_events",
+      "sql": "CREATE TABLE credential_events (\n    seq           INTEGER PRIMARY KEY AUTOINCREMENT,\n    event_id      TEXT NOT NULL UNIQUE,\n    credential_id TEXT NOT NULL,\n    event_type    TEXT NOT NULL CHECK (event_type IN ('registered','revoked','counter_regressed')),\n    occurred_at   TEXT NOT NULL,\n    recorded_at   TEXT NOT NULL,\n    user_id       TEXT,\n    public_key    TEXT,\n    algorithm     TEXT,\n    reason        TEXT\n  )"
+    },
+    {
+      "type": "table",
+      "name": "custody_entries",
+      "tbl_name": "custody_entries",
+      "sql": "CREATE TABLE custody_entries (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        evidence_id TEXT NOT NULL,\n        chain_id TEXT,\n        canonical_digest TEXT NOT NULL,\n        action TEXT NOT NULL,\n        actor TEXT NOT NULL,\n        ts TEXT NOT NULL,\n        system_id TEXT NOT NULL,\n        metadata TEXT,\n        metadata_canonical TEXT,\n        prev_entry_hash TEXT,\n        entry_hash TEXT NOT NULL UNIQUE,\n        recovery_id TEXT,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "demo_tamper_sentinel",
+      "tbl_name": "demo_tamper_sentinel",
+      "sql": "CREATE TABLE demo_tamper_sentinel (\n        owner TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "envelope_revisions",
+      "tbl_name": "envelope_revisions",
+      "sql": "CREATE TABLE envelope_revisions (\n        evidence_id      TEXT NOT NULL,\n        revision_no      INTEGER NOT NULL,\n        canonical_digest TEXT NOT NULL,\n        chain_link       TEXT,\n        recorded_at      TEXT NOT NULL,\n        cause            TEXT NOT NULL,\n        actor            TEXT NOT NULL,\n        created_at       TEXT NOT NULL DEFAULT (datetime('now')),\n        PRIMARY KEY (evidence_id, revision_no)\n      )"
+    },
+    {
+      "type": "table",
+      "name": "envelopes",
+      "tbl_name": "envelopes",
+      "sql": "CREATE TABLE envelopes (\n        evidence_id TEXT PRIMARY KEY,\n        envelope JSON NOT NULL,\n        captured_at TEXT NOT NULL,\n        -- The UTC instant of captured_at in epoch milliseconds, computed by the\n        -- SDK on insert (src/storage/list-order.ts) and the key list() orders\n        -- on. captured_at itself is the integrator's string, kept verbatim;\n        -- ordering on it was lexicographic and wrong for anything that was not\n        -- uniform ms-precision UTC. NULL when the string does not parse.\n        captured_at_ms INTEGER,\n        ai_system_id TEXT NOT NULL,\n        digest TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now')),\n        -- The chain this record belongs to. Every chain-scoped read goes\n        -- through it: list({chainId}) and listBySequence() filter on it,\n        -- getChainForRecord() returns it, and getActiveChainId() resolves the\n        -- store's active chain from SELECT DISTINCT chain_id. NOT NULL with\n        -- a default, so a store that never forks is one chain named\n        -- 'default'.\n        chain_id TEXT NOT NULL DEFAULT 'default'\n      )"
+    },
+    {
+      "type": "table",
+      "name": "failures",
+      "tbl_name": "failures",
+      "sql": "CREATE TABLE failures (\n        id INTEGER PRIMARY KEY AUTOINCREMENT,\n        failure_type TEXT NOT NULL,\n        evidence_id TEXT,\n        diagnostic_metadata JSON NOT NULL,\n        captured_at TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT (datetime('now'))\n      )"
+    },
+    {
+      "type": "table",
+      "name": "idempotency_keys",
+      "tbl_name": "idempotency_keys",
+      "sql": "CREATE TABLE idempotency_keys (\n        idempotency_key     TEXT PRIMARY KEY,\n        request_fingerprint TEXT NOT NULL,\n        evidence_id         TEXT NOT NULL,\n        chain_id            TEXT NOT NULL,\n        sequence_number     INTEGER NOT NULL,\n        canonical_digest    TEXT NOT NULL,\n        created_at          TEXT NOT NULL\n      )"
+    },
+    {
+      "type": "table",
+      "name": "model_descriptor_aliases",
+      "tbl_name": "model_descriptor_aliases",
+      "sql": "CREATE TABLE model_descriptor_aliases (\n        slug TEXT NOT NULL,\n        set_at TEXT NOT NULL,\n        model_descriptor_digest TEXT NOT NULL,\n        set_by TEXT NOT NULL,\n        PRIMARY KEY (slug, set_at)\n      )"
+    },
+    {
+      "type": "table",
+      "name": "model_descriptor_annotations",
+      "tbl_name": "model_descriptor_annotations",
+      "sql": "CREATE TABLE model_descriptor_annotations (\n        annotation_id TEXT PRIMARY KEY,\n        model_descriptor_digest TEXT NOT NULL,\n        annotated_at TEXT NOT NULL,\n        annotated_by TEXT NOT NULL,\n        annotation_type TEXT NOT NULL,\n        value_json TEXT NOT NULL,\n        retracts_annotation_id TEXT,\n        signature TEXT,\n        note TEXT,\n        FOREIGN KEY (model_descriptor_digest) REFERENCES model_descriptors(model_descriptor_digest)\n      )"
+    },
+    {
+      "type": "table",
+      "name": "model_descriptors",
+      "tbl_name": "model_descriptors",
+      "sql": "CREATE TABLE model_descriptors (\n        model_descriptor_digest TEXT PRIMARY KEY,\n        canonical_bytes TEXT NOT NULL,\n        vendor TEXT NOT NULL,\n        model_name TEXT NOT NULL,\n        model_version TEXT NOT NULL,\n        parent_model_descriptor_digest TEXT,\n        source TEXT NOT NULL,\n        first_registered_at TEXT NOT NULL,\n        first_registered_by TEXT NOT NULL\n      )"
+    },
+    {
+      "type": "table",
+      "name": "tamper_incidents",
+      "tbl_name": "tamper_incidents",
+      "sql": "CREATE TABLE tamper_incidents (\n        id TEXT PRIMARY KEY,\n        detected_at TEXT NOT NULL,\n        severity TEXT NOT NULL,\n        type TEXT NOT NULL,\n        affected_records TEXT NOT NULL,\n        affected_sequence_range TEXT,\n        details TEXT NOT NULL,\n        status TEXT NOT NULL,\n        -- When a scan last observed this incident's finding. See\n        -- TamperIncident.lastObservedAt: it is what tells a reviewed finding\n        -- that is still there from one a later pass no longer sees.\n        last_observed_at TEXT,\n        resolved_at TEXT,\n        resolved_by TEXT,\n        resolution_notes TEXT\n      )"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_annotations_block_delete",
+      "tbl_name": "chain_annotations",
+      "sql": "CREATE TRIGGER chain_annotations_block_delete\n        BEFORE DELETE ON chain_annotations\n        BEGIN SELECT RAISE(ABORT, 'chain_annotations rows are append-only (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_annotations_block_update",
+      "tbl_name": "chain_annotations",
+      "sql": "CREATE TRIGGER chain_annotations_block_update\n        BEFORE UPDATE ON chain_annotations\n        BEGIN SELECT RAISE(ABORT, 'chain_annotations rows are append-only (UPDATE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_forks_block_delete",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE TRIGGER chain_forks_block_delete\n        BEFORE DELETE ON chain_forks\n        BEGIN SELECT RAISE(ABORT, 'chain_forks rows are append-only (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_forks_block_update",
+      "tbl_name": "chain_forks",
+      "sql": "CREATE TRIGGER chain_forks_block_update\n        BEFORE UPDATE ON chain_forks\n        BEGIN SELECT RAISE(ABORT, 'chain_forks rows are append-only (UPDATE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_relinks_block_delete",
+      "tbl_name": "chain_relinks",
+      "sql": "CREATE TRIGGER chain_relinks_block_delete\n        BEFORE DELETE ON chain_relinks\n        BEGIN SELECT RAISE(ABORT, 'chain_relinks rows are append-only (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chain_relinks_block_update",
+      "tbl_name": "chain_relinks",
+      "sql": "CREATE TRIGGER chain_relinks_block_update\n        BEFORE UPDATE ON chain_relinks\n        BEGIN SELECT RAISE(ABORT, 'chain_relinks rows are append-only (UPDATE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chains_block_delete",
+      "tbl_name": "chains",
+      "sql": "CREATE TRIGGER chains_block_delete\n        BEFORE DELETE ON chains\n        BEGIN SELECT RAISE(ABORT, 'chains rows cannot be deleted (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "chains_enforce_immutable",
+      "tbl_name": "chains",
+      "sql": "CREATE TRIGGER chains_enforce_immutable\n        BEFORE UPDATE ON chains\n        BEGIN\n          SELECT RAISE(ABORT, 'chains identity columns are immutable (chain_id, parent_chain_id, fork_point, created_at)')\n           WHERE NEW.chain_id IS NOT OLD.chain_id\n              OR NEW.parent_chain_id IS NOT OLD.parent_chain_id\n              OR NEW.fork_point IS NOT OLD.fork_point\n              OR NEW.created_at IS NOT OLD.created_at;\n          SELECT RAISE(ABORT, 'chain is sealed: a seal cannot be lifted or re-dated')\n           WHERE OLD.status = 'sealed'\n             AND (NEW.status IS NOT OLD.status OR NEW.sealed_at IS NOT OLD.sealed_at);\n        END"
+    },
+    {
+      "type": "trigger",
+      "name": "credential_events_block_delete",
+      "tbl_name": "credential_events",
+      "sql": "CREATE TRIGGER credential_events_block_delete\n  BEFORE DELETE ON credential_events\n  BEGIN\n    SELECT RAISE(ABORT, 'credential_events rows cannot be deleted (credentials are revoked, never removed)');\n  END"
+    },
+    {
+      "type": "trigger",
+      "name": "credential_events_block_update",
+      "tbl_name": "credential_events",
+      "sql": "CREATE TRIGGER credential_events_block_update\n  BEFORE UPDATE ON credential_events\n  BEGIN\n    SELECT RAISE(ABORT, 'credential_events is append-only (a registration record cannot be rewritten)');\n  END"
+    },
+    {
+      "type": "trigger",
+      "name": "custody_entries_block_delete",
+      "tbl_name": "custody_entries",
+      "sql": "CREATE TRIGGER custody_entries_block_delete\n        BEFORE DELETE ON custody_entries\n        BEGIN SELECT RAISE(ABORT, 'custody_entries rows are append-only (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "custody_entries_block_update",
+      "tbl_name": "custody_entries",
+      "sql": "CREATE TRIGGER custody_entries_block_update\n        BEFORE UPDATE ON custody_entries\n        BEGIN SELECT RAISE(ABORT, 'custody_entries rows are append-only (UPDATE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "custody_entries_verify_insert",
+      "tbl_name": "custody_entries",
+      "sql": "CREATE TRIGGER custody_entries_verify_insert\n        BEFORE INSERT ON custody_entries\n        BEGIN\n          SELECT RAISE(ABORT, 'custody_entries: no evidence record to bind the entry to')\n           WHERE NOT EXISTS (SELECT 1 FROM envelopes WHERE evidence_id = NEW.evidence_id);\n          SELECT RAISE(ABORT, 'custody_entries: canonical_digest does not match the record')\n           WHERE NEW.canonical_digest IS NOT (\n             SELECT json_extract(envelope, '$.integrity.canonicalDigest')\n               FROM envelopes WHERE evidence_id = NEW.evidence_id\n           );\n          SELECT RAISE(ABORT, 'custody_entries: metadata and metadata_canonical disagree')\n           WHERE NEW.metadata_canonical IS NOT custody_entries_canonical_metadata(NEW.metadata);\n          SELECT RAISE(ABORT, 'custody_entries: prev_entry_hash is not the record''s current tail')\n           WHERE NEW.prev_entry_hash IS NOT (\n             SELECT entry_hash FROM custody_entries\n              WHERE evidence_id = NEW.evidence_id ORDER BY id DESC LIMIT 1\n           );\n          SELECT RAISE(ABORT, 'custody_entries: entry_hash does not recompute')\n           WHERE NEW.entry_hash IS NOT custody_entries_entry_hash(\n             NEW.prev_entry_hash, NEW.evidence_id, NEW.canonical_digest, NEW.action,\n             NEW.actor, NEW.ts, NEW.system_id, NEW.metadata\n           );\n        END"
+    },
+    {
+      "type": "trigger",
+      "name": "envelope_revisions_block_delete",
+      "tbl_name": "envelope_revisions",
+      "sql": "CREATE TRIGGER envelope_revisions_block_delete\n        BEFORE DELETE ON envelope_revisions\n        BEGIN SELECT RAISE(ABORT, 'envelope_revisions rows are append-only (DELETE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "envelope_revisions_block_update",
+      "tbl_name": "envelope_revisions",
+      "sql": "CREATE TRIGGER envelope_revisions_block_update\n        BEFORE UPDATE ON envelope_revisions\n        BEGIN SELECT RAISE(ABORT, 'envelope_revisions rows are append-only (UPDATE refused)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "envelopes_block_delete",
+      "tbl_name": "envelopes",
+      "sql": "CREATE TRIGGER envelopes_block_delete\n    BEFORE DELETE ON envelopes\n    BEGIN SELECT RAISE(ABORT, 'envelopes rows cannot be deleted (append-only evidence)'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "envelopes_enforce_immutable",
+      "tbl_name": "envelopes",
+      "sql": "CREATE TRIGGER envelopes_enforce_immutable\n        BEFORE UPDATE ON envelopes\n        BEGIN\n          SELECT RAISE(ABORT, 'envelopes.evidence_id is immutable')\n           WHERE NEW.evidence_id IS NOT OLD.evidence_id;\n          SELECT RAISE(ABORT, 'envelopes.digest is immutable')\n           WHERE NEW.digest IS NOT OLD.digest;\n          SELECT RAISE(ABORT, 'envelopes.captured_at is immutable')\n           WHERE NEW.captured_at IS NOT OLD.captured_at\n              OR NEW.captured_at_ms IS NOT OLD.captured_at_ms;\n          SELECT RAISE(ABORT, 'envelopes.chain_id is immutable')\n           WHERE NEW.chain_id IS NOT OLD.chain_id;\n          SELECT RAISE(ABORT, 'envelopes.ai_system_id is immutable')\n           WHERE NEW.ai_system_id IS NOT OLD.ai_system_id;\n          SELECT RAISE(ABORT, 'envelopes.envelope.payload is immutable (append-only evidence)')\n           WHERE json_extract(NEW.envelope, '$.payload') IS NOT json_extract(OLD.envelope, '$.payload');\n          SELECT RAISE(ABORT, 'envelopes.envelope.integrity.canonicalDigest is immutable')\n           WHERE json_extract(NEW.envelope, '$.integrity.canonicalDigest')\n              IS NOT json_extract(OLD.envelope, '$.integrity.canonicalDigest');\n          SELECT RAISE(ABORT, 'envelopes.envelope.custodyChain is append-only')\n           WHERE json_extract(NEW.envelope, '$.custodyChain') IS NOT json_extract(OLD.envelope, '$.custodyChain')\n             AND (\n               json_type(NEW.envelope, '$.custodyChain') IS NOT 'array'\n               OR json_type(COALESCE(json_extract(OLD.envelope, '$.custodyChain'), '[]')) IS NOT 'array'\n               OR json_array_length(NEW.envelope, '$.custodyChain')\n                    < json_array_length(COALESCE(json_extract(OLD.envelope, '$.custodyChain'), '[]'))\n               OR EXISTS (\n                 SELECT 1\n                   FROM json_each(COALESCE(json_extract(OLD.envelope, '$.custodyChain'), '[]')) AS old_entry\n                  WHERE json_type(NEW.envelope, '$.custodyChain[' || old_entry.key || ']') IS NOT old_entry.type\n                     OR json_extract(NEW.envelope, '$.custodyChain[' || old_entry.key || ']') IS NOT old_entry.value\n               )\n             );\n          -- An appended entry that carries an entryHash claims to be the\n          -- mirror of a custody_entries row; it must be one, for this record.\n          -- Unhashed appends stay permitted: they are the\n          -- client-attested form, and verifiers report them as unhashed.\n          SELECT RAISE(ABORT, 'envelopes.envelope.custodyChain entry claims an entryHash with no custody_entries row')\n           WHERE EXISTS (\n             SELECT 1\n               FROM json_each(NEW.envelope, '$.custodyChain') AS new_entry\n              WHERE new_entry.key >= COALESCE(json_array_length(OLD.envelope, '$.custodyChain'), 0)\n                AND new_entry.type = 'object'\n                AND json_type(new_entry.value, '$.entryHash') IS NOT NULL\n                AND NOT EXISTS (\n                  SELECT 1 FROM custody_entries\n                   WHERE custody_entries.evidence_id = OLD.evidence_id\n                     AND custody_entries.entry_hash = json_extract(new_entry.value, '$.entryHash')\n                )\n           );\n        END"
+    }
+  ]
+}

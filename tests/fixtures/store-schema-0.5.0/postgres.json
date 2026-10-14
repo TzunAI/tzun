@@ -1,0 +1,1909 @@
+{
+  "generatedFrom": "the SDK at 0.5.0, PostgresStorageAdapter.ensureTables() on PostgreSQL 18.6",
+  "columns": [
+    {
+      "table": "chain_annotations",
+      "column": "id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "incident_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "affected_records",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "annotated_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "annotated_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "notes",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "original_digests",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_annotations",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "chain_forks",
+      "column": "id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "incident_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "forked_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "forked_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "reason",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "old_chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "new_chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "fork_after_sequence",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "sealed_old_chain_length",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "sealed_old_chain_head",
+      "type": "integer",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "chain_forks",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "chain_relinks",
+      "column": "id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "incident_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "relinked_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "relinked_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "from_sequence",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "to_sequence",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "modified_links",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_relinks",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "chain_state",
+      "column": "chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_state",
+      "column": "last_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chain_state",
+      "column": "last_sequence",
+      "type": "integer",
+      "nullable": "NO",
+      "default": "0"
+    },
+    {
+      "table": "chain_state",
+      "column": "updated_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "chains",
+      "column": "chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chains",
+      "column": "parent_chain_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "chains",
+      "column": "fork_point",
+      "type": "integer",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "chains",
+      "column": "status",
+      "type": "text",
+      "nullable": "NO",
+      "default": "'active'::text"
+    },
+    {
+      "table": "chains",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "chains",
+      "column": "sealed_at",
+      "type": "timestamp with time zone",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "credential_counters",
+      "column": "credential_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_counters",
+      "column": "counter",
+      "type": "bigint",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_counters",
+      "column": "updated_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "seq",
+      "type": "bigint",
+      "nullable": "NO",
+      "default": "nextval('credential_events_seq_seq'::regclass)"
+    },
+    {
+      "table": "credential_events",
+      "column": "event_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "credential_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "event_type",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "occurred_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "recorded_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "credential_events",
+      "column": "user_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "public_key",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "algorithm",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "credential_events",
+      "column": "reason",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "id",
+      "type": "bigint",
+      "nullable": "NO",
+      "default": "nextval('custody_entries_id_seq'::regclass)"
+    },
+    {
+      "table": "custody_entries",
+      "column": "evidence_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "chain_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "canonical_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "action",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "actor",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "ts",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "system_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "metadata",
+      "type": "jsonb",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "metadata_canonical",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "prev_entry_hash",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "entry_hash",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "recovery_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "custody_entries",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "demo_tamper_sentinel",
+      "column": "owner",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "demo_tamper_sentinel",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "evidence_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "revision_no",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "canonical_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "chain_link",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "recorded_at",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "cause",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "actor",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelope_revisions",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "envelopes",
+      "column": "evidence_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelopes",
+      "column": "envelope",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelopes",
+      "column": "captured_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelopes",
+      "column": "ai_system_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelopes",
+      "column": "digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "envelopes",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "envelopes",
+      "column": "chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": "'default'::text"
+    },
+    {
+      "table": "failures",
+      "column": "id",
+      "type": "integer",
+      "nullable": "NO",
+      "default": "nextval('failures_id_seq'::regclass)"
+    },
+    {
+      "table": "failures",
+      "column": "failure_type",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "failures",
+      "column": "evidence_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "failures",
+      "column": "diagnostic_metadata",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "failures",
+      "column": "captured_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "failures",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "idempotency_key",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "request_fingerprint",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "evidence_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "chain_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "sequence_number",
+      "type": "integer",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "canonical_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "idempotency_keys",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": "now()"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "column": "slug",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "column": "set_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "column": "model_descriptor_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "column": "set_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "annotation_id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "model_descriptor_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "annotated_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "annotated_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "annotation_type",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "value_json",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "retracts_annotation_id",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "signature",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "column": "note",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "model_descriptor_digest",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "canonical_bytes",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "vendor",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "model_name",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "model_version",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "parent_model_descriptor_digest",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "source",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "first_registered_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "model_descriptors",
+      "column": "first_registered_by",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "id",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "detected_at",
+      "type": "timestamp with time zone",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "severity",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "type",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "affected_records",
+      "type": "jsonb",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "affected_sequence_range",
+      "type": "jsonb",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "details",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "status",
+      "type": "text",
+      "nullable": "NO",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "last_observed_at",
+      "type": "timestamp with time zone",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "resolved_at",
+      "type": "timestamp with time zone",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "resolved_by",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    },
+    {
+      "table": "tamper_incidents",
+      "column": "resolution_notes",
+      "type": "text",
+      "nullable": "YES",
+      "default": null
+    }
+  ],
+  "constraints": [
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_affected_records_not_null",
+      "definition": "NOT NULL affected_records"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_annotated_at_not_null",
+      "definition": "NOT NULL annotated_at"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_annotated_by_not_null",
+      "definition": "NOT NULL annotated_by"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_incident_id_not_null",
+      "definition": "NOT NULL incident_id"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_notes_not_null",
+      "definition": "NOT NULL notes"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_original_digests_not_null",
+      "definition": "NOT NULL original_digests"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_fork_after_sequence_not_null",
+      "definition": "NOT NULL fork_after_sequence"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_forked_at_not_null",
+      "definition": "NOT NULL forked_at"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_forked_by_not_null",
+      "definition": "NOT NULL forked_by"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_incident_id_not_null",
+      "definition": "NOT NULL incident_id"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_new_chain_id_not_null",
+      "definition": "NOT NULL new_chain_id"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_old_chain_id_not_null",
+      "definition": "NOT NULL old_chain_id"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_reason_not_null",
+      "definition": "NOT NULL reason"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_sealed_old_chain_length_not_null",
+      "definition": "NOT NULL sealed_old_chain_length"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_from_sequence_not_null",
+      "definition": "NOT NULL from_sequence"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_incident_id_not_null",
+      "definition": "NOT NULL incident_id"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_modified_links_not_null",
+      "definition": "NOT NULL modified_links"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_relinked_at_not_null",
+      "definition": "NOT NULL relinked_at"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_relinked_by_not_null",
+      "definition": "NOT NULL relinked_by"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_to_sequence_not_null",
+      "definition": "NOT NULL to_sequence"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_chain_id_not_null",
+      "definition": "NOT NULL chain_id"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_last_digest_not_null",
+      "definition": "NOT NULL last_digest"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_last_sequence_not_null",
+      "definition": "NOT NULL last_sequence"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_pkey",
+      "definition": "PRIMARY KEY (chain_id)"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_updated_at_not_null",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "chains",
+      "name": "chains_chain_id_not_null",
+      "definition": "NOT NULL chain_id"
+    },
+    {
+      "table": "chains",
+      "name": "chains_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "chains",
+      "name": "chains_pkey",
+      "definition": "PRIMARY KEY (chain_id)"
+    },
+    {
+      "table": "chains",
+      "name": "chains_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "table": "credential_counters",
+      "name": "credential_counters_counter_not_null",
+      "definition": "NOT NULL counter"
+    },
+    {
+      "table": "credential_counters",
+      "name": "credential_counters_credential_id_not_null",
+      "definition": "NOT NULL credential_id"
+    },
+    {
+      "table": "credential_counters",
+      "name": "credential_counters_pkey",
+      "definition": "PRIMARY KEY (credential_id)"
+    },
+    {
+      "table": "credential_counters",
+      "name": "credential_counters_updated_at_not_null",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_credential_id_not_null",
+      "definition": "NOT NULL credential_id"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_event_id_key",
+      "definition": "UNIQUE (event_id)"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_event_id_not_null",
+      "definition": "NOT NULL event_id"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_event_type_check",
+      "definition": "CHECK ((event_type = ANY (ARRAY['registered'::text, 'revoked'::text, 'counter_regressed'::text])))"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_event_type_not_null",
+      "definition": "NOT NULL event_type"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_occurred_at_not_null",
+      "definition": "NOT NULL occurred_at"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_pkey",
+      "definition": "PRIMARY KEY (seq)"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_recorded_at_not_null",
+      "definition": "NOT NULL recorded_at"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_seq_not_null",
+      "definition": "NOT NULL seq"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_action_not_null",
+      "definition": "NOT NULL action"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_actor_not_null",
+      "definition": "NOT NULL actor"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_canonical_digest_not_null",
+      "definition": "NOT NULL canonical_digest"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_entry_hash_key",
+      "definition": "UNIQUE (entry_hash)"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_entry_hash_not_null",
+      "definition": "NOT NULL entry_hash"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_evidence_id_not_null",
+      "definition": "NOT NULL evidence_id"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_system_id_not_null",
+      "definition": "NOT NULL system_id"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_ts_not_null",
+      "definition": "NOT NULL ts"
+    },
+    {
+      "table": "demo_tamper_sentinel",
+      "name": "demo_tamper_sentinel_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "demo_tamper_sentinel",
+      "name": "demo_tamper_sentinel_owner_not_null",
+      "definition": "NOT NULL owner"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_actor_not_null",
+      "definition": "NOT NULL actor"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_canonical_digest_not_null",
+      "definition": "NOT NULL canonical_digest"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_cause_not_null",
+      "definition": "NOT NULL cause"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_evidence_id_not_null",
+      "definition": "NOT NULL evidence_id"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_pkey",
+      "definition": "PRIMARY KEY (evidence_id, revision_no)"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_recorded_at_not_null",
+      "definition": "NOT NULL recorded_at"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_revision_no_not_null",
+      "definition": "NOT NULL revision_no"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_ai_system_id_not_null",
+      "definition": "NOT NULL ai_system_id"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_captured_at_not_null",
+      "definition": "NOT NULL captured_at"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_chain_id_not_null",
+      "definition": "NOT NULL chain_id"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_digest_not_null",
+      "definition": "NOT NULL digest"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_envelope_not_null",
+      "definition": "NOT NULL envelope"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_evidence_id_not_null",
+      "definition": "NOT NULL evidence_id"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_pkey",
+      "definition": "PRIMARY KEY (evidence_id)"
+    },
+    {
+      "table": "failures",
+      "name": "failures_captured_at_not_null",
+      "definition": "NOT NULL captured_at"
+    },
+    {
+      "table": "failures",
+      "name": "failures_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "failures",
+      "name": "failures_diagnostic_metadata_not_null",
+      "definition": "NOT NULL diagnostic_metadata"
+    },
+    {
+      "table": "failures",
+      "name": "failures_failure_type_not_null",
+      "definition": "NOT NULL failure_type"
+    },
+    {
+      "table": "failures",
+      "name": "failures_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "failures",
+      "name": "failures_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_canonical_digest_not_null",
+      "definition": "NOT NULL canonical_digest"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_chain_id_not_null",
+      "definition": "NOT NULL chain_id"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_created_at_not_null",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_evidence_id_not_null",
+      "definition": "NOT NULL evidence_id"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_idempotency_key_not_null",
+      "definition": "NOT NULL idempotency_key"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_pkey",
+      "definition": "PRIMARY KEY (idempotency_key)"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_request_fingerprint_not_null",
+      "definition": "NOT NULL request_fingerprint"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_sequence_number_not_null",
+      "definition": "NOT NULL sequence_number"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_model_descriptor_digest_not_null",
+      "definition": "NOT NULL model_descriptor_digest"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_pkey",
+      "definition": "PRIMARY KEY (slug, set_at)"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_set_at_not_null",
+      "definition": "NOT NULL set_at"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_set_by_not_null",
+      "definition": "NOT NULL set_by"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_slug_not_null",
+      "definition": "NOT NULL slug"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_annotated_at_not_null",
+      "definition": "NOT NULL annotated_at"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_annotated_by_not_null",
+      "definition": "NOT NULL annotated_by"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_annotation_id_not_null",
+      "definition": "NOT NULL annotation_id"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_annotation_type_not_null",
+      "definition": "NOT NULL annotation_type"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_model_descriptor_digest_fkey",
+      "definition": "FOREIGN KEY (model_descriptor_digest) REFERENCES model_descriptors(model_descriptor_digest)"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_model_descriptor_digest_not_null",
+      "definition": "NOT NULL model_descriptor_digest"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_pkey",
+      "definition": "PRIMARY KEY (annotation_id)"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_value_json_not_null",
+      "definition": "NOT NULL value_json"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_canonical_bytes_not_null",
+      "definition": "NOT NULL canonical_bytes"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_first_registered_at_not_null",
+      "definition": "NOT NULL first_registered_at"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_first_registered_by_not_null",
+      "definition": "NOT NULL first_registered_by"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_model_descriptor_digest_not_null",
+      "definition": "NOT NULL model_descriptor_digest"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_model_name_not_null",
+      "definition": "NOT NULL model_name"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_model_version_not_null",
+      "definition": "NOT NULL model_version"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_pkey",
+      "definition": "PRIMARY KEY (model_descriptor_digest)"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_source_not_null",
+      "definition": "NOT NULL source"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_vendor_not_null",
+      "definition": "NOT NULL vendor"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_affected_records_not_null",
+      "definition": "NOT NULL affected_records"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_details_not_null",
+      "definition": "NOT NULL details"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_detected_at_not_null",
+      "definition": "NOT NULL detected_at"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_id_not_null",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_severity_not_null",
+      "definition": "NOT NULL severity"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_status_not_null",
+      "definition": "NOT NULL status"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_type_not_null",
+      "definition": "NOT NULL type"
+    }
+  ],
+  "indexes": [
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_pkey",
+      "definition": "CREATE UNIQUE INDEX chain_annotations_pkey ON chain_annotations USING btree (id)"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "idx_chain_annotations_incident",
+      "definition": "CREATE INDEX idx_chain_annotations_incident ON chain_annotations USING btree (incident_id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_pkey",
+      "definition": "CREATE UNIQUE INDEX chain_forks_pkey ON chain_forks USING btree (id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "idx_chain_forks_incident",
+      "definition": "CREATE INDEX idx_chain_forks_incident ON chain_forks USING btree (incident_id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "idx_chain_forks_new_chain",
+      "definition": "CREATE INDEX idx_chain_forks_new_chain ON chain_forks USING btree (new_chain_id)"
+    },
+    {
+      "table": "chain_forks",
+      "name": "idx_chain_forks_old_chain",
+      "definition": "CREATE INDEX idx_chain_forks_old_chain ON chain_forks USING btree (old_chain_id)"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_pkey",
+      "definition": "CREATE UNIQUE INDEX chain_relinks_pkey ON chain_relinks USING btree (id)"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "idx_chain_relinks_incident",
+      "definition": "CREATE INDEX idx_chain_relinks_incident ON chain_relinks USING btree (incident_id)"
+    },
+    {
+      "table": "chain_state",
+      "name": "chain_state_pkey",
+      "definition": "CREATE UNIQUE INDEX chain_state_pkey ON chain_state USING btree (chain_id)"
+    },
+    {
+      "table": "chains",
+      "name": "chains_pkey",
+      "definition": "CREATE UNIQUE INDEX chains_pkey ON chains USING btree (chain_id)"
+    },
+    {
+      "table": "credential_counters",
+      "name": "credential_counters_pkey",
+      "definition": "CREATE UNIQUE INDEX credential_counters_pkey ON credential_counters USING btree (credential_id)"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_event_id_key",
+      "definition": "CREATE UNIQUE INDEX credential_events_event_id_key ON credential_events USING btree (event_id)"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_pkey",
+      "definition": "CREATE UNIQUE INDEX credential_events_pkey ON credential_events USING btree (seq)"
+    },
+    {
+      "table": "credential_events",
+      "name": "idx_credential_events_cred",
+      "definition": "CREATE INDEX idx_credential_events_cred ON credential_events USING btree (credential_id)"
+    },
+    {
+      "table": "credential_events",
+      "name": "idx_credential_events_user",
+      "definition": "CREATE INDEX idx_credential_events_user ON credential_events USING btree (user_id)"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_entry_hash_key",
+      "definition": "CREATE UNIQUE INDEX custody_entries_entry_hash_key ON custody_entries USING btree (entry_hash)"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_pkey",
+      "definition": "CREATE UNIQUE INDEX custody_entries_pkey ON custody_entries USING btree (id)"
+    },
+    {
+      "table": "custody_entries",
+      "name": "idx_custody_entries_record",
+      "definition": "CREATE INDEX idx_custody_entries_record ON custody_entries USING btree (evidence_id, id)"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_pkey",
+      "definition": "CREATE UNIQUE INDEX envelope_revisions_pkey ON envelope_revisions USING btree (evidence_id, revision_no)"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "idx_envelope_revisions_capture",
+      "definition": "CREATE INDEX idx_envelope_revisions_capture ON envelope_revisions USING btree (evidence_id, canonical_digest) WHERE (revision_no = 0)"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_pkey",
+      "definition": "CREATE UNIQUE INDEX envelopes_pkey ON envelopes USING btree (evidence_id)"
+    },
+    {
+      "table": "envelopes",
+      "name": "idx_envelopes_ai_system_id",
+      "definition": "CREATE INDEX idx_envelopes_ai_system_id ON envelopes USING btree (ai_system_id)"
+    },
+    {
+      "table": "envelopes",
+      "name": "idx_envelopes_attestation_status",
+      "definition": "CREATE INDEX idx_envelopes_attestation_status ON envelopes USING btree (((envelope ->> 'attestationStatus'::text)), captured_at)"
+    },
+    {
+      "table": "envelopes",
+      "name": "idx_envelopes_captured_at",
+      "definition": "CREATE INDEX idx_envelopes_captured_at ON envelopes USING btree (captured_at)"
+    },
+    {
+      "table": "envelopes",
+      "name": "idx_envelopes_chain_id",
+      "definition": "CREATE INDEX idx_envelopes_chain_id ON envelopes USING btree (chain_id)"
+    },
+    {
+      "table": "failures",
+      "name": "failures_pkey",
+      "definition": "CREATE UNIQUE INDEX failures_pkey ON failures USING btree (id)"
+    },
+    {
+      "table": "idempotency_keys",
+      "name": "idempotency_keys_pkey",
+      "definition": "CREATE UNIQUE INDEX idempotency_keys_pkey ON idempotency_keys USING btree (idempotency_key)"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "idx_mda_slug",
+      "definition": "CREATE INDEX idx_mda_slug ON model_descriptor_aliases USING btree (slug)"
+    },
+    {
+      "table": "model_descriptor_aliases",
+      "name": "model_descriptor_aliases_pkey",
+      "definition": "CREATE UNIQUE INDEX model_descriptor_aliases_pkey ON model_descriptor_aliases USING btree (slug, set_at)"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "idx_mda_digest",
+      "definition": "CREATE INDEX idx_mda_digest ON model_descriptor_annotations USING btree (model_descriptor_digest)"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "idx_mda_ts",
+      "definition": "CREATE INDEX idx_mda_ts ON model_descriptor_annotations USING btree (annotated_at)"
+    },
+    {
+      "table": "model_descriptor_annotations",
+      "name": "model_descriptor_annotations_pkey",
+      "definition": "CREATE UNIQUE INDEX model_descriptor_annotations_pkey ON model_descriptor_annotations USING btree (annotation_id)"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "idx_md_parent",
+      "definition": "CREATE INDEX idx_md_parent ON model_descriptors USING btree (parent_model_descriptor_digest)"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "idx_md_vmv",
+      "definition": "CREATE INDEX idx_md_vmv ON model_descriptors USING btree (vendor, model_name, model_version)"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_pkey",
+      "definition": "CREATE UNIQUE INDEX model_descriptors_pkey ON model_descriptors USING btree (model_descriptor_digest)"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "idx_tamper_incidents_severity",
+      "definition": "CREATE INDEX idx_tamper_incidents_severity ON tamper_incidents USING btree (severity)"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "idx_tamper_incidents_status",
+      "definition": "CREATE INDEX idx_tamper_incidents_status ON tamper_incidents USING btree (status)"
+    },
+    {
+      "table": "tamper_incidents",
+      "name": "tamper_incidents_pkey",
+      "definition": "CREATE UNIQUE INDEX tamper_incidents_pkey ON tamper_incidents USING btree (id)"
+    }
+  ],
+  "triggers": [
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_block_mutation_trigger",
+      "definition": "CREATE TRIGGER chain_annotations_block_mutation_trigger BEFORE DELETE OR UPDATE ON chain_annotations FOR EACH ROW EXECUTE FUNCTION chain_annotations_block_mutation()"
+    },
+    {
+      "table": "chain_annotations",
+      "name": "chain_annotations_block_truncate_trigger",
+      "definition": "CREATE TRIGGER chain_annotations_block_truncate_trigger BEFORE TRUNCATE ON chain_annotations FOR EACH STATEMENT EXECUTE FUNCTION chain_annotations_block_mutation()"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_block_mutation_trigger",
+      "definition": "CREATE TRIGGER chain_forks_block_mutation_trigger BEFORE DELETE OR UPDATE ON chain_forks FOR EACH ROW EXECUTE FUNCTION chain_forks_block_mutation()"
+    },
+    {
+      "table": "chain_forks",
+      "name": "chain_forks_block_truncate_trigger",
+      "definition": "CREATE TRIGGER chain_forks_block_truncate_trigger BEFORE TRUNCATE ON chain_forks FOR EACH STATEMENT EXECUTE FUNCTION chain_forks_block_mutation()"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_block_mutation_trigger",
+      "definition": "CREATE TRIGGER chain_relinks_block_mutation_trigger BEFORE DELETE OR UPDATE ON chain_relinks FOR EACH ROW EXECUTE FUNCTION chain_relinks_block_mutation()"
+    },
+    {
+      "table": "chain_relinks",
+      "name": "chain_relinks_block_truncate_trigger",
+      "definition": "CREATE TRIGGER chain_relinks_block_truncate_trigger BEFORE TRUNCATE ON chain_relinks FOR EACH STATEMENT EXECUTE FUNCTION chain_relinks_block_mutation()"
+    },
+    {
+      "table": "chains",
+      "name": "chains_block_delete_trigger",
+      "definition": "CREATE TRIGGER chains_block_delete_trigger BEFORE DELETE ON chains FOR EACH ROW EXECUTE FUNCTION chains_block_removal()"
+    },
+    {
+      "table": "chains",
+      "name": "chains_block_truncate_trigger",
+      "definition": "CREATE TRIGGER chains_block_truncate_trigger BEFORE TRUNCATE ON chains FOR EACH STATEMENT EXECUTE FUNCTION chains_block_removal()"
+    },
+    {
+      "table": "chains",
+      "name": "chains_enforce_immutable_trigger",
+      "definition": "CREATE TRIGGER chains_enforce_immutable_trigger BEFORE UPDATE ON chains FOR EACH ROW EXECUTE FUNCTION chains_enforce_immutable()"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_block_mutation_trigger",
+      "definition": "CREATE TRIGGER credential_events_block_mutation_trigger BEFORE DELETE OR UPDATE ON credential_events FOR EACH ROW EXECUTE FUNCTION credential_events_block_mutation()"
+    },
+    {
+      "table": "credential_events",
+      "name": "credential_events_block_truncate_trigger",
+      "definition": "CREATE TRIGGER credential_events_block_truncate_trigger BEFORE TRUNCATE ON credential_events FOR EACH STATEMENT EXECUTE FUNCTION credential_events_block_mutation()"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_block_mutation_trigger",
+      "definition": "CREATE TRIGGER custody_entries_block_mutation_trigger BEFORE DELETE OR UPDATE ON custody_entries FOR EACH ROW EXECUTE FUNCTION custody_entries_block_mutation()"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_block_truncate_trigger",
+      "definition": "CREATE TRIGGER custody_entries_block_truncate_trigger BEFORE TRUNCATE ON custody_entries FOR EACH STATEMENT EXECUTE FUNCTION custody_entries_block_mutation()"
+    },
+    {
+      "table": "custody_entries",
+      "name": "custody_entries_verify_insert_trigger",
+      "definition": "CREATE TRIGGER custody_entries_verify_insert_trigger BEFORE INSERT ON custody_entries FOR EACH ROW EXECUTE FUNCTION custody_entries_verify_insert()"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_block_mutation_trigger",
+      "definition": "CREATE TRIGGER envelope_revisions_block_mutation_trigger BEFORE DELETE OR UPDATE ON envelope_revisions FOR EACH ROW EXECUTE FUNCTION envelope_revisions_block_mutation()"
+    },
+    {
+      "table": "envelope_revisions",
+      "name": "envelope_revisions_block_truncate_trigger",
+      "definition": "CREATE TRIGGER envelope_revisions_block_truncate_trigger BEFORE TRUNCATE ON envelope_revisions FOR EACH STATEMENT EXECUTE FUNCTION envelope_revisions_block_mutation()"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_block_delete_trigger",
+      "definition": "CREATE TRIGGER envelopes_block_delete_trigger BEFORE DELETE ON envelopes FOR EACH ROW EXECUTE FUNCTION envelopes_block_delete()"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_block_truncate_trigger",
+      "definition": "CREATE TRIGGER envelopes_block_truncate_trigger BEFORE TRUNCATE ON envelopes FOR EACH STATEMENT EXECUTE FUNCTION envelopes_block_truncate()"
+    },
+    {
+      "table": "envelopes",
+      "name": "envelopes_enforce_immutable_trigger",
+      "definition": "CREATE TRIGGER envelopes_enforce_immutable_trigger BEFORE UPDATE ON envelopes FOR EACH ROW EXECUTE FUNCTION envelopes_enforce_immutable()"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_block_delete_trigger",
+      "definition": "CREATE TRIGGER model_descriptors_block_delete_trigger BEFORE DELETE ON model_descriptors FOR EACH ROW EXECUTE FUNCTION model_descriptors_block_removal()"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_block_truncate_trigger",
+      "definition": "CREATE TRIGGER model_descriptors_block_truncate_trigger BEFORE TRUNCATE ON model_descriptors FOR EACH STATEMENT EXECUTE FUNCTION model_descriptors_block_removal()"
+    },
+    {
+      "table": "model_descriptors",
+      "name": "model_descriptors_enforce_immutable_trigger",
+      "definition": "CREATE TRIGGER model_descriptors_enforce_immutable_trigger BEFORE UPDATE ON model_descriptors FOR EACH ROW EXECUTE FUNCTION model_descriptors_enforce_immutable()"
+    }
+  ],
+  "functions": [
+    {
+      "name": "chain_annotations_block_mutation",
+      "arguments": "",
+      "bodyMd5": "74cb8d638a8552ce7e335d954a6498b2"
+    },
+    {
+      "name": "chain_forks_block_mutation",
+      "arguments": "",
+      "bodyMd5": "bed65d1c12e2bda1e0ff2a585e37da0c"
+    },
+    {
+      "name": "chain_relinks_block_mutation",
+      "arguments": "",
+      "bodyMd5": "79b8ad0a1f242e437959e6369abe75cf"
+    },
+    {
+      "name": "chains_block_removal",
+      "arguments": "",
+      "bodyMd5": "db0c410f92b9dbf8e3566ee85312961d"
+    },
+    {
+      "name": "chains_enforce_immutable",
+      "arguments": "",
+      "bodyMd5": "f9524e7812e493f219059dac4c87d058"
+    },
+    {
+      "name": "credential_events_block_mutation",
+      "arguments": "",
+      "bodyMd5": "7b0254e684d4de30fe22d56f3a645089"
+    },
+    {
+      "name": "custody_entries_block_mutation",
+      "arguments": "",
+      "bodyMd5": "19d238e07aa33589df516aa65a7aafd5"
+    },
+    {
+      "name": "custody_entries_compute_hash",
+      "arguments": "p_prev text, p_evidence_id text, p_canonical_digest text, p_action text, p_actor text, p_ts text, p_system_id text, p_metadata_canonical text",
+      "bodyMd5": "8bbeb197b5c2d6b9e2f7485b3101298b"
+    },
+    {
+      "name": "custody_entries_length_prefix",
+      "arguments": "v text",
+      "bodyMd5": "ae82d2da90591383b924a315467ac5f0"
+    },
+    {
+      "name": "custody_entries_verify_insert",
+      "arguments": "",
+      "bodyMd5": "4f08ce9ba6136fa27c23e1fd1da43cf6"
+    },
+    {
+      "name": "envelope_revisions_block_mutation",
+      "arguments": "",
+      "bodyMd5": "91a17837c9ab606357aceb3e8fab5b1b"
+    },
+    {
+      "name": "envelopes_block_delete",
+      "arguments": "",
+      "bodyMd5": "d86c10cd57b40fa7a1d0db52e4ed45c2"
+    },
+    {
+      "name": "envelopes_block_truncate",
+      "arguments": "",
+      "bodyMd5": "ec137263b66259fd923d71f3484ed53e"
+    },
+    {
+      "name": "envelopes_enforce_immutable",
+      "arguments": "",
+      "bodyMd5": "ffce1ec7bdcaca4133e78710ba56e6f0"
+    },
+    {
+      "name": "model_descriptors_block_removal",
+      "arguments": "",
+      "bodyMd5": "170c860e95853b033d86621a4614ba0e"
+    },
+    {
+      "name": "model_descriptors_enforce_immutable",
+      "arguments": "",
+      "bodyMd5": "aa3b17671215e6d7406b2ad5f0859fe0"
+    }
+  ]
+}

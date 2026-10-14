@@ -1,0 +1,14 @@
+{
+  "_comment": "Synthetic HF response carrying a DOI in cardData.",
+  "modelId": "mistralai/Mistral-7B-Instruct-v0.3",
+  "id": "mistralai/Mistral-7B-Instruct-v0.3",
+  "sha": "ffeeddccbbaa99887766554433221100ffeeddcc",
+  "license": "apache-2.0",
+  "pipeline_tag": "text-generation",
+  "cardData": {
+    "license": "apache-2.0",
+    "doi": "10.57967/hf/test-1234",
+    "datasets": "synthetic/single-dataset",
+    "pipeline_tag": "text-generation"
+  }
+}

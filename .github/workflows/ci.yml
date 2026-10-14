@@ -1,0 +1,360 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    branches: [main]
+    # The default types plus ready_for_review: every job skips while the PR is
+    # a draft (the `if:` on each job), so marking it ready has to start a run.
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Push CI covers main and release/** only. Any other branch gets CI from its
+  # pull request against main, which runs this same matrix on the same SHA, so
+  # listing it under push too would run every job twice. workflow_dispatch
+  # runs CI on demand on a branch that has no pull request.
+  workflow_dispatch:
+
+# Least-privilege. This workflow runs tests on fork PRs and only needs
+# to read the repo content. Explicitly deny everything else so a
+# compromised transitive action (actions/checkout, actions/setup-node,
+# or a PR-authored postinstall script) cannot mint write tokens.
+permissions:
+  contents: read
+
+concurrency:
+  # One in-flight run per workflow per branch: each push supersedes the last.
+  # main is exempt, so every commit on main gets a completed check suite.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+# Every job runs on a GitHub-hosted runner (ubuntu-latest), as does every job
+# of every workflow in this repository: pull requests from forks run here, so
+# no job may run on a machine the project keeps.
+#
+# Every job skips on a draft PR (`github.event.pull_request.draft` is null on
+# push and workflow_dispatch, so those always run).
+jobs:
+  ts:
+    name: TypeScript SDK (tests/ts/)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+
+    strategy:
+      # One policy for every matrix; see the python job.
+      fail-fast: false
+      matrix:
+        node-version: [22]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The gate release.yml enforces before publishing, run on every push
+      # too, so a new HIGH advisory turns CI red on the next push rather than
+      # first on a release tag.
+      - name: pnpm audit (high severity blocks) — mirrors the release gate
+        run: pnpm audit --audit-level high --prod
+
+      - name: Build @tzun/engine
+        run: pnpm --filter @tzun/engine build
+
+      - name: Test @tzun/engine
+        run: pnpm --filter @tzun/engine test
+
+      - name: Type check SDK
+        run: npx tsc --noEmit
+
+      - name: Run TypeScript tests (tests/ts/)
+        run: pnpm test
+
+      - name: codegen-python runs
+        run: pnpm run codegen:python
+
+      - name: Build TypeScript SDK
+        run: pnpm run build
+
+  python:
+    name: Python SDK (python/tests/)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+
+    strategy:
+      # Let every leg finish. Under the default fail-fast, one flaky leg
+      # cancels the others and skips py-example and cross-sdk, which `needs`
+      # this job, so the run reports less than it could. One red leg is enough
+      # to fail the workflow; cancelling the others only hides data.
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python SDK
+        run: |
+          cd python
+          pip install --upgrade pip
+          pip install -e '.[anchor]'
+          pip install packaging pytest pytest-asyncio pytest-cov respx pytest-httpx aiosqlite ruff mypy build
+
+      - name: Lint
+        run: cd python && python -m ruff check src tests
+
+      - name: Run Python tests
+        run: cd python && python -m pytest -v
+
+      - name: Build wheel + sdist
+        run: cd python && python -m build --wheel --sdist --outdir dist/
+
+      - name: Verify wheel imports
+        run: python -c "import tzun_sdk; print(tzun_sdk.__version__)"
+
+  cross-sdk:
+    name: Cross-SDK byte parity (TS ↔ Python)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    needs: [ts, python]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install TS deps + build engine
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @tzun/engine build
+
+      - name: Install Python SDK + deps
+        run: |
+          cd python
+          pip install --upgrade pip
+          pip install -e '.[anchor]' pytest pytest-asyncio
+
+      - name: Run cross-SDK suite
+        run: python -m pytest tests/cross-sdk/ -v
+
+  codegen-drift:
+    name: Codegen drift guard
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      - name: Install TS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Run codegen
+        run: pnpm run codegen:python
+
+      - name: Guard against a codegen that writes nothing
+        run: test -s python/src/tzun_sdk/_generated/models.py
+
+      # PATHS MUST BE EXACTLY WHAT codegen-python.ts WRITES
+      # (tests/ts/codegen-drift-guard.test.ts checks the list). Nothing
+      # writes to schema/, and `_generated/canonical.py` and
+      # `_generated/chain.py` are hand-maintained ports, never regenerated, so
+      # none of them can drift here; their parity is enforced by the
+      # `cross-sdk` job's live Node<->Python harness. A wider path list would
+      # read as broader coverage than the guard has.
+      - name: Verify no uncommitted regeneration
+        run: |
+          if ! git diff --exit-code python/src/tzun_sdk/_generated/models.py python/src/tzun_sdk/_data/known-models.json python/src/tzun_sdk/_data/tsa-authorities.json ; then
+            echo "::error::Codegen drift detected — run 'pnpm run codegen:python' and commit the output."
+            exit 1
+          fi
+
+  py-example:
+    name: clients/py-example smoke
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    needs: [python]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Build + install wheel
+        run: |
+          cd python
+          pip install --upgrade pip build
+          python -m build --wheel --outdir dist/
+          pip install dist/tzun_sdk-*.whl
+
+      - name: Install + run example
+        run: |
+          pip install -e clients/py-example
+          python -m tzun_example
+
+  ts-example:
+    name: clients/ts-example builds
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      # clients/ts-example consumes the workspace SDK as
+      # "@tzun/sdk": "workspace:*". A workspace install links it, but tsc
+      # needs the SDK's built .d.ts (dist/), so build engine + SDK first.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @tzun/engine
+        run: pnpm --filter @tzun/engine build
+
+      - name: Build TypeScript SDK
+        run: pnpm run build
+
+      - name: Build ts-example
+        run: pnpm --filter @tzun/ts-example build
+
+  version-bump-guard:
+    name: Shipped-code change requires a version bump
+    runs-on: ubuntu-latest
+    # Only meaningful for work heading toward main; on main itself there is
+    # no base to diff against.
+    if: github.ref != 'refs/heads/main' && github.event.pull_request.draft != true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # The check reads package.json versions with `node -p`.
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Require a version bump when publishable source changes
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # release.yml refuses to publish a version that is already on the
+          # registry. This job catches an unbumped version earlier, on the
+          # branch, where fixing it is a one-line edit rather than a re-tag.
+          set -eu
+          base="${PR_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base=$(git merge-base origin/main HEAD)
+          fi
+          echo "Comparing against $base"
+          changed=$(git diff --name-only "$base" HEAD)
+
+          version_at() { git show "$1:$2" 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo MISSING; }
+
+          sdk_base=$(version_at "$base" package.json)
+          sdk_head=$(node -p "require('./package.json').version")
+          engine_base=$(version_at "$base" packages/engine/package.json)
+          engine_head=$(node -p "require('./packages/engine/package.json').version")
+          python_head=$(python3 -c 'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')
+
+          fail=0
+          if echo "$changed" | grep -Eq '^packages/engine/src/'; then
+            # An engine change forces BOTH versions: @tzun/sdk resolves
+            # @tzun/engine through the pnpm `workspace:*` protocol, which
+            # pack rewrites to the engine's exact version, so an unbumped SDK
+            # would keep pointing at the old engine.
+            if [ "$engine_base" = "$engine_head" ]; then
+              echo "::error::packages/engine/src changed but @tzun/engine is still $engine_head. Bump packages/engine/package.json."
+              fail=1
+            fi
+            if [ "$sdk_base" = "$sdk_head" ]; then
+              echo "::error::packages/engine/src changed but @tzun/sdk is still $sdk_head. An engine bump requires an SDK bump (workspace:* is rewritten to the exact engine version at pack time)."
+              fail=1
+            fi
+          fi
+          if echo "$changed" | grep -Eq '^src/'; then
+            if [ "$sdk_base" = "$sdk_head" ]; then
+              echo "::error::src/ changed but @tzun/sdk is still $sdk_head. Bump package.json."
+              fail=1
+            fi
+          fi
+          if [ "$engine_head" != "$sdk_head" ]; then
+            echo "::error::@tzun/engine ($engine_head) and @tzun/sdk ($sdk_head) must stay on the same version."
+            fail=1
+          fi
+          # tzun-sdk on PyPI is published from the same tag as the npm
+          # packages, so python/pyproject.toml carries the same version.
+          if [ "$python_head" != "$sdk_head" ]; then
+            echo "::error::python/pyproject.toml ($python_head) and @tzun/sdk ($sdk_head) must stay on the same version."
+            fail=1
+          fi
+          [ "$fail" = "0" ] || exit 1
+          echo "Version bump guard OK (sdk $sdk_base -> $sdk_head, engine $engine_base -> $engine_head, python $python_head)"

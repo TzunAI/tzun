@@ -1,0 +1,31 @@
+name: Feature request
+description: Propose a capability or an API change
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that you cannot do today? Describe the situation, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+  - type: dropdown
+    id: contract
+    attributes:
+      label: Would this change what the digest covers, the wire format, or a published API?
+      description: >
+        The hashed field set and canonicalization rules are a contract — changing them
+        invalidates every digest already computed, so those need a schema version.
+      options: ["No", "Yes", "Not sure"]
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered

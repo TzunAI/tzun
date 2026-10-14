@@ -1,0 +1,143 @@
+{
+  "source": "Plat\u00e5berget (EF Glamsterdam testnet, chain id 7091047534) block 303665, fetched 2026-10-01 from https://rpc.plataberget.ethpandaops.io (eth_getBlockByNumber, transactions as hashes). Its header carries the Glamsterdam fields blockAccessListHash (EIP-7928) and slotNumber (EIP-7843). `header` is its RLP as src/anchoring/tx-trie.ts rebuilds it, whose keccak256 is the block hash the node reported.",
+  "chainId": "7091047534",
+  "blockNumber": 303665,
+  "blockHash": "0xe3f97f388ed32ae2ebfd9f4bd23cf1ed7c19b7879061b78b65ba29b6965378bd",
+  "timestamp": 1790825088,
+  "transactionsRoot": "0x7f10d41bf3567ad18a5485f2afe28845e43ef06b002add61a62ffd8d71650bf5",
+  "header": "0xf90298a0dfdf8246eb03afcb3f49ed14a27e1074374ed3ea67c4f3083600f8e6ee409c92a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794f97e180c050e5ab072211ad2c213eb5aee4df134a0b4d8bd2a9e9ba73f83dfea89e89ed3c30c8129beff8aa87fa97c0a480695ce8fa07f10d41bf3567ad18a5485f2afe28845e43ef06b002add61a62ffd8d71650bf5a06e218b9cfeebc1c63e48a62c1113f436d3c0b7dbf595c4d8ff0242ffaf5fdd19b9010000000000000000000000000000000000000000000000000000000000000000000008000000000000000000020000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000804000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000002000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000808304a231840bebc2008405ff9a60846abdd2808d6574687265782032382e302e30a0ddb3207031ed91f33d9eec434ccfc4d77079534c6da9a33b2464171d704877ae88000000000000000084e9b1d399a003c020c28b7d633b622b2067e32ec8e5110c36747c49c421dc2bebc4e9d6383a8080a02b02cdb1d51ab95847d9c5b49fc269b89d9256ba8f77a8203a56d6bebc21b462a0e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a06f32f3d30dd977c4f8c100e443e2e38c056bf2d394eeefa449bad69663100a0c83055810",
+  "block": {
+    "difficulty": "0x0",
+    "extraData": "0x6574687265782032382e302e30",
+    "gasLimit": "0xbebc200",
+    "gasUsed": "0x5ff9a60",
+    "hash": "0xe3f97f388ed32ae2ebfd9f4bd23cf1ed7c19b7879061b78b65ba29b6965378bd",
+    "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000008000000000000000000020000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000804000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000002000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+    "miner": "0xf97e180c050e5ab072211ad2c213eb5aee4df134",
+    "mixHash": "0xddb3207031ed91f33d9eec434ccfc4d77079534c6da9a33b2464171d704877ae",
+    "nonce": "0x0000000000000000",
+    "number": "0x4a231",
+    "parentHash": "0xdfdf8246eb03afcb3f49ed14a27e1074374ed3ea67c4f3083600f8e6ee409c92",
+    "receiptsRoot": "0x6e218b9cfeebc1c63e48a62c1113f436d3c0b7dbf595c4d8ff0242ffaf5fdd19",
+    "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+    "size": "0x10ea1",
+    "stateRoot": "0xb4d8bd2a9e9ba73f83dfea89e89ed3c30c8129beff8aa87fa97c0a480695ce8f",
+    "timestamp": "0x6abdd280",
+    "baseFeePerGas": "0xe9b1d399",
+    "transactions": [
+      "0x01c4a86b0814a714d337a0d6705df62fec2bd00e536c2b3c0e542e69dd1515f8",
+      "0x12957046a4d4c43022b4f7092a414fbf8ab82c718bf91dd56bf13359ee8bba14",
+      "0xa5db45405f1126c2b94520e7b3380b70632fefc01a156656f7dd7a468b46e62f",
+      "0xfd4fed726f8e950e9b1746232419cb7b53dcf81fa1e6b08bb6b849df4a4f4256",
+      "0xf6b00419ec98a9479802b1dafecab00ab74fced7d2a8836fd1591ec6c365c40a",
+      "0x4b9f580df74f53f997a61c5e1144baba4fcb042ff73ed82175303a4f900de08c"
+    ],
+    "transactionsRoot": "0x7f10d41bf3567ad18a5485f2afe28845e43ef06b002add61a62ffd8d71650bf5",
+    "uncles": [],
+    "withdrawals": [
+      {
+        "index": "0x38bb51",
+        "validatorIndex": "0x149a8",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb52",
+        "validatorIndex": "0x149a9",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb53",
+        "validatorIndex": "0x149aa",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb54",
+        "validatorIndex": "0x149ab",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb55",
+        "validatorIndex": "0x149ac",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb56",
+        "validatorIndex": "0x149ad",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb57",
+        "validatorIndex": "0x149ae",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb58",
+        "validatorIndex": "0x149af",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb59",
+        "validatorIndex": "0x149b0",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5a",
+        "validatorIndex": "0x149b1",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5b",
+        "validatorIndex": "0x149b2",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5c",
+        "validatorIndex": "0x149b3",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5d",
+        "validatorIndex": "0x149b4",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5e",
+        "validatorIndex": "0x149b5",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb5f",
+        "validatorIndex": "0x149b6",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      },
+      {
+        "index": "0x38bb60",
+        "validatorIndex": "0x149b7",
+        "address": "0x493d346f0d6af63419dc2e945cf62e60e861a5db",
+        "amount": "0xea96"
+      }
+    ],
+    "withdrawalsRoot": "0x03c020c28b7d633b622b2067e32ec8e5110c36747c49c421dc2bebc4e9d6383a",
+    "blobGasUsed": "0x0",
+    "excessBlobGas": "0x0",
+    "parentBeaconBlockRoot": "0x2b02cdb1d51ab95847d9c5b49fc269b89d9256ba8f77a8203a56d6bebc21b462",
+    "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "blockAccessListHash": "0x6f32f3d30dd977c4f8c100e443e2e38c056bf2d394eeefa449bad69663100a0c",
+    "slotNumber": "0x55810"
+  }
+}

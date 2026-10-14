@@ -1,0 +1,329 @@
+{
+  "_comment": "REAL response captured from https://huggingface.co/api/models/facebook/bart-large-cnn on 2026-09-03 (unmodified apart from this _comment key). Evaluation data arrives as a TOP-LEVEL 'model-index' array; there is no cardData.eval_results.",
+  "_id": "621ffdc136468d709f17adb6",
+  "id": "facebook/bart-large-cnn",
+  "private": false,
+  "pipeline_tag": "summarization",
+  "library_name": "transformers",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "tf",
+    "jax",
+    "rust",
+    "safetensors",
+    "bart",
+    "text2text-generation",
+    "summarization",
+    "en",
+    "dataset:cnn_dailymail",
+    "arxiv:1910.13461",
+    "license:mit",
+    "model-index",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ],
+  "downloads": 1279315,
+  "likes": 1611,
+  "modelId": "facebook/bart-large-cnn",
+  "author": "facebook",
+  "sha": "37f520fa929c961707657b28798b30c003dd100b",
+  "lastModified": "2024-02-13T18:02:05.000Z",
+  "gated": false,
+  "disabled": false,
+  "mask_token": "<mask>",
+  "widgetData": [
+    {
+      "text": "The tower is 324 metres (1,063 ft) tall, about the same height as an 81-storey building, and the tallest structure in Paris. Its base is square, measuring 125 metres (410 ft) on each side. During its construction, the Eiffel Tower surpassed the Washington Monument to become the tallest man-made structure in the world, a title it held for 41 years until the Chrysler Building in New York City was finished in 1930. It was the first structure to reach a height of 300 metres. Due to the addition of a broadcasting aerial at the top of the tower in 1957, it is now taller than the Chrysler Building by 5.2 metres (17 ft). Excluding transmitters, the Eiffel Tower is the second tallest free-standing structure in France after the Millau Viaduct."
+    }
+  ],
+  "model-index": [
+    {
+      "name": "facebook/bart-large-cnn",
+      "results": [
+        {
+          "task": {
+            "type": "summarization",
+            "name": "Summarization"
+          },
+          "dataset": {
+            "name": "cnn_dailymail",
+            "type": "cnn_dailymail",
+            "config": "3.0.0",
+            "split": "train"
+          },
+          "metrics": [
+            {
+              "name": "ROUGE-1",
+              "type": "rouge",
+              "value": 42.9486,
+              "verified": false
+            },
+            {
+              "name": "ROUGE-2",
+              "type": "rouge",
+              "value": 20.8149,
+              "verified": false
+            },
+            {
+              "name": "ROUGE-L",
+              "type": "rouge",
+              "value": 30.6186,
+              "verified": false
+            },
+            {
+              "name": "ROUGE-LSUM",
+              "type": "rouge",
+              "value": 40.0376,
+              "verified": false
+            },
+            {
+              "name": "loss",
+              "type": "loss",
+              "value": 2.529000997543335,
+              "verified": false
+            },
+            {
+              "name": "gen_len",
+              "type": "gen_len",
+              "value": 78.5866,
+              "verified": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "config": {
+    "architectures": [
+      "BartForConditionalGeneration"
+    ],
+    "model_type": "bart"
+  },
+  "cardData": {
+    "language": [
+      "en"
+    ],
+    "pipeline_tag": "summarization",
+    "license": "mit",
+    "thumbnail": "https://huggingface.co/front/thumbnails/facebook.png",
+    "datasets": [
+      "cnn_dailymail"
+    ],
+    "model-index": [
+      {
+        "name": "facebook/bart-large-cnn",
+        "results": [
+          {
+            "task": {
+              "type": "summarization",
+              "name": "Summarization"
+            },
+            "dataset": {
+              "name": "cnn_dailymail",
+              "type": "cnn_dailymail",
+              "config": "3.0.0",
+              "split": "train"
+            },
+            "metrics": [
+              {
+                "name": "ROUGE-1",
+                "type": "rouge",
+                "value": 42.9486,
+                "verified": false
+              },
+              {
+                "name": "ROUGE-2",
+                "type": "rouge",
+                "value": 20.8149,
+                "verified": false
+              },
+              {
+                "name": "ROUGE-L",
+                "type": "rouge",
+                "value": 30.6186,
+                "verified": false
+              },
+              {
+                "name": "ROUGE-LSUM",
+                "type": "rouge",
+                "value": 40.0376,
+                "verified": false
+              },
+              {
+                "name": "loss",
+                "type": "loss",
+                "value": 2.529000997543335,
+                "verified": false
+              },
+              {
+                "name": "gen_len",
+                "type": "gen_len",
+                "value": 78.5866,
+                "verified": false
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "transformersInfo": {
+    "auto_model": "AutoModelForSeq2SeqLM",
+    "pipeline_tag": "text2text-generation",
+    "processor": "AutoTokenizer"
+  },
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "flax_model.msgpack"
+    },
+    {
+      "rfilename": "generation_config.json"
+    },
+    {
+      "rfilename": "generation_config_for_summarization.json"
+    },
+    {
+      "rfilename": "merges.txt"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "pytorch_model.bin"
+    },
+    {
+      "rfilename": "rust_model.ot"
+    },
+    {
+      "rfilename": "tf_model.h5"
+    },
+    {
+      "rfilename": "tokenizer.json"
+    },
+    {
+      "rfilename": "vocab.json"
+    }
+  ],
+  "spaces": [
+    "eduagarcia/multilingual-tokenizer-leaderboard",
+    "microsoft/HuggingGPT",
+    "gunship999/SexyImages",
+    "Yntec/ToyWorld",
+    "llamameta/flux-pro-uncensored",
+    "Uthar/SexyReality",
+    "Yntec/PrintingPress",
+    "Nymbo/Compare-6",
+    "kadirnar/Audio-WebUI",
+    "llamameta/fluxproV2",
+    "nickmuchi/article-text-summarizer",
+    "anaxagoras7/gauravgs-text-summarizer",
+    "pleonova/multi-label-summary-text",
+    "Yntec/ToyWorldXL",
+    "Yntec/blitz_diffusion",
+    "Alifarsi/news_summarizer",
+    "John6666/Diffusion80XX4sg",
+    "shaheerawan3/book-writer",
+    "sasha/CO2_inference",
+    "Gladiator/Text-Summarizer",
+    "John6666/PrintingPress4",
+    "Tuana/PDF-Summarizer",
+    "llamameta/fast-sd3.5-large",
+    "sonalkum/GAMA",
+    "Wootang01/text_summarizer",
+    "NCSOFT/harim_plus",
+    "Yntec/Image-Models-Test-2024",
+    "Yntec/Image-Models-Test-April-2024",
+    "DemiPoto/TestDifs",
+    "Abinivesh/Multi-models-prompt-to-image-generation",
+    "garyuzair/Video-Fx",
+    "NativeAngels/Compare-6",
+    "gaspar-avit/Movie_Poster_Generator",
+    "John6666/hfd_test_nostopbutton",
+    "HaloMaster/chinesesummary",
+    "gamer098890/video-to-text-generator",
+    "Amrrs/textsummarizer",
+    "taesiri/HuggingGPT-Lite",
+    "Nymbo/Diffusion80XX4sg",
+    "DemiPoto/testSortModels",
+    "kaleidoskop-hug/PrintingPress",
+    "MHamdan/web-analyzer",
+    "docs-demos/bart-large-mnli",
+    "Chakshu123/image-colorization-with-hint",
+    "hamza50/paris-hotel-finder",
+    "Yntec/MiniToyWorld",
+    "UNIST-Eunchan/Summarizing-app",
+    "vibey/article-summariser-for-final-project",
+    "benthecoder/news-summarizer",
+    "jiedong-yang/Speech-Summarization-with-Whisper",
+    "EE21/ToS-Summarization",
+    "nsethi610/ns-gradio-apps",
+    "John6666/ToyWorld4",
+    "MohammadYaseen/Video-to-Text-Summarization-App",
+    "rajesh1729/text-summarization-gradio",
+    "kazimsayed/News-Article-Summarizer",
+    "pragnakalp/Text_Summarization",
+    "tomsoderlund/text-summarizer",
+    "Arafath10/chatcode",
+    "UjjwalVIT/Text_analysis_and_metadata_app",
+    "Omnibus/pdf-reader",
+    "JavierGon12/retrAIced",
+    "keshva/Intelligent-Document-Processing",
+    "sonalkum/GAMA-IT",
+    "vardhan-rawat/PDF-Text-Summarizer-BART",
+    "John6666/Diffusion80XX4g",
+    "SAITAN666/StableDiffusion35Large-Image-Models-Test-November-2024",
+    "NativeAngels/HuggingfaceDiffusion",
+    "NativeAngels/ToyWorld",
+    "Yntec/Image-Models-Test-December-2024",
+    "ghrua/repo-app",
+    "Shreyas3006/Text-Summarizer-sdp",
+    "Wootang01/URL_news_summarizer",
+    "BilalSardar/StoryGenerator",
+    "widged/bart-generation",
+    "derina/BartSummarizer",
+    "skavya/youtube_transcript_summarizer",
+    "Anne314159/Automate_everything",
+    "Walid-Ahmed/Advanced_Text_Summarization",
+    "John6666/Diffusion80XX4",
+    "K00B404/HuggingfaceDiffusion_custom",
+    "John6666/blitz_diffusion4",
+    "John6666/blitz_diffusion_builtin",
+    "loayshabet/news-sumarry",
+    "ZennyKenny/AudioTranscribe",
+    "K00B404/SimpleBrothel",
+    "BarBar288/Chatbot",
+    "Really-amin/Datasourceforcryptocurrency-2",
+    "Shouryahere/infy",
+    "Adityasv99/ClipForge-AI",
+    "akhaliq/SummerTime",
+    "rajesh1729/gradio-realtime-news-app",
+    "awacke1/SOTA-Summary",
+    "Eddevs/brian-challenge",
+    "HighCWu/anime-colorization-with-hint",
+    "kusumakar/Image_Describer",
+    "Sarath2002/YouTube_Video_Summarizer",
+    "MBinAsif/Summarizer-bart",
+    "ashish0209/Speech_Recognition_and_Summarizer",
+    "Ffftdtd5dtft/gfgf"
+  ],
+  "createdAt": "2022-03-02T23:29:05.000Z",
+  "safetensors": {
+    "parameters": {
+      "F32": 406290432
+    },
+    "total": 406290432
+  },
+  "inference": "warm",
+  "usedStorage": 18004953759
+}

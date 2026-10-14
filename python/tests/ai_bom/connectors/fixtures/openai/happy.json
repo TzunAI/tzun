@@ -1,0 +1,20 @@
+{
+  "recordedAgainst": "openai-python 1.51.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Approve?"}],
+    "temperature": 0.2,
+    "top_p": 0.9,
+    "max_tokens": 100,
+    "seed": 42,
+    "stop": ["\n"]
+  },
+  "response": {
+    "id": "chatcmpl-1",
+    "model": "gpt-4o-2024-08-06",
+    "system_fingerprint": "fp_abc123",
+    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    "choices": [{"message": {"role": "assistant", "content": "approve"}}]
+  }
+}

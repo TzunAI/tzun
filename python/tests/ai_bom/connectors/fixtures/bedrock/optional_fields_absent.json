@@ -1,0 +1,11 @@
+{
+  "recordedAgainst": "boto3-1.35.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "modelId": "anthropic.claude-3-5-sonnet-20240620-v1:0"
+  },
+  "response": {
+    "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+    "stopReason": "end_turn"
+  }
+}

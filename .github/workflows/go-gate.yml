@@ -1,0 +1,61 @@
+name: Go stock-library gate
+
+# Checks the Merkle vector files with transparency-dev/merkle and no Tzun code
+# (tests/cross-impl/go). It runs when anything under vectors/
+# changes, because the gate fails on a vector file it neither checks nor lists
+# as out of scope; and when the Merkle generators or the gate itself change.
+on:
+  push:
+    branches: [main, 'release/**']
+    paths:
+      - vectors/**
+      - scripts/generate-merkle-vectors.mjs
+      - scripts/generate-consistency-vectors.mjs
+      - tests/cross-impl/go/**
+      - .github/workflows/go-gate.yml
+  pull_request:
+    branches: [main]
+    # ready_for_review: the job skips on a draft PR, so marking it ready has to
+    # start a run.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - vectors/**
+      - scripts/generate-merkle-vectors.mjs
+      - scripts/generate-consistency-vectors.mjs
+      - tests/cross-impl/go/**
+      - .github/workflows/go-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+jobs:
+  gate:
+    name: Merkle vectors under transparency-dev/merkle
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tests/cross-impl/go
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The version the Makefile's docker-check image uses.
+          go-version: '1.26.8'
+          cache-dependency-path: |
+            tests/cross-impl/go/go.sum
+            tests/cross-impl/go/go.v0.0.2.sum
+
+      - name: gofmt, vet, tests against the pin and v0.0.2, then the gate
+        run: make check

@@ -1,0 +1,60 @@
+{
+  "source": "src/attestation/tsa-registry.ts",
+  "authorities": [
+    {
+      "key": "freetsa",
+      "url": "https://freetsa.org/tsr",
+      "normalisedUrl": "https://freetsa.org/tsr"
+    },
+    {
+      "key": "sectigo",
+      "url": "https://timestamp.sectigo.com",
+      "normalisedUrl": "https://timestamp.sectigo.com"
+    },
+    {
+      "key": "digicert",
+      "url": "http://timestamp.digicert.com",
+      "normalisedUrl": "http://timestamp.digicert.com"
+    },
+    {
+      "key": "sslcom",
+      "url": "http://ts.ssl.com",
+      "normalisedUrl": "http://ts.ssl.com"
+    },
+    {
+      "key": "globalsign",
+      "url": "http://timestamp.globalsign.com/tsa/r6advanced1",
+      "normalisedUrl": "http://timestamp.globalsign.com/tsa/r6advanced1"
+    },
+    {
+      "key": "certum",
+      "url": "http://time.certum.pl",
+      "normalisedUrl": "http://time.certum.pl"
+    },
+    {
+      "key": "identrust",
+      "url": "http://timestamp.identrust.com",
+      "normalisedUrl": "http://timestamp.identrust.com"
+    },
+    {
+      "key": "apple",
+      "url": "http://timestamp.apple.com/ts01",
+      "normalisedUrl": "http://timestamp.apple.com/ts01"
+    },
+    {
+      "key": "mesign",
+      "url": "http://tsa.mesign.com",
+      "normalisedUrl": "http://tsa.mesign.com"
+    },
+    {
+      "key": "entrust",
+      "url": "http://timestamp.entrust.net/TSS/RFC3161sha2TS",
+      "normalisedUrl": "http://timestamp.entrust.net/TSS/RFC3161sha2TS"
+    },
+    {
+      "key": "aimoda",
+      "url": "http://rfc3161.ai.moda",
+      "normalisedUrl": "http://rfc3161.ai.moda"
+    }
+  ]
+}

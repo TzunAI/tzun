@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Checks each commit message with scripts/check-public-hygiene.sh before the
+# commit is made. Turn it on once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Everything below the scissors line `git commit -v` adds is left out, since
+# git never keeps it. Comment lines are checked like any other: a commit made
+# with --cleanup=verbatim or --cleanup=whitespace keeps them. A rejected
+# message stays in .git/COMMIT_EDITMSG for editing.
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+sed -e '/^. -\{24\} >8 -\{24\}$/,$d' "$1" \
+  | "$root/scripts/check-public-hygiene.sh" text commit-msg

@@ -1,0 +1,123 @@
+{
+  "bundleVersion": "b1",
+  "profile": "record",
+  "subject": {
+    "evidenceId": "6b8a59a2-095d-4d69-8aec-2b734bbbb6ef",
+    "canonicalDigest": "b602658b2904fe4ca3f4a3bf1330bfb7b2df00a057993df8a2d92d61bf3f57d5"
+  },
+  "envelope": {
+    "envelopeVersion": "e1",
+    "payload": {
+      "evidenceId": "6b8a59a2-095d-4d69-8aec-2b734bbbb6ef",
+      "schemaVersion": "v1.0",
+      "aiSystemId": "bundle-b1-corpus",
+      "aiOutput": {
+        "recommendation": "approve",
+        "chain": "alpha",
+        "i": 12
+      },
+      "action": "approved",
+      "reason": "bundle corpus: alpha #12",
+      "capturedAt": "2026-10-01T17:40:35.757Z",
+      "sequenceNumber": 4,
+      "decider": {
+        "kind": "human",
+        "id": "acct:u-bundle-corpus",
+        "agent": null,
+        "credential": null,
+        "freshness": null
+      },
+      "contributions": null,
+      "links": null,
+      "signoffExpectation": null
+    },
+    "integrity": {
+      "canonicalDigest": "b602658b2904fe4ca3f4a3bf1330bfb7b2df00a057993df8a2d92d61bf3f57d5",
+      "chainLink": "642d60ac0069b31edbe722be19af146e51c9d5e3aad4d99716bc5f2d41aad5b3"
+    },
+    "nonRepudiation": {
+      "rfc3161Token": "MIIDaTADAgEAMIIDYAYJKoZIhvcNAQcCoIIDUTCCA00CAQMxDzANBglghkgBZQMEAgEFADB3BgsqhkiG9w0BCRABBKBoBGYwZAIBAQYKKwYBBAGGjR8BATAxMA0GCWCGSAFlAwQCAQUABCC2AmWLKQT+TKP0o78TML+3st8AoFeZPfii2S1hvz9X1QIBcBgTMjAyNjEwMDExNzQwMzUuNzU5WgIIPq56eWu7BWegggFtMIIBaTCCAQ+gAwIBAgIBAzAKBggqhkjOPQQDAjAjMSEwHwYDVQQDExhUenVuIENvcnB1cyBUZXN0IFJvb3QgQ0EwHhcNMjAwMTAxMDAwMDAwWhcNNDAwMTAxMDAwMDAwWjAtMSswKQYDVQQDEyJUenVuIENvcnB1cyBUaW1lc3RhbXBpbmcgQXV0aG9yaXR5MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEREb9HECBj+cpzsZQgyYs++R72PVZYjUUZielwcieK3fCLkHd4Wem03wUY6/PM4N8BCYT4q3slqGrNGNw0e1rgKMqMCgwDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMAoGCCqGSM49BAMCA0gAMEUCIDxpfO/KDjgkVJcijs+dGhbQADUsRPqRsmWIlze9kGzrAiEAx71m0ceqQ0h1Tnt1y8OmkL8DSixHTGNalzEtLrHxegIxggFLMIIBRwIBATAoMCMxITAfBgNVBAMTGFR6dW4gQ29ycHVzIFRlc3QgUm9vdCBDQQIBAzANBglghkgBZQMEAgEFAKCBtDAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwLwYJKoZIhvcNAQkEMSIEIIBeNyj1E/PYe6HzP2j853IREP7t99bzU4Tqb5tTXqZCMGUGCyqGSIb3DQEJEAIvMVYwVDBSMFAEIL01spUqLttxUOIl36eEliLqEm19xbrBus5nPJjrjAD2MCwwJ6QlMCMxITAfBgNVBAMTGFR6dW4gQ29ycHVzIFRlc3QgUm9vdCBDQQIBAzAKBggqhkjOPQQDAgRGMEQCIFXyReH9hSfwWTHZl232CMiiy22Bwc5LjBLwRBCsQOqgAiBZBrMgiGl5LpC4UfSvgCrrcMJWIcTIVAqNY8DAgOLD1A==",
+      "rfc3161Metadata": {
+        "genTime": "2026-10-01T17:40:35.759Z",
+        "tsaName": "Tzun Corpus Timestamping Authority",
+        "policyOid": "1.3.6.1.4.1.99999.1.1",
+        "status": "granted"
+      }
+    },
+    "custodyChain": [
+      {
+        "timestamp": "2026-10-01T17:40:35.757Z",
+        "actor": "acct:u-bundle-corpus",
+        "action": "decision_captured",
+        "systemId": "bundle-b1-corpus"
+      }
+    ],
+    "attestationStatus": "pending"
+  },
+  "chain": {
+    "chainId": "alpha",
+    "predecessor": {
+      "evidenceId": "edf91ec7-ba45-4da5-8030-20526e7d2426",
+      "sequenceNumber": 3,
+      "canonicalDigest": "212ce10edfcc65d965834752c001c42493c27927fd8fdbe925dc6fa263285be6"
+    }
+  },
+  "custody": {
+    "hashPreimage": "sha256(lp(prevEntryHash)||lp(evidenceId)||lp(canonicalDigest)||lp(action)||lp(actor)||lp(timestamp)||lp(systemId)||lp(canonicalMetadata)); lp = \"<code points>:<value>\" or \"-:\" for null; canonicalMetadata = engine canonical JSON of metadata",
+    "entries": [],
+    "trail": {
+      "evidenceId": "6b8a59a2-095d-4d69-8aec-2b734bbbb6ef",
+      "valid": true,
+      "rows": 0,
+      "hashedEntries": 0,
+      "unhashedEntries": 1,
+      "failures": []
+    },
+    "offlineTrail": {
+      "valid": null,
+      "hashedEntries": 0,
+      "unhashedEntries": 1,
+      "failures": []
+    }
+  },
+  "credentials": null,
+  "relatedRecords": null,
+  "anchoring": {},
+  "anchorPending": null,
+  "policy": null,
+  "extensions": {
+    "witness/1": null
+  },
+  "exporter": {
+    "exportedAt": "2026-10-01T17:40:35.770Z",
+    "exportedBy": "tzun-sdk",
+    "verdict": {
+      "status": "valid",
+      "digest": {
+        "status": "valid",
+        "stored": "b602658b2904fe4ca3f4a3bf1330bfb7b2df00a057993df8a2d92d61bf3f57d5",
+        "recomputed": "b602658b2904fe4ca3f4a3bf1330bfb7b2df00a057993df8a2d92d61bf3f57d5"
+      },
+      "custodyTrail": {
+        "status": "unmeasured",
+        "reason": "nothing_to_measure",
+        "ledger": {
+          "evidenceId": "6b8a59a2-095d-4d69-8aec-2b734bbbb6ef",
+          "valid": true,
+          "rows": 0,
+          "hashedEntries": 0,
+          "unhashedEntries": 1,
+          "failures": []
+        }
+      },
+      "chainLink": {
+        "status": "valid",
+        "predecessorDigest": "212ce10edfcc65d965834752c001c42493c27927fd8fdbe925dc6fa263285be6"
+      },
+      "signoffExpectation": {
+        "valid": true
+      },
+      "checkedAt": "2026-10-01T17:40:35.770Z"
+    }
+  }
+}

@@ -1,0 +1,306 @@
+name: Auto-release on main
+
+# Once no package is marked unpublishable, merging a version bump to main
+# publishes it.
+#
+# On every push to main (and on manual dispatch, for a retry):
+#   0. if package.json or packages/engine/package.json sets "private", or
+#      python/pyproject.toml carries "Private :: Do Not Upload", do nothing
+#      else: the publishable job says so in a notice and the run passes;
+#   1. read the version V on main (fails loudly if @tzun/sdk and @tzun/engine
+#      disagree; they version in lockstep);
+#   2. if tag vV does not exist: require a `## [V]` CHANGELOG section (it is
+#      the release note), create the annotated tag through the REST API, then
+#      dispatch release.yml and python-publish.yml on that tag;
+#   3. if vV exists and release.yml has already run for it: no-op for
+#      release.yml;
+#   4. if vV exists but release.yml never ran for it: dispatch release.yml;
+#   5. in every case but a failure, dispatch python-publish.yml on vV when it
+#      has never run for it.
+#
+# Why dispatch instead of relying on the tag push: a tag created with the
+# workflow's GITHUB_TOKEN does not trigger other workflows (only
+# workflow_dispatch and repository_dispatch do; GitHub's loop guard), so the
+# publishing workflows' `on: push: tags` never sees it. `gh workflow run` on
+# the tag ref is the documented exception, and each publishing workflow's
+# authorize job then sees ref_type=tag, ref_name=vV, the PUBLISH-V
+# confirmation and a SHA that is an ancestor of main: every check it makes of
+# a hand-pushed tag.
+#
+# Nothing publishes from here directly. release.yml and python-publish.yml
+# each wait for their environment's reviewers (`npm`, `pypi`), and npm holds
+# every version staged until a maintainer approves it with two-factor
+# authentication.
+#
+# The decision logic is scripts/release/release-state.cjs, unit-tested in
+# tests/ts/release-on-main.test.ts.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two pushes to main must not race each other into two tag/dispatch
+  # attempts for the same version. Never cancel: a run cancelled between
+  # "tag created" and "release dispatched" leaves a tagged, unpublished
+  # version. The next run heals that (action `dispatch`), but only if it
+  # is allowed to finish.
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  publishable:
+    name: Skip the release while a package is marked unpublishable
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      off: ${{ steps.markers.outputs.off }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the unpublishable markers
+        id: markers
+        run: |
+          # release.yml and python-publish.yml refuse to publish while
+          # package.json or packages/engine/package.json sets "private": true,
+          # or python/pyproject.toml carries the classifier "Private :: Do Not
+          # Upload". A tag created then would never be published, and this
+          # workflow would not dispatch its version again, so while a marker is
+          # set the job below is skipped and this run passes with a notice.
+          off=""
+          for pkg in package.json packages/engine/package.json; do
+            # A package.json that cannot be read counts as unpublishable.
+            private=$(node -p "Boolean(require('./$pkg').private)" 2>/dev/null || true)
+            if [ "$private" != "false" ]; then
+              off="$off $pkg sets private;"
+            fi
+          done
+          if ! [ -f python/pyproject.toml ] || grep -Fq 'Private :: Do Not Upload' python/pyproject.toml; then
+            off="$off python/pyproject.toml carries Private :: Do Not Upload;"
+          fi
+          if [ -n "$off" ]; then
+            echo "::notice title=Auto-release skipped::Publishing is off while a package is marked unpublishable: see LICENSE.md.$off"
+            echo "off=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "off=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release-on-main:
+    name: Tag and publish the version on main
+    needs: publishable
+    # Only when the publishable job found no marker.
+    if: needs.publishable.outputs.off == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # create the tag object and its ref
+      actions: write    # dispatch release.yml and python-publish.yml on the new tag
+
+    steps:
+      - name: Refuse to run anywhere but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::Auto-release tags only the head of main; refusing to run on $REF."
+            exit 1
+          fi
+
+      - name: Require an authorized release actor
+        # The same allowlist the publishing workflows enforce. A push to main
+        # by anyone else fails here, loudly, and the version stays untagged
+        # until an authorized actor re-runs this workflow.
+        env:
+          ACTOR: ${{ github.actor }}
+          # Required repository variable: comma-separated GitHub logins.
+          # There is no default; unset or empty refuses every actor.
+          ALLOWED: ${{ vars.RELEASE_ACTORS }}
+        run: |
+          allowed="${ALLOWED:-}"
+          if [ -z "$(printf '%s' "$allowed" | tr -d '[:space:],')" ]; then
+            echo "::error::The RELEASE_ACTORS repository variable is not set, so this version is NOT being tagged or published. Set it to the comma-separated GitHub logins allowed to release (Settings > Secrets and variables > Actions > Variables), then re-run this workflow."
+            exit 1
+          fi
+          echo "Actor: $ACTOR; allowed: $allowed"
+          match=0
+          IFS=','
+          for who in $allowed; do
+            who="$(echo "$who" | tr -d '[:space:]')"
+            [ -n "$who" ] && [ "$who" = "$ACTOR" ] && match=1
+          done
+          unset IFS
+          if [ "$match" != "1" ]; then
+            echo "::error::$ACTOR pushed main but is not an authorized release actor, so this version is NOT being tagged or published. An authorized actor can re-run this workflow (Actions > Auto-release on main > Run workflow). The RELEASE_ACTORS repository variable holds the allowlist."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the version on main
+        id: version
+        run: |
+          V=$(node scripts/release/release-state.cjs version)
+          echo "Version on main: $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the tag and any publishing run for it
+        id: lookup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # gh run list / gh workflow run must not depend on inferring the
+          # repo from the checkout; GH_REPO pins it.
+          GH_REPO: ${{ github.repository }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          # `git/ref/tags/<name>` is the exact-match endpoint (404 when absent);
+          # the plural `git/refs/...` does prefix matching and would report
+          # v0.3.1 as present when only v0.3.14 exists.
+          set +e
+          found=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.ref' 2>/dev/null)
+          rc=$?
+          set -e
+          if [ "$rc" = "0" ] && [ "$found" = "refs/tags/$TAG" ]; then
+            tag_exists=true
+          else
+            tag_exists=false
+          fi
+          # A tag-triggered or tag-dispatched run reports the tag name as its branch.
+          runs=$(gh run list --workflow release.yml --branch "$TAG" --limit 20 --json databaseId --jq 'length')
+          if [ "${runs:-0}" != "0" ]; then release_run_exists=true; else release_run_exists=false; fi
+          py_runs=$(gh run list --workflow python-publish.yml --branch "$TAG" --limit 20 --json databaseId --jq 'length')
+          if [ "${py_runs:-0}" != "0" ]; then python_run_exists=true; else python_run_exists=false; fi
+          echo "tag_exists=$tag_exists release_run_exists=$release_run_exists python_run_exists=$python_run_exists (runs for $TAG: release.yml ${runs:-0}, python-publish.yml ${py_runs:-0})"
+          {
+            echo "tag_exists=$tag_exists"
+            echo "release_run_exists=$release_run_exists"
+            echo "python_run_exists=$python_run_exists"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Decide
+        id: plan
+        env:
+          TAG_EXISTS: ${{ steps.lookup.outputs.tag_exists }}
+          RELEASE_RUN_EXISTS: ${{ steps.lookup.outputs.release_run_exists }}
+        run: |
+          # Exits 1 with an ::error:: when the version cannot be released as it
+          # stands (lockstep mismatch, or no CHANGELOG section to serve as the
+          # release note). Writes action/tag/version/reason to GITHUB_OUTPUT.
+          node scripts/release/release-state.cjs plan \
+            --tag-exists="$TAG_EXISTS" \
+            --release-run-exists="$RELEASE_RUN_EXISTS"
+
+      - name: Nothing to do
+        if: steps.plan.outputs.action == 'noop'
+        env:
+          REASON: ${{ steps.plan.outputs.reason }}
+        run: echo "::notice title=Auto-release no-op::$REASON"
+
+      - name: Create the annotated tag
+        if: steps.plan.outputs.action == 'tag-and-dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # Annotated, not lightweight: a tag object first, then the ref
+          # pointing at it. Idempotent: if the ref already exists (a
+          # concurrent run won the race), that is the outcome we wanted.
+          message="$VERSION — auto-release on main by $ACTOR. Release note: CHANGELOG.md ## [$VERSION]."
+          tag_sha=$(gh api "repos/$REPO/git/tags" \
+            -f tag="$TAG" -f message="$message" -f object="$SHA" -f type=commit \
+            --jq '.sha')
+          echo "Tag object $tag_sha for $TAG -> $SHA"
+          set +e
+          out=$(gh api "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$tag_sha" 2>&1)
+          rc=$?
+          set -e
+          if [ "$rc" != "0" ]; then
+            if echo "$out" | grep -q "Reference already exists"; then
+              echo "refs/tags/$TAG already exists (created concurrently); continuing."
+            else
+              echo "$out"
+              echo "::error::Could not create refs/tags/$TAG."
+              exit 1
+            fi
+          fi
+          echo "::notice title=Tagged::$TAG now points at $SHA"
+
+      - name: Dispatch release.yml on the tag
+        if: steps.plan.outputs.action == 'tag-and-dispatch' || steps.plan.outputs.action == 'dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # A ref created a second ago can take a moment to become
+          # dispatchable; retry briefly rather than strand a tagged version.
+          reason="auto-release on main by $ACTOR ($RUN_URL)"
+          dispatched=0
+          for attempt in 1 2 3 4 5 6; do
+            if gh workflow run release.yml --ref "$TAG" -f confirm="PUBLISH-$VERSION" -f reason="$reason"; then
+              dispatched=1
+              break
+            fi
+            echo "dispatch attempt $attempt failed; retrying in 10s"
+            sleep 10
+          done
+          if [ "$dispatched" != "1" ]; then
+            echo "::error::Could not dispatch release.yml on $TAG after 6 attempts. The tag exists; re-run this workflow (it will dispatch without re-tagging) or run release.yml by hand with confirm=PUBLISH-$VERSION on ref $TAG."
+            exit 1
+          fi
+          # Surface the run URL so the log links to what will publish.
+          for attempt in 1 2 3 4 5 6; do
+            url=$(gh run list --workflow release.yml --branch "$TAG" --limit 1 --json url --jq '.[0].url // empty')
+            if [ -n "$url" ]; then
+              echo "::notice title=Release dispatched::$TAG -> $url"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::release.yml was dispatched on $TAG but its run has not appeared yet; check the Actions tab."
+
+      - name: Dispatch python-publish.yml on the tag
+        # The tag exists by now (created above, or found by the lookup) and the
+        # plan did not fail; the PyPI publish has never run for it.
+        if: steps.plan.outputs.action != 'fail' && steps.lookup.outputs.python_run_exists != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          reason="auto-release on main by $ACTOR ($RUN_URL)"
+          for attempt in 1 2 3 4 5 6; do
+            if gh workflow run python-publish.yml --ref "$TAG" -f confirm="PUBLISH-$VERSION" -f reason="$reason"; then
+              echo "::notice title=PyPI publish dispatched::python-publish.yml on $TAG"
+              exit 0
+            fi
+            echo "dispatch attempt $attempt failed; retrying in 10s"
+            sleep 10
+          done
+          echo "::error::Could not dispatch python-publish.yml on $TAG after 6 attempts. Re-run this workflow, or run python-publish.yml by hand with confirm=PUBLISH-$VERSION on ref $TAG."
+          exit 1

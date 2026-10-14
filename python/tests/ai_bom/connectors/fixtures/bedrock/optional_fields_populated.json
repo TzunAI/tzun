@@ -1,0 +1,14 @@
+{
+  "recordedAgainst": "boto3-1.35.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "modelId": "meta.llama3-70b-instruct-v1:0",
+    "inferenceConfig": {"temperature": 0.7, "maxTokens": 512, "topP": 0.95},
+    "region": "us-west-2"
+  },
+  "response": {
+    "output": {"message": {"role": "assistant", "content": [{"text": "done"}]}},
+    "stopReason": "end_turn",
+    "usage": {"inputTokens": 20, "outputTokens": 50}
+  }
+}

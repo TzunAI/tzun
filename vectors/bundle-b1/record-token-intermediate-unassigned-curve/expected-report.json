@@ -1,0 +1,203 @@
+{
+  "reportVersion": "tzun-verify-report/1",
+  "bundleVersion": "b1",
+  "subject": {
+    "evidenceId": "a36ceba9-743e-45bc-b173-5d1e15b6256d",
+    "canonicalDigest": "9739ebd76cc45223ccc88920802c9032208f3c09f67fc129a41a769109dead6a"
+  },
+  "inputs": {
+    "trustAnchors": [
+      "535be65e39de04f2848dfaf528d3ad5710e401ccc0e502aaa102c5d421c77e37"
+    ],
+    "evmHeaderSources": [
+      {
+        "chain": "eip155:31337",
+        "finality": "finalized"
+      }
+    ],
+    "publisherManifest": "1599b8db9254d270b390bd0e704ed2ed3b41e048d3397838bb2866f24fce998b",
+    "frameOrigins": null,
+    "vkeys": null,
+    "mdsRoots": null
+  },
+  "checks": [
+    {
+      "id": "bundle",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "subject",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "record.digest",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "record.chainLink",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "custody.ledger",
+      "outcome": "not-checked",
+      "reason": "not_applicable"
+    },
+    {
+      "id": "ts.record.token",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "ts.record.trust",
+      "outcome": "not-checked",
+      "reason": "missing_dependency"
+    },
+    {
+      "id": "signoff.expectation",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "signoff.key",
+      "outcome": "not-checked",
+      "reason": "absent"
+    },
+    {
+      "id": "decider",
+      "outcome": "checked-correct",
+      "facts": {
+        "kind": "human",
+        "scheme": "acct",
+        "level": "human-asserted"
+      }
+    },
+    {
+      "id": "decider.freshness",
+      "outcome": "not-checked",
+      "reason": "absent"
+    },
+    {
+      "id": "contributions",
+      "outcome": "not-checked",
+      "reason": "absent"
+    },
+    {
+      "id": "contributions.binding",
+      "outcome": "not-checked",
+      "reason": "absent"
+    },
+    {
+      "id": "links",
+      "outcome": "not-checked",
+      "reason": "absent"
+    },
+    {
+      "id": "anchor",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.spec",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.checkpoint",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.origin",
+      "outcome": "checked-correct",
+      "facts": {
+        "originAuthenticated": true,
+        "namespace": "test",
+        "chainChecked": true
+      }
+    },
+    {
+      "id": "anchor.leafIndex",
+      "outcome": "checked-correct",
+      "facts": {
+        "leafIndexChecked": true
+      }
+    },
+    {
+      "id": "anchor.inclusion",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.anchorInclusion",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.publication[0]",
+      "outcome": "checked-correct"
+    },
+    {
+      "id": "anchor.evm.tx[0]",
+      "outcome": "checked-correct",
+      "facts": {
+        "transactionId": "0x5a834efc5029cfa477695602c4e2887df485133af0a6c2fe0e84eef2bc56b9a9",
+        "txType": 2,
+        "sender": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+        "signedChainId": "31337"
+      }
+    },
+    {
+      "id": "anchor.evm.canonical[0]",
+      "outcome": "checked-correct",
+      "facts": {
+        "chain": "eip155:31337",
+        "namespace": "test",
+        "network": null,
+        "blockTime": "2026-10-01T16:40:35.000Z",
+        "inclusion": "tx_proof",
+        "finality": "finalized"
+      }
+    },
+    {
+      "id": "anchor.newer",
+      "outcome": "checked-correct",
+      "facts": {
+        "treeSize": 3,
+        "anchorSize": 3
+      }
+    },
+    {
+      "id": "anchor.consistency[test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors]",
+      "outcome": "checked-correct",
+      "facts": {
+        "fromSize": 2,
+        "toSize": 3
+      }
+    },
+    {
+      "id": "anchor.consistency[test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/evidence/616c706861]",
+      "outcome": "checked-correct",
+      "facts": {
+        "fromSize": 2,
+        "toSize": 3
+      }
+    }
+  ],
+  "summary": {
+    "mode": null,
+    "coverage": null,
+    "manifestEnforced": null,
+    "rungs": [],
+    "keyKind": null,
+    "keyAssurance": null,
+    "uv": null,
+    "actorBound": null,
+    "existedBy": {
+      "at": "2026-10-01T16:40:35.000Z",
+      "source": "evm-calldata",
+      "check": "anchor"
+    },
+    "anchorNetwork": null,
+    "anchorNamespace": "test",
+    "anchorOriginAuthenticated": true,
+    "outcomes": {
+      "checked-correct": 20,
+      "checked-wrong": 0,
+      "not-checked": 7,
+      "abstain": 0
+    }
+  }
+}

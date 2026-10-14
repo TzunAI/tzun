@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      # Publish on host port 55432 (not the default 5432), with the default
+      # 0.0.0.0 + [::] bind. The 0.0.0.0 bind lets sibling containers on a
+      # Linux host reach us via the host-gateway (e.g. NAS dev container
+      # using DEV_DB_HOST=host.docker.internal -> 172.17.0.1:55432). The
+      # non-default host port avoids races with other local 5432 listeners
+      # — notably VS Code Remote-SSH auto-forwarding a dev container's 5432
+      # back to the Mac's localhost:5432, which silently steals the host
+      # bind and leaves pg clients timing out on a dead tunnel. Inside the
+      # container Postgres is unchanged on 5432, so container-to-container
+      # wiring only needs to target the new host port. On macOS, demo:full
+      # targets 127.0.0.1:55432 directly, so Colima's flaky IPv6 [::] publish
+      # doesn't bite there either.
+      - "55432:5432"
+    environment:
+      POSTGRES_DB: tzun_dev
+      POSTGRES_PASSWORD: dev
+    volumes:
+      - tzun-pgdata:/var/lib/postgresql/data
+
+volumes:
+  tzun-pgdata:

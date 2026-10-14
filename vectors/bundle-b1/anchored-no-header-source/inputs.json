@@ -1,0 +1,22 @@
+{
+  "publisherManifest": {
+    "publishers": {
+      "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors": [
+        {
+          "address": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+          "chain": "eip155:31337",
+          "namespace": "test"
+        }
+      ]
+    }
+  },
+  "headerSources": {},
+  "trustAnchorsPem": [
+    "-----BEGIN CERTIFICATE-----\nMIIBVzCB/qADAgECAgEBMAoGCCqGSM49BAMCMCMxITAfBgNVBAMTGFR6dW4gQ29y\ncHVzIFRlc3QgUm9vdCBDQTAeFw0yMDAxMDEwMDAwMDBaFw00MDAxMDEwMDAwMDBa\nMCMxITAfBgNVBAMTGFR6dW4gQ29ycHVzIFRlc3QgUm9vdCBDQTBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABNl2xkaA8GH28HD4hQk37q8hA6wCSLWO4Xwt08Az8YdV\nraLAR6WjfcnjfI9+KZbU54CMYwYdJrrMdN0bJwzr2NOjIzAhMA8GA1UdEwEB/wQF\nMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMCA0gAMEUCIQC+RupKzRk3\nwQnzK42J96fSzkKnEQiyIv1VR+aNTqWYLAIgC1ldBp3zQs9idhg+1eSvABpXdwmL\ntnBqq3It7CJPbGk=\n-----END CERTIFICATE-----"
+  ],
+  "regime": {
+    "require": [],
+    "requireRung": [],
+    "allowUnchecked": false
+  }
+}

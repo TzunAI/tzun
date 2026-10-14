@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security or evidence-integrity vulnerability
+    url: https://github.com/TzunAI/tzun/security/advisories/new
+    about: Never file these as public issues. Use a private advisory — see SECURITY.md.
+  - name: 💬 Question, design discussion, or "how do I…"
+    url: https://github.com/TzunAI/tzun/discussions
+    about: Integration advice and open-ended questions belong in Discussions.
+  - name: ✉️ Licensing enquiry
+    url: mailto:licensing@tzun.ai
+    about: No licence to this code is granted; see LICENSE.md.
+  - name: ✉️ Commercial or pilot enquiry
+    url: mailto:hello@tzun.ai
+    about: Anything else that is not a code defect or feature request.

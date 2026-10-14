@@ -1,0 +1,24 @@
+* text=auto eol=lf
+
+# Keep generated and vendored files out of diffs and language stats
+python/src/tzun_sdk/_generated/** linguist-generated=true
+src/routeTree.gen.ts             linguist-generated=true
+pnpm-lock.yaml                   linguist-generated=true -diff
+python/dist/**                   linguist-vendored=true
+
+# Conformance vectors are data, not code — never "fix" their whitespace
+vectors/*.json                   -text
+data/known-models.json           -text
+
+# Certificates and binary fixtures
+*.pem                            binary
+# ...except the TSA trust anchors, which a reviewer has to be able to READ.
+# `binary` suppresses the diff entirely, so adding a root CA showed up in review
+# as "Bin 0 -> 2521 bytes" — the one file in this repo where "trust me, it is
+# the right certificate" is exactly the thing under review. Each of these
+# carries its provenance, fingerprint, serial and validity window in a comment
+# header above the base64, and none of that reaches a reviewer through a
+# suppressed diff. PEM is text; this makes git treat it as text.
+src/attestation/certs/*.pem       text diff
+*.tgz                            binary
+*.whl                            binary

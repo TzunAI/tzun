@@ -1,0 +1,21 @@
+{
+  "name": "@tzun/ts-example",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Minimal end-to-end example app for @tzun/sdk (TypeScript).",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "npx tsx src/index.ts"
+  },
+  "dependencies": {
+    "@tzun/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

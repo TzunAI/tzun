@@ -1,0 +1,203 @@
+{
+  "version": "2026-09-09",
+  "entries": [
+    {
+      "vendor": "openai",
+      "modelName": "gpt-4o",
+      "modelVersion": "2024-08-06",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://platform.openai.com/docs/models/gpt-4o",
+      "trainedBy": "OpenAI"
+    },
+    {
+      "vendor": "openai",
+      "modelName": "gpt-4o-mini",
+      "modelVersion": "2024-07-18",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://platform.openai.com/docs/models/gpt-4o-mini",
+      "trainedBy": "OpenAI"
+    },
+    {
+      "vendor": "openai",
+      "modelName": "gpt-4-turbo",
+      "modelVersion": "2024-04-09",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://platform.openai.com/docs/models/gpt-4-turbo",
+      "trainedBy": "OpenAI"
+    },
+    {
+      "vendor": "openai",
+      "modelName": "o1",
+      "modelVersion": "2024-12-17",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://platform.openai.com/docs/models/o1",
+      "trainedBy": "OpenAI"
+    },
+    {
+      "vendor": "openai",
+      "modelName": "o1-mini",
+      "modelVersion": "2024-09-12",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://platform.openai.com/docs/models/o1-mini",
+      "trainedBy": "OpenAI"
+    },
+    {
+      "vendor": "anthropic",
+      "modelName": "claude-opus-4-7",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.anthropic.com/claude/docs/models-overview",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "anthropic",
+      "modelName": "claude-sonnet-4-6",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.anthropic.com/claude/docs/models-overview",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "anthropic",
+      "modelName": "claude-haiku-4-5",
+      "modelVersion": "20251001",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.anthropic.com/claude/docs/models-overview",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "anthropic",
+      "modelName": "claude-3-5-sonnet",
+      "modelVersion": "20241022",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.anthropic.com/claude/docs/models-overview",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "anthropic",
+      "modelName": "claude-3-5-haiku",
+      "modelVersion": "20241022",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.anthropic.com/claude/docs/models-overview",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "bedrock",
+      "modelName": "anthropic.claude-3-5-sonnet",
+      "modelVersion": "20241022-v2:0",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
+      "trainedBy": "Anthropic"
+    },
+    {
+      "vendor": "bedrock",
+      "modelName": "meta.llama3-1-70b-instruct",
+      "modelVersion": "v1:0",
+      "modelType": "llm",
+      "license": "llama-3.1-community",
+      "modelCardUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
+      "trainedBy": "Meta"
+    },
+    {
+      "vendor": "bedrock",
+      "modelName": "mistral.mistral-large",
+      "modelVersion": "2402-v1:0",
+      "modelType": "llm",
+      "license": "mistral-commercial",
+      "modelCardUrl": "https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
+      "trainedBy": "Mistral AI"
+    },
+    {
+      "vendor": "vertex",
+      "modelName": "gemini-1.5-pro",
+      "modelVersion": "001",
+      "modelType": "llm",
+      "license": "google-commercial",
+      "modelCardUrl": "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models",
+      "trainedBy": "Google"
+    },
+    {
+      "vendor": "vertex",
+      "modelName": "gemini-1.5-flash",
+      "modelVersion": "001",
+      "modelType": "llm",
+      "license": "google-commercial",
+      "modelCardUrl": "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models",
+      "trainedBy": "Google"
+    },
+    {
+      "vendor": "vertex",
+      "modelName": "gemini-2.0-flash-exp",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "google-commercial",
+      "modelCardUrl": "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models",
+      "trainedBy": "Google"
+    },
+    {
+      "vendor": "azure-ai",
+      "modelName": "phi-3-medium-4k-instruct",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://huggingface.co/microsoft/Phi-3-medium-4k-instruct",
+      "trainedBy": "Microsoft"
+    },
+    {
+      "vendor": "azure-ai",
+      "modelName": "mistral-large-2407",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mistral-commercial",
+      "modelCardUrl": "https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-mistral",
+      "trainedBy": "Mistral AI"
+    },
+    {
+      "vendor": "azure-ai",
+      "modelName": "cohere-command-r",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "cohere-commercial",
+      "modelCardUrl": "https://learn.microsoft.com/en-us/azure/ai-studio/how-to/deploy-models-cohere-command",
+      "trainedBy": "Cohere"
+    },
+    {
+      "vendor": "nvidia-nim",
+      "modelName": "meta/llama-3.1-70b-instruct",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "llama-3.1-community",
+      "modelCardUrl": "https://build.nvidia.com/meta/llama-3_1-70b-instruct",
+      "trainedBy": "Meta"
+    },
+    {
+      "vendor": "nvidia-nim",
+      "modelName": "mistralai/mistral-large",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mistral-commercial",
+      "modelCardUrl": "https://build.nvidia.com/mistralai/mistral-large",
+      "trainedBy": "Mistral AI"
+    },
+    {
+      "vendor": "hf-inference",
+      "modelName": "meta-llama/Llama-3.1-70B-Instruct",
+      "modelVersion": "main",
+      "modelType": "llm",
+      "license": "llama-3.1-community",
+      "modelCardUrl": "https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct",
+      "trainedBy": "Meta"
+    }
+  ]
+}

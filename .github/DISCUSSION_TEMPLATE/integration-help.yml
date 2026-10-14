@@ -1,0 +1,22 @@
+title: "[Integration] "
+labels: ["integration"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to capture?
+      description: The decision you want evidence for — who decides, on what AI output, and who checks it later.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode are you integrating?
+      options: ["dev (in-memory)", "local (SQLite/Postgres)", "cloud", "self-hosted", "still deciding"]
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have tried
+      render: typescript

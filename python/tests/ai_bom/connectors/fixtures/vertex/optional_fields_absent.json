@@ -1,0 +1,11 @@
+{
+  "recordedAgainst": "google-cloud-aiplatform 1.65.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "gemini-1.5-pro",
+    "contents": [{"role": "user", "parts": [{"text": "Quick."}]}]
+  },
+  "response": {
+    "candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}}]
+  }
+}

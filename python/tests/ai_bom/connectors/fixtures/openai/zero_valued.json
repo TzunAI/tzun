@@ -1,0 +1,38 @@
+{
+  "recordedAgainst": "openai-python 1.51.0 (synthetic)",
+  "recordedAt": "2026-09-05",
+  "note": "Synthetic fixture. The recorded corpus had no zero-valued or string-form inference parameter, so a connector that dropped a falsy 0 (`params.temperature || undefined`) or mishandled the string form of `stop` diverged between the SDKs with the parity gate still green.",
+  "request": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "temperature": 0,
+    "top_p": 0,
+    "max_tokens": 0,
+    "seed": 0,
+    "stop": [
+      "\n"
+    ]
+  },
+  "response": {
+    "id": "chatcmpl-zero",
+    "model": "gpt-4o-2024-08-06",
+    "system_fingerprint": "fp_zero",
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0
+    },
+    "choices": [
+      {
+        "message": {
+          "role": "assistant",
+          "content": "approve"
+        }
+      }
+    ]
+  }
+}

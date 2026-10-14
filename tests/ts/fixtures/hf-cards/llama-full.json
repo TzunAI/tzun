@@ -1,0 +1,36 @@
+{
+  "_comment": "Synthetic HF API response for tests. Not fetched from huggingface.co.",
+  "modelId": "meta-llama/Llama-3.1-70B-Instruct",
+  "id": "meta-llama/Llama-3.1-70B-Instruct",
+  "sha": "abcdef0123456789abcdef0123456789abcdef01",
+  "license": "llama3.1",
+  "pipeline_tag": "text-generation",
+  "cardData": {
+    "license": "llama3.1",
+    "base_model": "meta-llama/Llama-3.1-70B",
+    "datasets": ["synthetic/test-corpus", "synthetic/instruction-tune"],
+    "pipeline_tag": "text-generation",
+    "language": ["en"],
+    "eval_results": [
+      {
+        "task": { "name": "Reasoning", "type": "text-generation" },
+        "metrics": [
+          { "name": "accuracy", "type": "accuracy", "value": 0.873 },
+          { "name": "exact_match", "type": "exact_match", "value": 0.612 }
+        ]
+      },
+      {
+        "task": { "name": "Reasoning", "type": "text-generation" },
+        "metrics": [
+          { "name": "f1", "type": "f1", "value": 0.701 }
+        ]
+      },
+      {
+        "task": { "name": "Summarization", "type": "summarization" },
+        "metrics": [
+          { "name": "rouge1", "type": "rouge", "value": 0.421 }
+        ]
+      }
+    ]
+  }
+}

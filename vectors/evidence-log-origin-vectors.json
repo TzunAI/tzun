@@ -1,0 +1,234 @@
+{
+  "description": "Evidence-log origins (Anchor §4.3.2). Every implementation computes `origin` from `ns`, `storeId` and `chainId`: TypeScript, SQLite SQL (lower(hex(chain_id))), Postgres SQL (encode(convert_to(chain_id, 'UTF8'), 'hex')) and Python.",
+  "generator": "scripts/generate-evidence-log-origin-vectors.mjs",
+  "rule": {
+    "evidence": "<ns>/<storeId>/evidence/<lowercase hex of the UTF-8 bytes of chainId>",
+    "storeLog": "<ns>/<storeId>/<kind>"
+  },
+  "ns": "local.invalid",
+  "storeId": "3f2a9c4e1b7d6058a1c3e5f7092b4d6e",
+  "vectors": [
+    {
+      "name": "the default chain",
+      "chainId": "default",
+      "chainSegment": "64656661756c74",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/64656661756c74"
+    },
+    {
+      "name": "a lowercase ASCII id",
+      "chainId": "chain-a",
+      "chainSegment": "636861696e2d61",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/636861696e2d61"
+    },
+    {
+      "name": "uppercase ASCII: the bytes, then lowercase hex digits",
+      "chainId": "Tenant-ACME",
+      "chainSegment": "54656e616e742d41434d45",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/54656e616e742d41434d45"
+    },
+    {
+      "name": "a platform-style id",
+      "chainId": "user-4f1e9c",
+      "chainSegment": "757365722d346631653963",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/757365722d346631653963"
+    },
+    {
+      "name": "a space, a plus and a slash, none of which may appear in an origin",
+      "chainId": "a b+c/d",
+      "chainSegment": "6120622b632f64",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/6120622b632f64"
+    },
+    {
+      "name": "a tab",
+      "chainId": "tab\there",
+      "chainSegment": "7461620968657265",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/7461620968657265"
+    },
+    {
+      "name": "two-byte UTF-8, NFC (U+00E9)",
+      "chainId": "café",
+      "chainSegment": "636166c3a9",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/636166c3a9"
+    },
+    {
+      "name": "the same text in NFD (e + U+0301): a different chain",
+      "chainId": "café",
+      "chainSegment": "63616665cc81",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/63616665cc81"
+    },
+    {
+      "name": "U+00FF",
+      "chainId": "ÿ",
+      "chainSegment": "c3bf",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/c3bf"
+    },
+    {
+      "name": "a byte-order mark (U+FEFF)",
+      "chainId": "﻿bom",
+      "chainSegment": "efbbbf626f6d",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/efbbbf626f6d"
+    },
+    {
+      "name": "three-byte UTF-8 (CJK)",
+      "chainId": "日本",
+      "chainSegment": "e697a5e69cac",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/e697a5e69cac"
+    },
+    {
+      "name": "four-byte UTF-8 (a surrogate pair in UTF-16)",
+      "chainId": "😀",
+      "chainSegment": "f09f9880",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/f09f9880"
+    },
+    {
+      "name": "a long id is not truncated",
+      "chainId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "chainSegment": "7878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/evidence/7878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878"
+    }
+  ],
+  "storeLogs": [
+    {
+      "kind": "anchors",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/anchors"
+    },
+    {
+      "kind": "custody",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/custody"
+    },
+    {
+      "kind": "revisions",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/revisions"
+    },
+    {
+      "kind": "policy",
+      "origin": "local.invalid/3f2a9c4e1b7d6058a1c3e5f7092b4d6e/policy"
+    }
+  ],
+  "invalidChainIds": [
+    {
+      "name": "empty",
+      "chainId": "",
+      "reason": "empty_chain_id"
+    },
+    {
+      "name": "a lone high surrogate at the end (a truncated emoji)",
+      "chainId": "bad\ud800",
+      "reason": "invalid_chain_id"
+    },
+    {
+      "name": "a lone low surrogate",
+      "chainId": "x\udfffy",
+      "reason": "invalid_chain_id"
+    },
+    {
+      "name": "a low surrogate before a high one (reversed pair)",
+      "chainId": "\ude00\ud83d",
+      "reason": "invalid_chain_id"
+    },
+    {
+      "name": "U+0000 inside",
+      "chainId": "a\u0000b",
+      "reason": "invalid_chain_id"
+    },
+    {
+      "name": "U+0000 alone",
+      "chainId": "\u0000",
+      "reason": "invalid_chain_id"
+    }
+  ],
+  "namespaces": {
+    "valid": [
+      {
+        "name": "the default",
+        "ns": "local.invalid"
+      },
+      {
+        "name": "a test namespace",
+        "ns": "test.tzun.ai"
+      },
+      {
+        "name": "one label",
+        "ns": "localhost"
+      },
+      {
+        "name": "digits and interior hyphens",
+        "ns": "x-1.b2-c.io"
+      },
+      {
+        "name": "a label of 63 characters",
+        "ns": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example"
+      },
+      {
+        "name": "253 characters",
+        "ns": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ],
+    "invalid": [
+      {
+        "name": "empty",
+        "ns": ""
+      },
+      {
+        "name": "a path (a third origin segment)",
+        "ns": "test.tzun.ai/demo"
+      },
+      {
+        "name": "uppercase",
+        "ns": "Example.COM"
+      },
+      {
+        "name": "punctuation",
+        "ns": "a!b"
+      },
+      {
+        "name": "a plus",
+        "ns": "a+b"
+      },
+      {
+        "name": "a space",
+        "ns": "has space"
+      },
+      {
+        "name": "an underscore",
+        "ns": "a_b.com"
+      },
+      {
+        "name": "a leading dot",
+        "ns": ".example"
+      },
+      {
+        "name": "a trailing dot",
+        "ns": "example."
+      },
+      {
+        "name": "an empty label",
+        "ns": "a..b"
+      },
+      {
+        "name": "a label starting with a hyphen",
+        "ns": "-a.b"
+      },
+      {
+        "name": "a label ending with a hyphen",
+        "ns": "a-.b"
+      },
+      {
+        "name": "a hyphen after a dot",
+        "ns": "a.-b"
+      },
+      {
+        "name": "non-ASCII",
+        "ns": "café.example"
+      },
+      {
+        "name": "a label of 64 characters",
+        "ns": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example"
+      },
+      {
+        "name": "254 characters",
+        "ns": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    ]
+  }
+}

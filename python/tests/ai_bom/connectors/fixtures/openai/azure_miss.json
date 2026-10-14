@@ -1,0 +1,16 @@
+{
+  "recordedAgainst": "openai-python 1.51.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "unknown-custom-deployment-xyz",
+    "messages": [{"role": "user", "content": "Azure miss check."}],
+    "__tzunIsAzure": true,
+    "azure_endpoint": "https://mycompany.openai.azure.com"
+  },
+  "response": {
+    "id": "chatcmpl-az-miss",
+    "model": "unknown-custom-deployment-xyz",
+    "usage": {"prompt_tokens": 8, "completion_tokens": 3},
+    "choices": [{"message": {"role": "assistant", "content": "response"}}]
+  }
+}

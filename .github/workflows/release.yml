@@ -1,0 +1,620 @@
+name: Release
+
+# Publishes @tzun/engine and @tzun/sdk to npmjs.com from a v<version> tag.
+#
+#   authorize       no package is marked unpublishable ("private": true in
+#                   either package.json, or the classifier
+#                   "Private :: Do Not Upload" in python/pyproject.toml), the
+#                   ref is a v*.*.* tag of the public repository, the actor
+#                   is on the RELEASE_ACTORS allowlist, a manual run carries the
+#                   PUBLISH-<version> confirmation, the tag names the version in
+#                   package.json, packages/engine/package.json and
+#                   python/pyproject.toml (the three move in lockstep), and the
+#                   tagged commit is reachable from main.
+#   build           install, audit, build and test, then `pnpm pack` in each
+#                   package. The two tarballs are what ships: their manifests
+#                   are checked, they are unpacked and scanned for secrets
+#                   (detect-secrets) and for references a public reader cannot
+#                   follow (scripts/check-public-hygiene.sh), and they are kept
+#                   as this run's artifact. This job holds no OIDC capability.
+#   publish         waits for the reviewers of the `npm` environment, then
+#                   stages the engine and then the SDK on npm with trusted
+#                   publishing (OIDC): no npm token exists anywhere, and npm
+#                   attaches this run's provenance. A staged version becomes
+#                   installable only when a maintainer approves it on
+#                   npmjs.com with two-factor authentication. This job installs
+#                   nothing from the repository and runs no package script: it
+#                   uploads the bytes the build job scanned.
+#   github-release  a draft GitHub Release whose body is the CHANGELOG
+#                   `## [<version>]` section. A maintainer publishes it once
+#                   both staged packages are approved.
+#
+# The Python package (tzun-sdk on PyPI) is published from the same tag by
+# python-publish.yml.
+#
+# A release normally starts from auto-release.yml: merging a version bump to
+# main tags it and dispatches this workflow and python-publish.yml on the tag.
+# A tag created with the workflow token does not trigger `on: push: tags`, so
+# the dispatch is explicit. A hand-pushed v*.*.* tag runs the same jobs.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PUBLISH-<version> exactly (e.g. PUBLISH-0.8.2) to confirm'
+        required: true
+      reason:
+        description: 'Reason for manual run (auto-release.yml sets "auto-release on main by <actor> (<run url>)")'
+        required: false
+        default: 'Manual dispatch'
+
+permissions:
+  contents: read
+
+concurrency:
+  # One release run per tag at a time; never cancel one that may be staging.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Release authorization gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history + all refs: the ancestry check below needs
+          # origin/main locally.
+          fetch-depth: 0
+
+      - name: Refuse to publish while a package is marked unpublishable
+        run: |
+          # npm refuses to publish a package whose package.json sets
+          # "private": true, and PyPI refuses an upload that carries the
+          # classifier "Private :: Do Not Upload". While package.json,
+          # packages/engine/package.json or python/pyproject.toml carries
+          # either, this step stops the release before anything is built.
+          off=""
+          for pkg in package.json packages/engine/package.json; do
+            # A package.json that cannot be read counts as unpublishable.
+            private=$(node -p "Boolean(require('./$pkg').private)" 2>/dev/null || true)
+            if [ "$private" != "false" ]; then
+              off="$off $pkg sets private;"
+            fi
+          done
+          if ! [ -f python/pyproject.toml ] || grep -Fq 'Private :: Do Not Upload' python/pyproject.toml; then
+            off="$off python/pyproject.toml carries Private :: Do Not Upload;"
+          fi
+          if [ -n "$off" ]; then
+            echo "::error::Publishing is off while a package is marked unpublishable: see LICENSE.md.$off"
+            exit 1
+          fi
+
+      - name: Require the public repository
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          # npm provenance links a package to its source repository and the
+          # workflow run that built it, which a consumer can check only while
+          # both are public; releases therefore run only once this repository is.
+          if [ "$PRIVATE" != "false" ]; then
+            echo "::error::Releases publish from the public repository only (repository.private is '$PRIVATE')."
+            exit 1
+          fi
+
+      - name: Require a tag ref
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Refusing to publish from a $REF_TYPE ref ($REF_NAME). Releases run from a v*.*.* tag only."
+            exit 1
+          fi
+
+      - name: Require an authorized release actor
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          REASON: ${{ inputs.reason }}
+          # Required repository variable: comma-separated GitHub logins.
+          # There is no default; unset or empty refuses every actor.
+          ALLOWED: ${{ vars.RELEASE_ACTORS }}
+        run: |
+          allowed="${ALLOWED:-}"
+          if [ -z "$(printf '%s' "$allowed" | tr -d '[:space:],')" ]; then
+            echo "::error::The RELEASE_ACTORS repository variable is not set. Set it to the comma-separated GitHub logins allowed to release (Settings > Secrets and variables > Actions > Variables). Nothing is published until it is."
+            exit 1
+          fi
+          echo "Actor: $ACTOR; event: $EVENT; allowed: $allowed"
+          match=0
+          IFS=','
+          for who in $allowed; do
+            who="$(echo "$who" | tr -d '[:space:]')"
+            [ -n "$who" ] && [ "$who" = "$ACTOR" ] && match=1
+          done
+          unset IFS
+          # auto-release.yml dispatches this workflow with the runner's
+          # GITHUB_TOKEN after a push to main. GitHub attributes such a run
+          # either to the user whose push started auto-release (matched
+          # above) or to github-actions[bot]. The bot is accepted only on a
+          # workflow_dispatch that names auto-release as its reason, and
+          # auto-release itself refuses to tag or dispatch unless the actor
+          # who pushed main is on this same allowlist. Anyone dispatching by
+          # hand appears under their own login and is matched above or refused.
+          if [ "$match" != "1" ] && [ "$EVENT" = "workflow_dispatch" ] && [ "$ACTOR" = "github-actions[bot]" ]; then
+            case "$REASON" in
+              "auto-release on main by "*)
+                echo "Dispatched by auto-release.yml ($REASON); accepting the workflow token as the actor."
+                match=1
+                ;;
+            esac
+          fi
+          if [ "$match" != "1" ]; then
+            echo "::error::$ACTOR is not an authorized release actor. The RELEASE_ACTORS repository variable holds the allowlist."
+            exit 1
+          fi
+
+      - name: Require an explicit confirmation token on manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          expected="PUBLISH-${REF_NAME#v}"
+          if [ "$CONFIRM" != "$expected" ]; then
+            echo "::error::Confirmation token mismatch. Type '$expected' exactly to publish $REF_NAME."
+            exit 1
+          fi
+
+      - name: Require the tag to name the version being published
+        id: versions
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Without this, a tag pushed on an unbumped tree runs the whole
+          # pipeline against the previous version and stops at the "already
+          # published" guard, having shipped nothing.
+          SDK_VERSION=$(node -p "require('./package.json').version")
+          ENGINE_VERSION=$(node -p "require('./packages/engine/package.json').version")
+          PY_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')
+          if ! printf '%s\n' "$SDK_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::package.json version ${SDK_VERSION} is not a plain MAJOR.MINOR.PATCH version."
+            exit 1
+          fi
+          if [ "v${SDK_VERSION}" != "$REF_NAME" ]; then
+            echo "::error::Tag $REF_NAME does not match package.json version ${SDK_VERSION}. Bump the version in the release commit."
+            exit 1
+          fi
+          # @tzun/sdk depends on @tzun/engine through `workspace:*`, which
+          # pnpm pack rewrites to the engine's exact version. If the two drift,
+          # the published SDK points at an engine version this tag never
+          # publishes.
+          if [ "$ENGINE_VERSION" != "$SDK_VERSION" ]; then
+            echo "::error::@tzun/engine is at ${ENGINE_VERSION} but @tzun/sdk is at ${SDK_VERSION}. Both must move together."
+            exit 1
+          fi
+          # tzun-sdk on PyPI carries the same version as the npm packages;
+          # python-publish.yml publishes it from this same tag.
+          if [ "$PY_VERSION" != "$SDK_VERSION" ]; then
+            echo "::error::python/pyproject.toml is at ${PY_VERSION} but @tzun/sdk is at ${SDK_VERSION}. The npm and PyPI packages move together."
+            exit 1
+          fi
+          echo "version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Require the tagged commit to be reachable from main
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          # A tag can be pushed at any commit on any branch. Without this, a
+          # tag on an unreviewed commit publishes it.
+          # Peel first: on a workflow_dispatch against an annotated tag ref
+          # (auto-release.yml's path) the SHA must be the tagged commit, not
+          # the tag object, or merge-base answers "not an ancestor".
+          commit=$(git rev-parse --verify "$SHA^{commit}")
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$SHA is not an ancestor of origin/main. Merge the release commit to main before tagging it."
+            exit 1
+          fi
+
+  build:
+    name: Build, test, pack and scan @tzun/engine and @tzun/sdk
+    runs-on: ubuntu-latest
+    needs: authorize
+    permissions:
+      contents: read
+    outputs:
+      engine_tarball: ${{ steps.pack.outputs.engine_tarball }}
+      sdk_tarball: ${{ steps.pack.outputs.sdk_tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    env:
+      VERSION: ${{ needs.authorize.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The full history, for the public hygiene step below: its commit-ref
+          # rule accepts a "commit <sha>" citation in a file only when that
+          # commit is in the clone (`git cat-file`), and a shallow clone holds
+          # just the tagged commit, so every older citation would be flagged.
+          fetch-depth: 0
+
+      - name: Setup Node 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      - name: Setup Python 3.11 (detect-secrets)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm audit (high severity blocks)
+        # Only high and critical advisories fail the release. pnpm, not npm:
+        # this is a pnpm workspace with no package-lock.json, where
+        # `npm audit` errors ENOLOCK.
+        run: pnpm audit --audit-level high --prod
+
+      - name: Public hygiene of the tagged tree
+        run: scripts/check-public-hygiene.sh tree
+
+      - name: Build @tzun/engine
+        run: pnpm --filter @tzun/engine build
+
+      - name: Test @tzun/engine
+        run: pnpm --filter @tzun/engine test
+
+      - name: Type check SDK
+        run: npx tsc --noEmit
+
+      - name: Run TS tests
+        run: pnpm test
+
+      - name: Build SDK
+        run: pnpm run build
+
+      - name: Pack both packages
+        id: pack
+        # pnpm pack, never npm pack: @tzun/sdk depends on @tzun/engine through
+        # `workspace:*`, which pnpm rewrites to the engine's exact version in
+        # the packed package.json. npm would ship the workspace specifier
+        # verbatim, which no consumer can resolve.
+        run: |
+          out="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$out"
+          (cd packages/engine && pnpm pack --pack-destination "$out")
+          pnpm pack --pack-destination "$out"
+          engine="tzun-engine-${VERSION}.tgz"
+          sdk="tzun-sdk-${VERSION}.tgz"
+          for t in "$engine" "$sdk"; do
+            if [ ! -f "$out/$t" ]; then
+              echo "::error::pnpm pack did not write $t."
+              ls -la "$out"
+              exit 1
+            fi
+            echo "::group::$t"
+            tar -tzvf "$out/$t"
+            echo "::endgroup::"
+          done
+          (cd "$out" && sha256sum "$engine" "$sdk" > SHA256SUMS && cat SHA256SUMS)
+          {
+            echo "engine_tarball=$engine"
+            echo "sdk_tarball=$sdk"
+            echo "sha256=$(sha256sum "$out/SHA256SUMS" | cut -d' ' -f1)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check the packed manifests
+        env:
+          ENGINE_TARBALL: ${{ steps.pack.outputs.engine_tarball }}
+          SDK_TARBALL: ${{ steps.pack.outputs.sdk_tarball }}
+        run: |
+          # What npm will read: the package.json inside each tarball. npm
+          # provenance requires repository.url to name this repository.
+          # The node program is single-quoted on purpose (SC2016).
+          # shellcheck disable=SC2016
+          check() {
+            tar -xzOf "$RUNNER_TEMP/npm-pack/$1" package/package.json | node -e '
+              const [name, version, repo] = process.argv.slice(1);
+              const p = JSON.parse(require("fs").readFileSync(0, "utf8"));
+              const errors = [];
+              if (p.name !== name) errors.push(`name is ${p.name}, expected ${name}`);
+              if (p.version !== version) errors.push(`version is ${p.version}, expected ${version}`);
+              if (p.license !== "SEE LICENSE IN LICENSE.md") errors.push(`license is ${p.license}, expected SEE LICENSE IN LICENSE.md`);
+              if (p.private) errors.push("private is set");
+              const url = p.repository && (typeof p.repository === "string" ? p.repository : p.repository.url);
+              if (url !== repo) errors.push(`repository.url is ${url}, expected ${repo}`);
+              for (const field of ["dependencies", "peerDependencies", "optionalDependencies"]) {
+                for (const [dep, spec] of Object.entries(p[field] || {})) {
+                  if (String(spec).startsWith("workspace:")) errors.push(`${field}.${dep} is still ${spec}`);
+                }
+              }
+              if (name === "@tzun/sdk" && (p.dependencies || {})["@tzun/engine"] !== version) {
+                errors.push(`dependencies["@tzun/engine"] is ${(p.dependencies || {})["@tzun/engine"]}, expected exactly ${version}`);
+              }
+              if (errors.length) {
+                for (const e of errors) console.log(`::error::${name}: ${e}`);
+                process.exit(1);
+              }
+              console.log(`${name}@${version}: manifest OK`);
+            ' "$2" "$VERSION" "git+https://github.com/${GITHUB_REPOSITORY}.git"
+          }
+          check "$ENGINE_TARBALL" "@tzun/engine"
+          check "$SDK_TARBALL" "@tzun/sdk"
+
+      - name: Unpack both tarballs for scanning
+        env:
+          ENGINE_TARBALL: ${{ steps.pack.outputs.engine_tarball }}
+          SDK_TARBALL: ${{ steps.pack.outputs.sdk_tarball }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-scan/engine" "$RUNNER_TEMP/npm-scan/sdk"
+          tar -xzf "$RUNNER_TEMP/npm-pack/$ENGINE_TARBALL" -C "$RUNNER_TEMP/npm-scan/engine"
+          tar -xzf "$RUNNER_TEMP/npm-pack/$SDK_TARBALL" -C "$RUNNER_TEMP/npm-scan/sdk"
+
+      - name: Secret scan of the tarball contents (detect-secrets)
+        run: |
+          python -m pip install --upgrade "pip==26.2.1"
+          python -m pip install "detect-secrets==1.5.0"
+          report="$RUNNER_TEMP/npm-pack/secret-scan-report.json"
+          detect-secrets scan --all-files "$RUNNER_TEMP/npm-scan" > "$report"
+          findings=$(python -c "import json, sys; d = json.load(open(sys.argv[1])); print(sum(len(v) for v in d.get('results', {}).values()))" "$report")
+          echo "detect-secrets findings: $findings"
+          if [ "$findings" != "0" ]; then
+            echo "::error::Secrets detected in the tarball contents; refusing to publish."
+            cat "$report"
+            exit 1
+          fi
+
+      - name: Public hygiene of the tarball contents
+        run: |
+          # Everything that ships, including the built dist/ files that git
+          # never tracks. Each text file is checked on its own, labelled with
+          # its path inside the tarball; binary files are skipped.
+          fail=0
+          checked=0
+          while IFS= read -r -d '' f; do
+            grep -Iq . "$f" || continue
+            checked=$((checked + 1))
+            label="npm/${f#"$RUNNER_TEMP/npm-scan/"}"
+            if ! out=$(scripts/check-public-hygiene.sh text "$label" < "$f" 2>&1); then
+              printf '%s\n' "$out"
+              fail=1
+            fi
+          done < <(find "$RUNNER_TEMP/npm-scan" -type f -print0 | sort -z)
+          echo "public hygiene: $checked text files checked"
+          if [ "$checked" = "0" ]; then
+            echo "::error::No files to check; the tarballs did not unpack."
+            exit 1
+          fi
+          if [ "$fail" != "0" ]; then
+            echo "::error::The tarballs carry text a public reader cannot follow; refusing to publish."
+            exit 1
+          fi
+
+      - name: Keep the tarballs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-tarballs
+          path: |
+            ${{ runner.temp }}/npm-pack/*.tgz
+            ${{ runner.temp }}/npm-pack/SHA256SUMS
+            ${{ runner.temp }}/npm-pack/secret-scan-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: Stage @tzun/engine, then @tzun/sdk, on npm
+    # Trusted publishing works from GitHub-hosted runners only.
+    runs-on: ubuntu-latest
+    needs: [authorize, build]
+    # npm's trusted publisher for each package names this workflow file and
+    # this environment, whose required reviewers approve the deployment.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@tzun/sdk
+    permissions:
+      contents: read
+      # The OIDC token npm exchanges for a short-lived publish credential,
+      # and signs the provenance statement with. This job only.
+      id-token: write
+    env:
+      VERSION: ${{ needs.authorize.outputs.version }}
+      ENGINE_TARBALL: ${{ needs.build.outputs.engine_tarball }}
+      SDK_TARBALL: ${{ needs.build.outputs.sdk_tarball }}
+      REGISTRY: https://registry.npmjs.org/
+      # npm stage publish needs npm 11.15.0 or later; Node 22's bundled npm is
+      # older. The tarball is checked against this integrity before install.
+      NPM_VERSION: 11.21.0
+      NPM_INTEGRITY: sha512-Zov8KhamNneiLdELtj5YALtNmJW4L4fCLTzjfpzXG2w6MSHcf0UxgdlK5uloCuksWT+7mGUU7wi79cO6RqivPg==
+
+    steps:
+      - name: Setup Node 22
+        # No registry-url: that writes an .npmrc expecting NODE_AUTH_TOKEN.
+        # Trusted publishing needs neither; npmjs.com is npm's default.
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          # Nothing is installed from a lockfile here, and nothing a previous
+          # run cached is read.
+          package-manager-cache: false
+
+      - name: Install the pinned npm CLI
+        run: |
+          cd "$RUNNER_TEMP"
+          npm pack "npm@${NPM_VERSION}" --registry "$REGISTRY" --silent
+          got="sha512-$(openssl dgst -sha512 -binary "npm-${NPM_VERSION}.tgz" | base64 -w0)"
+          if [ "$got" != "$NPM_INTEGRITY" ]; then
+            echo "::error::npm-${NPM_VERSION}.tgz has integrity $got, expected $NPM_INTEGRITY."
+            exit 1
+          fi
+          npm install --global --ignore-scripts "./npm-${NPM_VERSION}.tgz"
+
+      - name: Require Node 22.14 or later and the pinned npm
+        run: |
+          node --version
+          npm --version
+          # shellcheck disable=SC2016
+          node -e '
+            const at = (v) => v.replace(/^v/, "").split(".").map(Number);
+            const ge = (a, b) => a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
+            const [nodeV, npmV, pinned] = process.argv.slice(1);
+            if (!ge(at(nodeV), [22, 14, 0])) { console.log(`::error::Node ${nodeV} is older than 22.14.0, which trusted publishing needs.`); process.exit(1); }
+            if (npmV !== pinned) { console.log(`::error::npm is ${npmV}, expected ${pinned}.`); process.exit(1); }
+          ' "$(node --version)" "$(npm --version)" "$NPM_VERSION"
+
+      - name: Fetch the scanned tarballs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/npm-pack
+
+      - name: Require the bytes the build job scanned
+        env:
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          cd "$RUNNER_TEMP/npm-pack"
+          got=$(sha256sum SHA256SUMS | cut -d' ' -f1)
+          if [ "$got" != "$SHA256" ]; then
+            echo "::error::SHA256SUMS changed between the build and publish jobs."
+            exit 1
+          fi
+          sha256sum --check SHA256SUMS
+
+      - name: Check if the engine version is already published (idempotency guard)
+        id: engine_version_check
+        run: |
+          echo "Checking @tzun/engine@${VERSION} on $REGISTRY ..."
+          set +e
+          published=$(npm view "@tzun/engine@${VERSION}" version --registry "$REGISTRY" 2>/dev/null)
+          rc=$?
+          set -e
+          if [ "$rc" = "0" ] && [ -n "$published" ]; then
+            # On a first attempt this means the version was never bumped: the
+            # run would go green having shipped nothing. Only a re-run of a
+            # partially failed attempt gets the no-op.
+            if [ "${GITHUB_RUN_ATTEMPT:-1}" = "1" ]; then
+              echo "::error::@tzun/engine@${VERSION} is already published. This run would publish nothing and still report success. Bump the versions and tag again."
+              exit 1
+            fi
+            echo "@tzun/engine@${VERSION} is already published and this is run attempt ${GITHUB_RUN_ATTEMPT}; treating it as a no-op so a partially failed release can be re-run."
+            echo "skip_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "@tzun/engine@${VERSION} is not published yet; proceeding."
+            echo "skip_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stage @tzun/engine on npm
+        if: steps.engine_version_check.outputs.skip_publish != 'true'
+        # First: the SDK's packed package.json names this exact engine version.
+        # Staging uploads the version in a non-public state; it is installable
+        # once a maintainer approves it on npmjs.com (two-factor
+        # authentication). Approve the engine before the SDK.
+        run: npm stage publish "$RUNNER_TEMP/npm-pack/$ENGINE_TARBALL" --access public --provenance --registry "$REGISTRY"
+        # Without staging (the trusted publisher allowing `npm publish`, and
+        # the version going live with no approval on npm), this step would be:
+        #   run: npm publish "$RUNNER_TEMP/npm-pack/$ENGINE_TARBALL" --access public --provenance --registry "$REGISTRY"
+
+      - name: Check if the SDK version is already published (idempotency guard)
+        id: sdk_version_check
+        run: |
+          echo "Checking @tzun/sdk@${VERSION} on $REGISTRY ..."
+          set +e
+          published=$(npm view "@tzun/sdk@${VERSION}" version --registry "$REGISTRY" 2>/dev/null)
+          rc=$?
+          set -e
+          if [ "$rc" = "0" ] && [ -n "$published" ]; then
+            if [ "${GITHUB_RUN_ATTEMPT:-1}" = "1" ]; then
+              echo "::error::@tzun/sdk@${VERSION} is already published. This run would publish nothing and still report success. Bump the versions and tag again."
+              exit 1
+            fi
+            echo "@tzun/sdk@${VERSION} is already published and this is run attempt ${GITHUB_RUN_ATTEMPT}; treating it as a no-op so a partially failed release can be re-run."
+            echo "skip_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "@tzun/sdk@${VERSION} is not published yet; proceeding."
+            echo "skip_publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stage @tzun/sdk on npm
+        if: steps.sdk_version_check.outputs.skip_publish != 'true'
+        run: npm stage publish "$RUNNER_TEMP/npm-pack/$SDK_TARBALL" --access public --provenance --registry "$REGISTRY"
+        # Without staging:
+        #   run: npm publish "$RUNNER_TEMP/npm-pack/$SDK_TARBALL" --access public --provenance --registry "$REGISTRY"
+
+      - name: What happens next
+        run: |
+          {
+            echo "### @tzun/engine@${VERSION} and @tzun/sdk@${VERSION} are staged on npm"
+            echo
+            echo "1. Approve @tzun/engine@${VERSION}, then @tzun/sdk@${VERSION}, on npmjs.com (each package's Staged Packages tab, or \`npm stage approve <stage-id>\`); both ask for two-factor authentication."
+            echo "2. Check that python-publish.yml published tzun-sdk ${VERSION} for this tag."
+            echo "3. Publish the draft GitHub Release ${GITHUB_REF_NAME}."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------
+  # GitHub Release.
+  #
+  # Runs only after both packages are staged. The Release is a draft: the
+  # packages are not installable until a maintainer approves them on npm, so
+  # the Release is published by hand after that approval.
+  # ---------------------------------------------------------------------
+  github-release:
+    name: Draft the GitHub Release from the CHANGELOG section
+    runs-on: ubuntu-latest
+    needs: [authorize, publish]
+    permissions:
+      contents: write   # gh release create; this job only
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Extract the release note from CHANGELOG.md
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # The `## [<version>]` section is the release note. auto-release.yml
+          # checks for it before tagging, so a missing section fails here only
+          # for a hand-pushed tag. A re-run reads the same tagged commit, so
+          # the Release is then written by hand; the packages are staged
+          # either way.
+          node scripts/release/release-state.cjs notes "${REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
+          echo "::group::Release note"
+          cat "$RUNNER_TEMP/release-notes.md"
+          echo "::endgroup::"
+          # A Release body is public, and GitHub turns a bare #N in it into a
+          # link to this repository's issue N.
+          scripts/check-public-hygiene.sh text "release note" < "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create the draft GitHub Release (idempotent)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$REPO" --json tagName --jq '.tagName' >/dev/null 2>&1; then
+            echo "Release $TAG already exists; not recreating it."
+            exit 0
+          fi
+          gh release create "$TAG" --repo "$REPO" --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag --draft
+          echo "::notice title=Draft GitHub Release::$TAG drafted from the CHANGELOG section. Publish it once both staged npm packages are approved."

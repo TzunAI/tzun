@@ -1,0 +1,5 @@
+{
+  "_comment": "Synthetic minimal HF API response — only modelId and sha known.",
+  "modelId": "synthetic-org/bert-tiny-test",
+  "sha": "0011223344556677889900aabbccddeeff001122"
+}

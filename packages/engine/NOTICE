@@ -1,0 +1,18 @@
+Tzun
+Copyright 2026 Tzun, Inc. All rights reserved.
+
+The source code is published so that it can be read. No licence is granted to
+copy, modify, distribute or use it. For a licence, contact licensing@tzun.ai.
+
+PATENTS
+
+Tzun, Inc. owns United States patent applications covering aspects of the
+methods implemented here. No licence under them is granted.
+
+OTHER TERMS
+
+The conformance vectors in vectors/ are CC0-1.0. The root certificates in
+src/attestation/certs/ belong to the authorities that issued them. The code of
+conduct in CODE_OF_CONDUCT.md, the Contributor Covenant 2.1, is CC-BY-4.0.
+
+This notice is descriptive. LICENSE.md governs.

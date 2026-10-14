@@ -1,0 +1,37 @@
+{
+  "recordedAgainst": "anthropic-python 0.34.0 (synthetic)",
+  "recordedAt": "2026-09-05",
+  "note": "Synthetic fixture. The recorded corpus had no zero-valued or string-form inference parameter, so a connector that dropped a falsy 0 (`params.temperature || undefined`) or mishandled the string form of `stop` diverged between the SDKs with the parity gate still green.",
+  "request": {
+    "model": "claude-3-5-sonnet-20240620",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "max_tokens": 0,
+    "temperature": 0,
+    "top_p": 0,
+    "stop_sequences": [
+      "\n\nHuman:"
+    ]
+  },
+  "response": {
+    "id": "msg_zero",
+    "model": "claude-3-5-sonnet-20240620",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "approved"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  }
+}

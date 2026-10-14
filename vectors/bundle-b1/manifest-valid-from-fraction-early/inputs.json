@@ -1,0 +1,46 @@
+{
+  "publisherManifest": {
+    "publishers": {
+      "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors": [
+        {
+          "address": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+          "chain": "eip155:31337",
+          "namespace": "test",
+          "validFrom": "2026-10-01T16:40:34.0005Z"
+        }
+      ]
+    }
+  },
+  "headerSources": {
+    "eip155:31337": {
+      "chainId": 31337,
+      "finality": "finalized",
+      "finalizedBlockNumber": 13,
+      "blocks": [
+        {
+          "number": 1,
+          "hash": "0xe5bda5214c8bbe280e0c0368bc616459e31dcaf4659973f7d92e4760e88d6cdb",
+          "timestamp": 1790872835
+        },
+        {
+          "number": 5,
+          "hash": "0x24c44fe7559e7e8e3e81944ad7944687d5b261c54d44fb03edd6cd07e14a5d64",
+          "timestamp": 1790872835
+        },
+        {
+          "number": 11,
+          "hash": "0x4b514266c983ed654305958b8547c793d5f482ac686370406691db3e7f223315",
+          "timestamp": 1790872835
+        }
+      ]
+    }
+  },
+  "trustAnchorsPem": [
+    "-----BEGIN CERTIFICATE-----\nMIIBVzCB/qADAgECAgEBMAoGCCqGSM49BAMCMCMxITAfBgNVBAMTGFR6dW4gQ29y\ncHVzIFRlc3QgUm9vdCBDQTAeFw0yMDAxMDEwMDAwMDBaFw00MDAxMDEwMDAwMDBa\nMCMxITAfBgNVBAMTGFR6dW4gQ29ycHVzIFRlc3QgUm9vdCBDQTBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABNl2xkaA8GH28HD4hQk37q8hA6wCSLWO4Xwt08Az8YdV\nraLAR6WjfcnjfI9+KZbU54CMYwYdJrrMdN0bJwzr2NOjIzAhMA8GA1UdEwEB/wQF\nMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMCA0gAMEUCIQC+RupKzRk3\nwQnzK42J96fSzkKnEQiyIv1VR+aNTqWYLAIgC1ldBp3zQs9idhg+1eSvABpXdwmL\ntnBqq3It7CJPbGk=\n-----END CERTIFICATE-----"
+  ],
+  "regime": {
+    "require": [],
+    "requireRung": [],
+    "allowUnchecked": false
+  }
+}

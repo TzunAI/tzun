@@ -1,0 +1,13 @@
+{
+  "recordedAgainst": "azure-ai-inference 1.0.0b3",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "Phi-3-mini-4k-instruct",
+    "messages": [{"role": "user", "content": "Quick."}]
+  },
+  "response": {
+    "id": "chatcmpl-az-ai-3",
+    "model": "Phi-3-mini-4k-instruct",
+    "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+  }
+}

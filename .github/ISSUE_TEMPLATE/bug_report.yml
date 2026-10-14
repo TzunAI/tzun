@@ -1,0 +1,70 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Stop** if this is a security or evidence-integrity issue — if a verifier
+        returns success without verifying, or evidence can be forged or altered,
+        report it privately via [SECURITY.md](../../SECURITY.md) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest script or test that shows it. A failing test is ideal.
+        Redact payload contents — we need the shape, not your data.
+      render: typescript
+    validations:
+      required: true
+  - type: input
+    id: sdk-version
+    attributes:
+      label: "SDK version (@tzun/sdk, or tzun-sdk for Python)"
+      placeholder: "0.8.2"
+    validations:
+      required: true
+  - type: input
+    id: engine-version
+    attributes:
+      label: "@tzun/engine version"
+      description: This should match the SDK version (TypeScript only; write "n/a" for Python). If it doesn't, say so — that is often the bug.
+      placeholder: "0.8.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      options: ["dev (in-memory)", "local (SQLite)", "local/self-hosted (Postgres)", "cloud", "not sure"]
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: SDK
+      options: ["TypeScript", "Python", "both"]
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and version
+      placeholder: "Node 22.4.0 / Python 3.12.3"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: >
+        Concurrency involved? Long-lived process? Restart or redeploy just before?
+        Multiple chains in one store? These details resolve most integrity reports.

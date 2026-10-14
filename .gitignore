@@ -1,0 +1,41 @@
+node_modules/
+dist/
+*.js
+*.d.ts
+*.js.map
+!jest.config.js
+!jest.anvil.config.js
+.DS_Store
+
+# Environment and secrets
+.env
+.env.*
+.envrc
+
+# npm credentials: never commit a credential-bearing .npmrc.
+.npmrc
+
+# SQLite databases (the local default ./tzun.db is recreated at runtime)
+*.db
+tzun.db-*
+
+# Git worktrees
+.worktrees/
+
+# Browser-automation debug output
+.playwright-mcp/
+mobile-*.png
+
+# Python build artifacts and virtualenvs. python/dist/ is never tracked: the
+# release workflow builds the wheel and sdist from the tag.
+python/.venv/
+python/build/
+python/dist/
+python/src/*.egg-info/
+__pycache__/
+*.pyc
+.venv-*/
+python/.pytest_cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

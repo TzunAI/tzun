@@ -1,0 +1,133 @@
+[project]
+name = "tzun-sdk"
+version = "0.8.2"
+description = "Tzun Python SDK — forensic evidence infrastructure for AI decisions"
+authors = [{ name = "Tzun, Inc.", email = "oss@tzun.ai" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = "LicenseRef-Tzun-All-Rights-Reserved"
+license-files = ["LICENSE.md", "NOTICE"]
+keywords = ["evidence", "cryptographic", "attestation", "ai-bom", "compliance"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: Security :: Cryptography",
+  # PyPI refuses any upload that carries this classifier.
+  "Private :: Do Not Upload",
+]
+dependencies = [
+  "pydantic >= 2.14.1",
+  "httpx >= 0.28.1",
+  "anyio >= 4.15.1",
+  "typer >= 0.27.3",
+  "rich >= 15.0.0",
+  "cryptography >= 50.0.2",
+  "webauthn >= 3.0.1",
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg >= 0.32.0", "psycopg[binary] >= 3.3.6", "psycopg_pool >= 3.3.3"]
+sqlite = ["aiosqlite >= 0.22.1"]
+rfc3161 = ["rfc3161-client >= 1.0.9"]
+sigstore = ["sigstore >= 4.5.0"]
+# EVM anchor verification (tzun_sdk.attestation.evm_transaction): secp256k1 public-key
+# recovery through libsecp256k1, and Keccak-256, which hashlib does not provide.
+anchor = ["coincurve >= 21.0", "pycryptodomex >= 3.24.1"]
+all = ["tzun-sdk[postgres,sqlite,rfc3161,sigstore,anchor]"]
+
+[project.urls]
+Homepage = "https://tzun.ai"
+Source = "https://github.com/TzunAI/tzun"
+Documentation = "https://github.com/TzunAI/tzun/tree/main/docs"
+Issues = "https://github.com/TzunAI/tzun/issues"
+
+[project.scripts]
+tzun = "tzun_sdk.cli.main:main"
+
+[dependency-groups]
+dev = [
+  "packaging >= 26.3",
+  "pytest >= 9.1.1",
+  "pytest-asyncio >= 1.4.0",
+  "pytest-cov >= 7.1.0",
+  "mypy >= 2.4.0",
+  "ruff >= 0.17.0",
+  "hatch >= 1.18.1",
+]
+
+[build-system]
+requires = ["hatchling>=1.32.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tzun_sdk"]
+
+# NOTE: there is deliberately no force-include of ../data/known-models.json
+# here. That mapping only worked when building from the repo — `../data` is
+# outside the sdist root, so a wheel built from the sdist silently shipped
+# without the catalog. The file is now a tracked package data file at
+# src/tzun_sdk/_data/known-models.json, synced from data/known-models.json by
+# `pnpm run codegen:python` and drift-checked in CI, so wheel and sdist both
+# carry it by the ordinary packaging rules.
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "README.md", "pyproject.toml", "LICENSE.md", "NOTICE"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: marks tests requiring RUN_INTEGRATION_TESTS=true",
+  "slow: marks tests as slow",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+exclude = ["tests"]
+
+# Optional-extra / vendor SDKs are not installed in the lint environment and
+# ship no type stubs. Connector and adapter modules import them lazily behind
+# MissingExtraError guards, so missing imports here are
+# expected and must not fail the type check.
+[[tool.mypy.overrides]]
+module = [
+  "rfc3161_client.*",
+  "sigstore.*",
+  "asyncpg.*",
+  "psycopg.*",
+  "psycopg_pool.*",
+  "anthropic.*",
+  "openai.*",
+  "boto3.*",
+  "botocore.*",
+  "google.*",
+  "azure.*",
+  "coincurve.*",
+  "Cryptodome.*",
+]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/tzun_sdk"]
+omit = [
+  "src/tzun_sdk/_generated/*",
+  "src/tzun_sdk/cli/*",
+]
+
+[tool.coverage.report]
+fail_under = 0

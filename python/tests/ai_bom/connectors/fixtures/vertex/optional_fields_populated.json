@@ -1,0 +1,14 @@
+{
+  "recordedAgainst": "google-cloud-aiplatform 1.65.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "projects/my-project/locations/us-east1/publishers/google/models/gemini-1.0-pro",
+    "contents": [{"role": "user", "parts": [{"text": "Analyze."}]}],
+    "generationConfig": {"temperature": 0.8, "topP": 0.95, "maxOutputTokens": 512, "seed": 42},
+    "location": "us-east1"
+  },
+  "response": {
+    "candidates": [{"content": {"role": "model", "parts": [{"text": "analysis done"}]}}],
+    "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 30}
+  }
+}

@@ -1,0 +1,5 @@
+The files under src/attestation/certs/ are public root and intermediate
+certificates of third-party certification and time-stamping authorities,
+redistributed unmodified so that RFC 3161 time-stamp tokens can be verified
+offline. They are the property of their issuers, and LICENSE.md does not
+apply to them.

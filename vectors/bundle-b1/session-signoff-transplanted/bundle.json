@@ -1,0 +1,246 @@
+{
+  "bundleVersion": "b1",
+  "profile": "record",
+  "subject": {
+    "evidenceId": "91b4b317-1c2f-47e1-b724-b44d9c966179",
+    "canonicalDigest": "282db7f7fef8ddc56291e4789334e6c3ede7220d104f3f3d7c56b5c672c546cf"
+  },
+  "envelope": {
+    "envelopeVersion": "e1",
+    "payload": {
+      "evidenceId": "91b4b317-1c2f-47e1-b724-b44d9c966179",
+      "schemaVersion": "v1.0",
+      "aiSystemId": "bundle-b1-corpus",
+      "aiOutput": {
+        "recommendation": "approve",
+        "chain": "beta",
+        "i": 3
+      },
+      "action": "approved",
+      "reason": "bundle corpus: beta #3",
+      "capturedAt": "2026-10-01T17:40:34.881Z",
+      "sequenceNumber": 1,
+      "decider": {
+        "kind": "human",
+        "id": "acct:u-bundle-corpus",
+        "agent": null,
+        "credential": null,
+        "freshness": null
+      },
+      "contributions": null,
+      "links": null,
+      "signoffExpectation": null
+    },
+    "integrity": {
+      "canonicalDigest": "282db7f7fef8ddc56291e4789334e6c3ede7220d104f3f3d7c56b5c672c546cf",
+      "chainLink": null
+    },
+    "nonRepudiation": {
+      "rfc3161Token": "MIIDajADAgEAMIIDYQYJKoZIhvcNAQcCoIIDUjCCA04CAQMxDzANBglghkgBZQMEAgEFADB4BgsqhkiG9w0BCRABBKBpBGcwZQIBAQYKKwYBBAGGjR8BATAxMA0GCWCGSAFlAwQCAQUABCAoLbf3/vjdxWKR5HiTNObD7eciDRBPPz18VrXGcsVGzwIBZhgTMjAyNjEwMDExNzQwMzQuODgzWgIJAK96AKaST89+oIIBbTCCAWkwggEPoAMCAQICAQMwCgYIKoZIzj0EAwIwIzEhMB8GA1UEAxMYVHp1biBDb3JwdXMgVGVzdCBSb290IENBMB4XDTIwMDEwMTAwMDAwMFoXDTQwMDEwMTAwMDAwMFowLTErMCkGA1UEAxMiVHp1biBDb3JwdXMgVGltZXN0YW1waW5nIEF1dGhvcml0eTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABERG/RxAgY/nKc7GUIMmLPvke9j1WWI1FGYnpcHInit3wi5B3eFnptN8FGOvzzODfAQmE+Kt7JahqzRjcNHta4CjKjAoMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAKBggqhkjOPQQDAgNIADBFAiA8aXzvyg44JFSXIo7PnRoW0AA1LET6kbJliJc3vZBs6wIhAMe9ZtHHqkNIdU57dcvDppC/A0osR0xjWpcxLS6x8XoCMYIBSzCCAUcCAQEwKDAjMSEwHwYDVQQDExhUenVuIENvcnB1cyBUZXN0IFJvb3QgQ0ECAQMwDQYJYIZIAWUDBAIBBQCggbQwGgYJKoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMC8GCSqGSIb3DQEJBDEiBCCp0KCR3DMVBRXDNmlwFg4v7jAA/JXvEbXGGsWpYKA0XjBlBgsqhkiG9w0BCRACLzFWMFQwUjBQBCC9NbKVKi7bcVDiJd+nhJYi6hJtfcW6wbrOZzyY64wA9jAsMCekJTAjMSEwHwYDVQQDExhUenVuIENvcnB1cyBUZXN0IFJvb3QgQ0ECAQMwCgYIKoZIzj0EAwIERjBEAiBEYINiOOCibIYai6f3kUFpNTEmudYfmpi0llJdgqYQcgIgKUk52JynIrZOI/gGZRiAcPULXxmnAg+nJP7HgReroQc=",
+      "rfc3161Metadata": {
+        "genTime": "2026-10-01T17:40:34.883Z",
+        "tsaName": "Tzun Corpus Timestamping Authority",
+        "policyOid": "1.3.6.1.4.1.99999.1.1",
+        "status": "granted"
+      },
+      "anchor": {
+        "anchorSpec": "tzun-anchor/1",
+        "merkleSpec": "rfc6962",
+        "leafIndex": 0,
+        "logCheckpoint": "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/evidence/62657461\n8\nSR7qvgCxYy6PxK/gMaFw25KMPnAnkuNsMhvssbNCadk=\n",
+        "logPath": [
+          "d016c0245442498a903e7168face32aac3e004a3adb1bc3e7e2ccec1017c79ad",
+          "0d4c1645d7d072ef6080e3c143a8315565e62a6c8d7cbcd58c43f477e44833e1",
+          "85a8f94cf1501c7b5a5f52a3681aa3b96b38dce29444c2725390a33d8b2590bc"
+        ],
+        "anchorLeafIndex": 1,
+        "anchorCheckpoint": "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors\n2\nm7goQHVIYD/Rd7srFThCbJHXmGj2jcNZS2F2zjbjQ/c=\n",
+        "anchorPath": [
+          "5eeb9e95cbeda9d5d7082d6b3d4264013b6e64b6003c12e531503c7e29d51f60"
+        ],
+        "publications": [
+          {
+            "kind": "evm-calldata/1",
+            "chain": "eip155:31337",
+            "transactionId": "0x5a834efc5029cfa477695602c4e2887df485133af0a6c2fe0e84eef2bc56b9a9",
+            "blockNumber": 1,
+            "blockHash": "0xe5bda5214c8bbe280e0c0368bc616459e31dcaf4659973f7d92e4760e88d6cdb",
+            "publisher": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+          }
+        ]
+      },
+      "signoff": {
+        "statement": {
+          "v": "tzun-signoff/1",
+          "mode": "session",
+          "sessionId": "5b0f3e1c-9a7d-4c2b-8e6f-1d2c3b4a5e6f",
+          "signer": "bundle-corpus-signer",
+          "signerName": "QnVuZGxlIENvcnB1cw",
+          "meaning": "approval",
+          "policyDigest": "7ca83d15664140ee831efe661517175b8264b76fe514cc349af2d4163ae45d90",
+          "notBefore": "none",
+          "openedAt": "2026-10-01T17:40:34.934Z",
+          "maxAgeMs": 1800000,
+          "maxRecords": 50
+        },
+        "sessionSeq": 1
+      },
+      "webauthnAssertion": {
+        "signature": "MEUCIBo4eBgnf6QzLaGw10IIlR86ocIE9WeQnlhyR0buiaRNAiEAhJBZsSZ23Q+aTWWvSAnasyy8l0zXnmAHve49T0oH6+M=",
+        "credentialKeyId": "bundle-corpus-credential",
+        "algorithm": "ES256",
+        "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4/krrmihjLHmVzzuoMdl2MFAAAAAQ==",
+        "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoibUV0WkhTZVczT3JHRFVHYUllWXJPZmh6bE5adGxEd05oMktBX3Y4UWNhbyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6Mzg0NyJ9"
+      }
+    },
+    "custodyChain": [
+      {
+        "timestamp": "2026-10-01T17:40:34.881Z",
+        "actor": "acct:u-bundle-corpus",
+        "action": "decision_captured",
+        "systemId": "bundle-b1-corpus"
+      }
+    ],
+    "attestationStatus": "partial"
+  },
+  "chain": {
+    "chainId": "beta",
+    "predecessor": null
+  },
+  "custody": {
+    "hashPreimage": "sha256(lp(prevEntryHash)||lp(evidenceId)||lp(canonicalDigest)||lp(action)||lp(actor)||lp(timestamp)||lp(systemId)||lp(canonicalMetadata)); lp = \"<code points>:<value>\" or \"-:\" for null; canonicalMetadata = engine canonical JSON of metadata",
+    "entries": [],
+    "trail": {
+      "evidenceId": "91b4b317-1c2f-47e1-b724-b44d9c966179",
+      "valid": true,
+      "rows": 0,
+      "hashedEntries": 0,
+      "unhashedEntries": 1,
+      "failures": []
+    },
+    "offlineTrail": {
+      "valid": null,
+      "hashedEntries": 0,
+      "unhashedEntries": 1,
+      "failures": []
+    }
+  },
+  "credentials": null,
+  "relatedRecords": null,
+  "anchoring": {
+    "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/evidence/62657461": {
+      "checkpoints": [
+        {
+          "body": "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/evidence/62657461\n8\nSR7qvgCxYy6PxK/gMaFw25KMPnAnkuNsMhvssbNCadk=\n",
+          "signatures": [],
+          "logPath": [
+            "d016c0245442498a903e7168face32aac3e004a3adb1bc3e7e2ccec1017c79ad",
+            "0d4c1645d7d072ef6080e3c143a8315565e62a6c8d7cbcd58c43f477e44833e1",
+            "85a8f94cf1501c7b5a5f52a3681aa3b96b38dce29444c2725390a33d8b2590bc"
+          ],
+          "anchorLeafIndex": 1,
+          "anchorSize": 3,
+          "anchorPath": [
+            "5eeb9e95cbeda9d5d7082d6b3d4264013b6e64b6003c12e531503c7e29d51f60",
+            "73f163313f24e937d00ed0cb21bd1848ae8ef0d7151ad259d79ba06c62566576"
+          ]
+        }
+      ],
+      "consistency": []
+    },
+    "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors": {
+      "checkpoints": [
+        {
+          "body": "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors\n2\nm7goQHVIYD/Rd7srFThCbJHXmGj2jcNZS2F2zjbjQ/c=\n",
+          "signatures": [],
+          "publications": [
+            {
+              "kind": "evm-calldata/1",
+              "chain": "eip155:31337",
+              "transactionId": "0x5a834efc5029cfa477695602c4e2887df485133af0a6c2fe0e84eef2bc56b9a9",
+              "blockNumber": 1,
+              "blockHash": "0xe5bda5214c8bbe280e0c0368bc616459e31dcaf4659973f7d92e4760e88d6cdb",
+              "publisher": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+              "rawTransaction": "0x02f88c827a6980843b9aca0084b2d05e00827530949965507d1a55bcc2695c58ba16fb37d819b0a4dc80a040041f0f2c6ce6c03e2e0831de1daffb7c7fe7e5128841773b8c532eba2ea9edc080a0a71ae057e6872633a27d5e09f7d16d48c55d8ec52f546047c7fd23a1faa72e86a071e329a3937b259a396b8dd54ed9c39780c237b8a40f5df3f9368dbde2d79920",
+              "blockHeader": "0xf90262a095daaea30a3d248974e890adbdfeb4250bb1c224875948d67939610b5885c5d5a01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347940000000000000000000000000000000000000000a09a69c6ccf870a09d537b04614f1916745a56f297f6b08d26a14c2b836f4ab39aa0976431c83b4b7e2bd0b5b140f02474b58f60e2aed74a858ba7c7b5606831934aa04f5e6e0c9cfdec5244e2691c68730f0b2d97c486028285be7c6dbfd08f3ac4dfb901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080018401c9c3808306bfa8846abe8d0380a035a93b0f4c7a00a13355d5afe791ecc090eb4e9c5c28d20b747bd5927d51a11c880000000000000000843b9aca00a056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b4218080a00000000000000000000000000000000000000000000000000000000000000000a0e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "txIndex": 11,
+              "txProof": [
+                "0xf871a07269ba696a421d2aa21869bb9711a498283e2b179406b3be83a1e55fa5b27a78a076a427e03cab35c5ef5836b1385ed9848bda2cd29df13865543ea12d1125d891808080808080a09f923f0bd25b4ca61ce65816372ab3d12d7b183f4612c1719632a0f1352c67598080808080808080",
+                "0xf901f180a0e778d90906784e07071636195ab3c60544b5f8f3aea769cba6312bb86f2cb615a007bb459a50928b14355fd1bb8dac25c97a6eda2145bc18a9feabff05713f32c5a0a87b2261360f32b6b37abb86e28db385e756d81e6420c346efda27dbe6cf687ea01f08bf84d755c7929892b0283e670eb63b3d977d322a8db4e6bc53cfc235a9b3a05893eb66de6be0915a29fcdfe9480a86d99e202c2015b1c065d094f99db906c4a035f9db515228a972dc959e6f222b21dd3e6f26cc2f5ede6f6b5ba6121a58738ba0d6d9142138e08c966c76d9df1d7e36e215d7c32ba25ff7d91ea61e24b56ca51ba0900d8f50b4f445fa42964f17b7db411cdddb1aba5740a9fcc5f888461ba85a74a0b4ecc44b789855090e38705416127d89ea6e7968bd5f33d682dded350c278feda07900e67be1b19e0d460b79930078de87ba98b1323a8c9ef92b4b8f48f882738ba0fe7a3f641ec3f51cb2d32c46b009a4f71b26b6130d569e1a41a2d1f861cac07ea01a9d431e297f93a60f72b2ca176b9a2a6460b3ba01c6d83e21d1fda8a3a329eaa0101deca855e7dd3577402b428571ce8d2b531ea4434a6603b56eca8e34423535a0524ad29e24af07913ce9b4ed1d54008664ef37c0a091c452af61c254e8c54118a07f4305aa9dab9088bad07d26865ef31f7cacc53403f627499e3f59e2972d1bf780",
+                "0xf89220b88f02f88c827a6980843b9aca0084b2d05e00827530949965507d1a55bcc2695c58ba16fb37d819b0a4dc80a040041f0f2c6ce6c03e2e0831de1daffb7c7fe7e5128841773b8c532eba2ea9edc080a0a71ae057e6872633a27d5e09f7d16d48c55d8ec52f546047c7fd23a1faa72e86a071e329a3937b259a396b8dd54ed9c39780c237b8a40f5df3f9368dbde2d79920"
+              ]
+            }
+          ]
+        },
+        {
+          "body": "test.bundle-b1.tzun/514db935932b4483edc610595839d8bc/anchors\n3\npY5wcsiKLdwe6qOhm7f1DPKzcZ8vIOHNiKOz8H+xLpc=\n",
+          "signatures": [],
+          "publications": [
+            {
+              "kind": "evm-calldata/1",
+              "chain": "eip155:31337",
+              "transactionId": "0x03da400cb91ce638b49049fb63a3f10972ddabdc7463150405e6c608157fed7c",
+              "blockNumber": 5,
+              "blockHash": "0x24c44fe7559e7e8e3e81944ad7944687d5b261c54d44fb03edd6cd07e14a5d64",
+              "publisher": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc",
+              "rawTransaction": "0x02f88c827a6901843b9aca00848bcd4c46827530949965507d1a55bcc2695c58ba16fb37d819b0a4dc80a0c452f1292b865b434648729b0f84a10a47c980550474e60e52989ae754824aefc080a06794ded5aae263e2e3a0614c074afba83c0f7ef7e5b57c26ceb79fd91cddd425a01644d446565aab023f1b499f10fb1a831ec9a5a6b236d741ab081628be493672",
+              "blockHeader": "0xf90262a0433c4d0e26169f6e14a5de0b7b390a98292af739906e86f9e311be25bba4d1dda01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347940000000000000000000000000000000000000000a07cb671f485ed2cdab6770d532a37ffd08c1ffc502b26d76c9f8fd725605c5d63a0c1fed076405f2e2a6b3d909a76d970e22febf05b687b15408dd1f1a8e500f11da05be60f9fdbb5d82e12151e054c240b05ac06ea414f9465ffcb55c6eb86edc190b901000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080058401c9c38083014d20846abe8d0380a037328f0ea20b0e6da2d2260e6e0e85f38dba860a992f933a8cd8326ccbb94fbf88000000000000000084231618ffa056e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b4218080a00000000000000000000000000000000000000000000000000000000000000000a0e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "txIndex": 2,
+              "txProof": [
+                "0xf851a08601a40885c344f73cc8892ee7fee2dadf0076299e75417a83d0b8f49098a15a80808080808080a0d49f9481c280239e1ee0279e25b6d96c39496e43f0fadccf916696619aad46d18080808080808080",
+                "0xf87180a0fd08b33f18c2b9724304985053723b062cdfe5fe922911704830e0e7303c8dbba098d70b1bedecfe9b12f12a448f8d51cbe5e85c3c0c67c3acfd3e8e84d8b91786a0fc40860d6b5be083e48bdb0bd7af96d02db0dad925bf9b1e702b68ca10979ab380808080808080808080808080",
+                "0xf89220b88f02f88c827a6901843b9aca00848bcd4c46827530949965507d1a55bcc2695c58ba16fb37d819b0a4dc80a0c452f1292b865b434648729b0f84a10a47c980550474e60e52989ae754824aefc080a06794ded5aae263e2e3a0614c074afba83c0f7ef7e5b57c26ceb79fd91cddd425a01644d446565aab023f1b499f10fb1a831ec9a5a6b236d741ab081628be493672"
+              ]
+            }
+          ]
+        }
+      ],
+      "consistency": [
+        {
+          "fromSize": 2,
+          "toSize": 3,
+          "path": [
+            "73f163313f24e937d00ed0cb21bd1848ae8ef0d7151ad259d79ba06c62566576"
+          ]
+        }
+      ]
+    }
+  },
+  "anchorPending": null,
+  "policy": null,
+  "extensions": {
+    "witness/1": null
+  },
+  "exporter": {
+    "exportedAt": "2026-10-01T17:40:35.742Z",
+    "exportedBy": "tzun-sdk",
+    "verdict": {
+      "status": "valid",
+      "digest": {
+        "status": "valid",
+        "stored": "282db7f7fef8ddc56291e4789334e6c3ede7220d104f3f3d7c56b5c672c546cf",
+        "recomputed": "282db7f7fef8ddc56291e4789334e6c3ede7220d104f3f3d7c56b5c672c546cf"
+      },
+      "custodyTrail": {
+        "status": "unmeasured",
+        "reason": "nothing_to_measure",
+        "ledger": {
+          "evidenceId": "91b4b317-1c2f-47e1-b724-b44d9c966179",
+          "valid": true,
+          "rows": 0,
+          "hashedEntries": 0,
+          "unhashedEntries": 1,
+          "failures": []
+        }
+      },
+      "chainLink": {
+        "status": "valid",
+        "predecessorDigest": null
+      },
+      "signoffExpectation": {
+        "valid": true
+      },
+      "checkedAt": "2026-10-01T17:40:35.742Z"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "publisherManifest": null,
+  "headerSources": {},
+  "trustAnchorsPem": [],
+  "regime": {
+    "require": [],
+    "requireRung": [],
+    "allowUnchecked": true
+  }
+}

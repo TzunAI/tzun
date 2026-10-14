@@ -1,0 +1,38 @@
+# Dependency update surveillance.
+#
+# Every ecosystem is checked monthly, which keeps version-update pull requests
+# few; each one runs the full CI matrix. The schedule governs version updates
+# only: Dependabot security updates, where enabled in the repository settings,
+# open when an advisory lands regardless of it, and ci.yml's `pnpm audit` step
+# turns a new HIGH advisory red on the next run either way.
+#
+# open-pull-requests-limit: 0 holds version-update pull requests until the
+# public hygiene check accepts Dependabot's pull request text and sign-off.
+version: 2
+updates:
+  # npm / pnpm workspace (root + packages/* + clients/*)
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  # Python SDK
+  - package-ecosystem: pip
+    directory: '/python'
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0
+
+  # GitHub Actions. Every `uses:` is pinned to a commit SHA
+  # (tests/ts/workflow-supply-chain.test.ts). Dependabot understands SHA pins
+  # with a `# vX.Y.Z` comment and bumps both the SHA and the comment together,
+  # so pinning does not mean going stale.
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0

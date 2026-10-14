@@ -1,0 +1,18 @@
+{
+  "recordedAgainst": "azure-ai-inference 1.0.0b3",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "mistral-small",
+    "messages": [{"role": "user", "content": "Analyze."}],
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "max_tokens": 256,
+    "endpoint": "https://myendpoint.inference.ai.azure.com"
+  },
+  "response": {
+    "id": "chatcmpl-az-ai-2",
+    "model": "mistral-small",
+    "choices": [{"message": {"role": "assistant", "content": "analysis"}}],
+    "usage": {"prompt_tokens": 15, "completion_tokens": 30}
+  }
+}

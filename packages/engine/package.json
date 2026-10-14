@@ -1,0 +1,44 @@
+{
+  "name": "@tzun/engine",
+  "version": "0.8.2",
+  "description": "Dependency-light canonical/digest/chain/verify core for Tzun DEOs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "LICENSE.md",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.14",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TzunAI/tzun.git",
+    "directory": "packages/engine"
+  },
+  "homepage": "https://tzun.ai",
+  "bugs": {
+    "url": "https://github.com/TzunAI/tzun/issues"
+  },
+  "author": "Tzun, Inc. <oss@tzun.ai> (https://tzun.ai)"
+}

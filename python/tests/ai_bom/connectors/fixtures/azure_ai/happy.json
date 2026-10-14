@@ -1,0 +1,17 @@
+{
+  "recordedAgainst": "azure-ai-inference 1.0.0b3",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "Phi-3-mini-4k-instruct",
+    "messages": [{"role": "user", "content": "Approve?"}],
+    "temperature": 0.5,
+    "max_tokens": 100,
+    "endpoint": "https://myendpoint.inference.ai.azure.com"
+  },
+  "response": {
+    "id": "chatcmpl-az-ai-1",
+    "model": "Phi-3-mini-4k-instruct",
+    "choices": [{"message": {"role": "assistant", "content": "approved"}}],
+    "usage": {"prompt_tokens": 8, "completion_tokens": 5}
+  }
+}

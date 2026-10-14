@@ -1,0 +1,14 @@
+{
+  "recordedAgainst": "boto3-1.35.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "modelId": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "inferenceConfig": {"temperature": 0.5, "maxTokens": 200, "topP": 0.9},
+    "region": "us-east-1"
+  },
+  "response": {
+    "output": {"message": {"role": "assistant", "content": [{"text": "approved"}]}},
+    "stopReason": "end_turn",
+    "usage": {"inputTokens": 10, "outputTokens": 5}
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "recordedAgainst": "openai-python 1.51.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "gpt4o-prod-deployment",
+    "messages": [{"role": "user", "content": "Azure check."}],
+    "__tzunIsAzure": true,
+    "azure_endpoint": "https://mycompany.openai.azure.com",
+    "api_version": "2024-08-01"
+  },
+  "response": {
+    "id": "chatcmpl-az-1",
+    "model": "gpt4o-prod-deployment",
+    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    "choices": [{"message": {"role": "assistant", "content": "ok"}}]
+  }
+}

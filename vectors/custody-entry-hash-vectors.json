@@ -1,0 +1,51 @@
+{
+  "description": "Custody entry hash vectors: the entryHash of each entry of a record's custody ledger, a rule this SDK shares with the hosted service. entryHash = sha256(utf8(lp(prevEntryHash) || lp(evidenceId) || lp(canonicalDigest) || lp(action) || lp(actor) || lp(timestamp) || lp(systemId) || lp(canonical(metadata)))) with lp(v) = '<Unicode code-point count>:' + v and '-:' for null/absent; canonical(metadata) is the engine canonical serializer over the JSON round-tripped metadata object (UTF-16 key sort at every level), absent -> null. Bare lowercase hex, no 'sha256:' prefix.",
+  "source": "The expected values were computed with the HOSTED SERVICE's implementation of the rule (a TypeScript function, and its SQL twin, which the ledger's INSERT trigger enforces), not with this SDK's code. Vector 1 is that implementation's own test fixture; vector 2 reuses the metadata of its Postgres parity case. These are an INDEPENDENT pin of the rule: scripts/regenerate-vectors.ts does not and must not rewrite this file. Both the TypeScript engine (packages/engine/src/custody-hash.ts) and the Python port (python/src/tzun_sdk/custody_hash.py) are held to them; tests/cross-sdk/test_custody_hash_parity.py runs both against every entry.",
+  "vectors": [
+    {
+      "name": "first entry of a record: null prev, non-ASCII actor (code-point length 5, UTF-16 length 6, 10 bytes), flat metadata",
+      "input": {
+        "prevEntryHash": null,
+        "evidenceId": "ev-1",
+        "canonicalDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "action": "relinked",
+        "actor": "ünï 😀",
+        "timestamp": "2026-09-09T00:00:00.000Z",
+        "systemId": "rec-1",
+        "metadata": { "newChainId": "c2" }
+      },
+      "preimage": "-:4:ev-164:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8:relinked5:ünï 😀24:2026-09-09T00:00:00.000Z5:rec-119:{\"newChainId\":\"c2\"}",
+      "entryHash": "5c7467b1eecfd9f3541d3cf51fa3a68c2eeba4388ccde8b240bf4ed4e882c193"
+    },
+    {
+      "name": "second entry chained to the first: nested metadata with unsorted keys, a non-ASCII key, quotes, a backslash, null and an object inside an array",
+      "input": {
+        "prevEntryHash": "5c7467b1eecfd9f3541d3cf51fa3a68c2eeba4388ccde8b240bf4ed4e882c193",
+        "evidenceId": "ev-1",
+        "canonicalDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "action": "chain_forked",
+        "actor": "ünï 😀",
+        "timestamp": "2026-09-09T00:00:00.000Z",
+        "systemId": "rec-1",
+        "metadata": { "z": 1.5, "a": { "é": "😀 \"quoted\" \\ back", "b": [1, null, "x", { "deep": true }] } }
+      },
+      "preimage": "64:5c7467b1eecfd9f3541d3cf51fa3a68c2eeba4388ccde8b240bf4ed4e882c1934:ev-164:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd12:chain_forked5:ünï 😀24:2026-09-09T00:00:00.000Z5:rec-173:{\"a\":{\"b\":[1,null,\"x\",{\"deep\":true}],\"é\":\"😀 \\\"quoted\\\" \\\\ back\"},\"z\":1.5}",
+      "entryHash": "2215b9c48d9c1f81a72610323f2808e39f786bccd098de7bdd9f8a04e74d6113"
+    },
+    {
+      "name": "third entry chained to the second: metadata absent (lp -> '-:')",
+      "input": {
+        "prevEntryHash": "2215b9c48d9c1f81a72610323f2808e39f786bccd098de7bdd9f8a04e74d6113",
+        "evidenceId": "ev-1",
+        "canonicalDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "action": "reviewed",
+        "actor": "ünï 😀",
+        "timestamp": "2026-09-09T00:00:00.000Z",
+        "systemId": "rec-1",
+        "metadata": null
+      },
+      "preimage": "64:2215b9c48d9c1f81a72610323f2808e39f786bccd098de7bdd9f8a04e74d61134:ev-164:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd8:reviewed5:ünï 😀24:2026-09-09T00:00:00.000Z5:rec-1-:",
+      "entryHash": "357ec1b4519f63a1e6e3b1276d37cb04a4740c108d49710e0a80425023da8f56"
+    }
+  ]
+}

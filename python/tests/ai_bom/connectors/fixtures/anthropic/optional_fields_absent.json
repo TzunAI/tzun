@@ -1,0 +1,18 @@
+{
+  "recordedAgainst": "anthropic-python 0.34.0",
+  "recordedAt": "2026-06-10",
+  "request": {
+    "model": "claude-3-5-sonnet-20240620",
+    "messages": [{"role": "user", "content": "Quick."}],
+    "max_tokens": 50
+  },
+  "response": {
+    "id": "msg_03",
+    "model": "claude-3-5-sonnet-20240620",
+    "type": "message",
+    "role": "assistant",
+    "content": [{"type": "text", "text": "ok"}],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 5, "output_tokens": 2}
+  }
+}

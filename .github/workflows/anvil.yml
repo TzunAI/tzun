@@ -1,0 +1,120 @@
+name: anvil
+
+# The anchor scheduler against a real EVM node (tests/anvil/, one anvil
+# container): the outbox, replacement, reorgs, finality, the fill, wallet
+# enrolment, and anchoring wired into Tzun, with a private key and with an
+# external signer. Then tests/cross-sdk/test_anchor_anvil_store.py: a store
+# anchored on anvil by the TypeScript SDK, every record verified by both SDKs,
+# each reading the node. It pulls a 417 MB foundry image and takes minutes, so it is
+# not part of ci.yml's TypeScript job: it runs only when the code it exercises
+# changes, and on demand.
+#
+# The paths below are the code the suite exercises most directly, with
+# src/sdk/** (the Tzun-wired cases run src/sdk/index.ts: anchoring and the
+# scanner in Tzun.init) and src/monitoring/** (scanner-anvil.test.ts runs
+# ScheduledScanner and its anchoring checks). Code the suite also exercises is
+# left out of it:
+# packages/engine/** (the anchoring config types), and package.json and
+# pnpm-lock.yaml (an ethers bump, which signing and the transaction trie
+# depend on), and the Python verifier (python/src/tzun_sdk/attestation/**, whose
+# parity ci.yml's cross-sdk job checks without a node). A change confined to
+# those does not run the suite here: run it with workflow_dispatch, or locally
+# with `pnpm run test:anvil` and `pytest tests/cross-sdk/test_anchor_anvil_store.py`.
+on:
+  push:
+    branches: [main, 'release/**']
+    paths:
+      - 'src/anchoring/**'
+      - 'src/storage/**'
+      - 'src/attestation/**'
+      - 'src/sdk/**'
+      - 'src/monitoring/**'
+      - 'tests/anvil/**'
+      - 'vectors/anchor-e2e-vectors.json'
+      - '.github/workflows/anvil.yml'
+  pull_request:
+    branches: [main]
+    # ready_for_review: the job skips on a draft PR, so marking it ready has to
+    # start a run.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/anchoring/**'
+      - 'src/storage/**'
+      - 'src/attestation/**'
+      - 'src/sdk/**'
+      - 'src/monitoring/**'
+      - 'tests/anvil/**'
+      - 'vectors/anchor-e2e-vectors.json'
+      - '.github/workflows/anvil.yml'
+  workflow_dispatch:
+
+# Least privilege, as ci.yml: the suite reads the repository and nothing else.
+permissions:
+  contents: read
+
+concurrency:
+  # One in-flight run per branch; a newer push supersedes the last, except on
+  # main, whose check suite must finish.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+jobs:
+  anvil:
+    name: Anchor scheduler on anvil (tests/anvil/)
+    # GitHub-hosted, as every job in this repository; its Docker daemon runs
+    # the anvil container.
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build @tzun/engine
+        run: pnpm --filter @tzun/engine build
+
+      # The image tests/anvil/harness.ts pins, pulled once before the suite
+      # starts its container, so a slow pull is not charged to a test.
+      - name: Pull the pinned foundry image
+        run: docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+
+      # The harness skips the suite under CI unless TZUN_ANVIL=1: this job is
+      # the one that asks for it.
+      - name: Run the anvil suite
+        env:
+          TZUN_ANVIL: '1'
+        run: pnpm run test:anvil
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      # The 'anchor' extra: without it the test fails under CI rather than skip.
+      - name: Install the Python SDK with the anchor extra
+        run: |
+          cd python
+          pip install --upgrade pip
+          pip install -e '.[anchor]' pytest pytest-asyncio
+
+      # The test skips under CI unless TZUN_ANVIL=1, as the anvil suite does.
+      - name: Verify an anvil-anchored store in both SDKs
+        env:
+          TZUN_ANVIL: '1'
+        run: python -m pytest tests/cross-sdk/test_anchor_anvil_store.py -v

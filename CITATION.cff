@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you reference Tzun in academic or policy work, please cite it as below."
+title: "Tzun: cryptographic evidence capture for human-in-the-loop AI decisions"
+abstract: >-
+  Tzun records a tamper-evident Decision Evidence Object when a human acts on an
+  AI recommendation: canonical serialization, SHA-256 digest, an append-only hash
+  chain, and optional WebAuthn signatures, RFC 3161 timestamps and an AI Bill of
+  Materials describing the model that produced the recommendation.
+type: software
+authors:
+  - name: "Tzun, Inc."
+    website: "https://tzun.ai"
+repository-code: "https://github.com/TzunAI/tzun"
+url: "https://tzun.ai"
+keywords:
+  - AI governance
+  - AI accountability
+  - human-in-the-loop
+  - tamper-evident logging
+  - hash chain
+  - RFC 3161
+  - AI bill of materials
+  - audit evidence
+  - EU AI Act

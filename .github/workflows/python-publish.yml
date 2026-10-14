@@ -1,0 +1,438 @@
+name: Publish tzun-sdk to PyPI
+
+# Publishes the Python package tzun-sdk (python/) to PyPI from a v<version>
+# tag, the same tag release.yml publishes the npm packages from.
+#
+#   authorize  the same gate as release.yml's: no package marked
+#              unpublishable ("private": true in either package.json, or the
+#              classifier "Private :: Do Not Upload" in pyproject.toml), the
+#              public repository, a v*.*.* tag, an actor on the RELEASE_ACTORS
+#              allowlist, the
+#              PUBLISH-<version> confirmation on a manual run, the tag naming
+#              the version in python/pyproject.toml, package.json and
+#              packages/engine/package.json, and a tagged commit reachable from
+#              main.
+#   build      pip-audit, bandit and detect-secrets over the source; the wheel
+#              and sdist, built once; their metadata checked (name, version,
+#              License-Expression); both unpacked and scanned again for secrets
+#              and for references a public reader cannot follow
+#              (scripts/check-public-hygiene.sh); kept as this run's artifact.
+#              This job holds no OIDC capability.
+#   publish    waits for the reviewers of the `pypi` environment, then uploads
+#              exactly the files the build job scanned with PyPI trusted
+#              publishing (a short-lived OIDC token, no stored secret) and PEP
+#              740 attestations.
+#
+# A workflow of its own rather than a job of release.yml: the PyPI trusted
+# publisher names this file and the npm trusted publishers name release.yml,
+# so each registry trusts a file that holds only its own publishing path, and
+# either can be re-run alone. auto-release.yml dispatches both on the tag it
+# creates (a tag created with the workflow token does not trigger
+# `on: push: tags`).
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type PUBLISH-<version> exactly (e.g. PUBLISH-0.8.2) to confirm'
+        required: true
+      reason:
+        description: 'Reason for manual run (auto-release.yml sets "auto-release on main by <actor> (<run url>)")'
+        required: false
+        default: 'Manual dispatch'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    name: Release authorization gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The ancestry check below needs origin/main locally.
+          fetch-depth: 0
+
+      - name: Refuse to publish while a package is marked unpublishable
+        run: |
+          # npm refuses to publish a package whose package.json sets
+          # "private": true, and PyPI refuses an upload that carries the
+          # classifier "Private :: Do Not Upload". While package.json,
+          # packages/engine/package.json or python/pyproject.toml carries
+          # either, this step stops the release before anything is built.
+          off=""
+          for pkg in package.json packages/engine/package.json; do
+            # A package.json that cannot be read counts as unpublishable.
+            private=$(node -p "Boolean(require('./$pkg').private)" 2>/dev/null || true)
+            if [ "$private" != "false" ]; then
+              off="$off $pkg sets private;"
+            fi
+          done
+          if ! [ -f python/pyproject.toml ] || grep -Fq 'Private :: Do Not Upload' python/pyproject.toml; then
+            off="$off python/pyproject.toml carries Private :: Do Not Upload;"
+          fi
+          if [ -n "$off" ]; then
+            echo "::error::Publishing is off while a package is marked unpublishable: see LICENSE.md.$off"
+            exit 1
+          fi
+
+      - name: Require the public repository
+        env:
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "$PRIVATE" != "false" ]; then
+            echo "::error::Releases publish from the public repository only (repository.private is '$PRIVATE')."
+            exit 1
+          fi
+
+      - name: Require a tag ref
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::Refusing to publish from a $REF_TYPE ref ($REF_NAME). Releases run from a v*.*.* tag only."
+            exit 1
+          fi
+
+      - name: Require an authorized release actor
+        env:
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          REASON: ${{ inputs.reason }}
+          # Required repository variable: comma-separated GitHub logins.
+          # There is no default; unset or empty refuses every actor.
+          ALLOWED: ${{ vars.RELEASE_ACTORS }}
+        run: |
+          allowed="${ALLOWED:-}"
+          if [ -z "$(printf '%s' "$allowed" | tr -d '[:space:],')" ]; then
+            echo "::error::The RELEASE_ACTORS repository variable is not set. Set it to the comma-separated GitHub logins allowed to release (Settings > Secrets and variables > Actions > Variables). Nothing is published until it is."
+            exit 1
+          fi
+          echo "Actor: $ACTOR; event: $EVENT; allowed: $allowed"
+          match=0
+          IFS=','
+          for who in $allowed; do
+            who="$(echo "$who" | tr -d '[:space:]')"
+            [ -n "$who" ] && [ "$who" = "$ACTOR" ] && match=1
+          done
+          unset IFS
+          # As in release.yml: the workflow token is accepted as the actor
+          # only on a dispatch from auto-release.yml, which itself requires
+          # the actor who pushed main to be on this allowlist.
+          if [ "$match" != "1" ] && [ "$EVENT" = "workflow_dispatch" ] && [ "$ACTOR" = "github-actions[bot]" ]; then
+            case "$REASON" in
+              "auto-release on main by "*)
+                echo "Dispatched by auto-release.yml ($REASON); accepting the workflow token as the actor."
+                match=1
+                ;;
+            esac
+          fi
+          if [ "$match" != "1" ]; then
+            echo "::error::$ACTOR is not an authorized release actor. The RELEASE_ACTORS repository variable holds the allowlist."
+            exit 1
+          fi
+
+      - name: Require an explicit confirmation token on manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          expected="PUBLISH-${REF_NAME#v}"
+          if [ "$CONFIRM" != "$expected" ]; then
+            echo "::error::Confirmation token mismatch. Type '$expected' exactly to publish $REF_NAME."
+            exit 1
+          fi
+
+      - name: Require the tag to name the version being published
+        id: versions
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          PY_VERSION=$(python3 -c 'import tomllib; print(tomllib.load(open("python/pyproject.toml", "rb"))["project"]["version"])')
+          SDK_VERSION=$(node -p "require('./package.json').version")
+          ENGINE_VERSION=$(node -p "require('./packages/engine/package.json').version")
+          if ! printf '%s\n' "$PY_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::python/pyproject.toml version ${PY_VERSION} is not a plain MAJOR.MINOR.PATCH version."
+            exit 1
+          fi
+          if [ "v${PY_VERSION}" != "$REF_NAME" ]; then
+            echo "::error::Tag $REF_NAME does not match python/pyproject.toml version ${PY_VERSION}. Bump the version in the release commit."
+            exit 1
+          fi
+          # The npm packages carry the same version; release.yml publishes
+          # them from this same tag.
+          if [ "$SDK_VERSION" != "$PY_VERSION" ] || [ "$ENGINE_VERSION" != "$PY_VERSION" ]; then
+            echo "::error::python/pyproject.toml is at ${PY_VERSION} but @tzun/sdk is at ${SDK_VERSION} and @tzun/engine at ${ENGINE_VERSION}. The npm and PyPI packages move together."
+            exit 1
+          fi
+          echo "version=$PY_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Require the tagged commit to be reachable from main
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          commit=$(git rev-parse --verify "$SHA^{commit}")
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$SHA is not an ancestor of origin/main. Merge the release commit to main before tagging it."
+            exit 1
+          fi
+
+  build:
+    name: Build, audit and scan the wheel and sdist
+    runs-on: ubuntu-latest
+    needs: authorize
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+    env:
+      VERSION: ${{ needs.authorize.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install build and scan tools
+        # Every tool is pinned to an exact version: these build what is
+        # published, so an unpinned `pip install <tool>` would run whatever
+        # the index serves as newest at release time.
+        run: python -m pip install --upgrade "pip==26.2.1" "build==1.6.0" "twine==7.0.0" "pip-audit==2.10.1" "bandit==1.9.4" "detect-secrets==1.5.0"
+
+      - name: pip-audit on the declared dependencies
+        working-directory: python
+        run: |
+          # The [project] dependencies, written to a requirements file so
+          # pip-audit resolves them without installing the local package.
+          # Any known vulnerability fails the release.
+          python - <<'PY'
+          import pathlib, tomllib
+          deps = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project'].get('dependencies', [])
+          pathlib.Path('audit-requirements.txt').write_text('\n'.join(deps) + '\n')
+          PY
+          pip-audit --requirement audit-requirements.txt || (echo "::error::pip-audit found vulnerabilities"; exit 1)
+
+      - name: bandit security scan on src/
+        working-directory: python
+        run: bandit -r src/ -ll
+
+      - name: detect-secrets scan of the source
+        run: |
+          detect-secrets scan --all-files python/ > "$RUNNER_TEMP/python-secret-scan.json"
+          findings=$(python -c "import json, sys; d = json.load(open(sys.argv[1])); print(sum(len(v) for v in d.get('results', {}).values()))" "$RUNNER_TEMP/python-secret-scan.json")
+          echo "detect-secrets findings: $findings"
+          if [ "$findings" != "0" ]; then
+            echo "::error::Secrets detected in python/; refusing to publish."
+            cat "$RUNNER_TEMP/python-secret-scan.json"
+            exit 1
+          fi
+
+      - name: Build wheel + sdist
+        id: build
+        run: |
+          out="$RUNNER_TEMP/pypi-dist"
+          python -m build --wheel --sdist --outdir "$out" python/
+          ls -la "$out"
+          (cd "$out" && sha256sum ./*.whl ./*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          echo "sha256=$(sha256sum "$out/SHA256SUMS" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: twine check
+        run: python -m twine check "$RUNNER_TEMP"/pypi-dist/*.whl "$RUNNER_TEMP"/pypi-dist/*.tar.gz
+
+      - name: Check the built metadata
+        run: |
+          # What PyPI will show: the wheel's METADATA and the sdist's PKG-INFO.
+          python - "$RUNNER_TEMP/pypi-dist" "$VERSION" <<'PY'
+          import email.parser, pathlib, sys, tarfile, zipfile
+          dist, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+          wheels, sdists = sorted(dist.glob('*.whl')), sorted(dist.glob('*.tar.gz'))
+          errors = []
+          if len(wheels) != 1 or len(sdists) != 1:
+              errors.append(f'expected one wheel and one sdist, found {[p.name for p in wheels + sdists]}')
+          found = []
+          for w in wheels:
+              with zipfile.ZipFile(w) as z:
+                  name = next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))
+                  found.append((w.name, z.read(name).decode('utf-8')))
+          for s in sdists:
+              with tarfile.open(s) as t:
+                  member = next(m for m in t.getmembers() if m.name.count('/') == 1 and m.name.endswith('/PKG-INFO'))
+                  found.append((s.name, t.extractfile(member).read().decode('utf-8')))
+          for label, text in found:
+              meta = email.parser.HeaderParser().parsestr(text)
+              checks = {
+                  'Name': (meta.get('Name'), 'tzun-sdk'),
+                  'Version': (meta.get('Version'), version),
+                  'License-Expression': (meta.get('License-Expression'), 'LicenseRef-Tzun-All-Rights-Reserved'),
+              }
+              for field, (got, want) in checks.items():
+                  if got != want:
+                      errors.append(f'{label}: {field} is {got!r}, expected {want!r}')
+              files = meta.get_all('License-File') or []
+              for want in ('LICENSE.md', 'NOTICE'):
+                  if want not in files:
+                      errors.append(f'{label}: License-File {want} missing (has {files})')
+              for c in meta.get_all('Classifier') or []:
+                  if c.startswith('License ::'):
+                      errors.append(f'{label}: licence classifier {c!r} contradicts License-Expression')
+              print(f'{label}: Name, Version, License-Expression, License-File checked')
+          for e in errors:
+              print(f'::error::{e}')
+          sys.exit(1 if errors else 0)
+          PY
+
+      - name: Unpack the wheel and sdist for scanning
+        run: |
+          mkdir -p "$RUNNER_TEMP/pypi-scan/wheel" "$RUNNER_TEMP/pypi-scan/sdist"
+          python -m zipfile -e "$RUNNER_TEMP"/pypi-dist/*.whl "$RUNNER_TEMP/pypi-scan/wheel"
+          tar -xzf "$RUNNER_TEMP"/pypi-dist/*.tar.gz -C "$RUNNER_TEMP/pypi-scan/sdist"
+
+      - name: Secret scan of the wheel and sdist contents (detect-secrets)
+        run: |
+          report="$RUNNER_TEMP/pypi-dist/secret-scan-report.json"
+          detect-secrets scan --all-files "$RUNNER_TEMP/pypi-scan" > "$report"
+          findings=$(python -c "import json, sys; d = json.load(open(sys.argv[1])); print(sum(len(v) for v in d.get('results', {}).values()))" "$report")
+          echo "detect-secrets findings: $findings"
+          if [ "$findings" != "0" ]; then
+            echo "::error::Secrets detected in the built distributions; refusing to publish."
+            cat "$report"
+            exit 1
+          fi
+
+      - name: Public hygiene of the wheel and sdist contents
+        run: |
+          # Everything that ships, generated files included. Each text file is
+          # checked on its own, labelled with its path inside the archive;
+          # binary files are skipped.
+          fail=0
+          checked=0
+          while IFS= read -r -d '' f; do
+            grep -Iq . "$f" || continue
+            checked=$((checked + 1))
+            label="pypi/${f#"$RUNNER_TEMP/pypi-scan/"}"
+            if ! out=$(scripts/check-public-hygiene.sh text "$label" < "$f" 2>&1); then
+              printf '%s\n' "$out"
+              fail=1
+            fi
+          done < <(find "$RUNNER_TEMP/pypi-scan" -type f -print0 | sort -z)
+          echo "public hygiene: $checked text files checked"
+          if [ "$checked" = "0" ]; then
+            echo "::error::No files to check; the distributions did not unpack."
+            exit 1
+          fi
+          if [ "$fail" != "0" ]; then
+            echo "::error::The distributions carry text a public reader cannot follow; refusing to publish."
+            exit 1
+          fi
+
+      - name: Keep the distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pypi-dist
+          path: |
+            ${{ runner.temp }}/pypi-dist/*.whl
+            ${{ runner.temp }}/pypi-dist/*.tar.gz
+            ${{ runner.temp }}/pypi-dist/SHA256SUMS
+            ${{ runner.temp }}/pypi-dist/secret-scan-report.json
+            ${{ runner.temp }}/python-secret-scan.json
+          if-no-files-found: error
+          retention-days: 365
+
+  publish:
+    name: Publish to PyPI (trusted publishing)
+    runs-on: ubuntu-latest
+    needs: [authorize, build]
+    # The PyPI trusted publisher names this workflow file and this
+    # environment, whose required reviewers approve the deployment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tzun-sdk/
+    permissions:
+      contents: read
+      # PyPI trusted publishing and the upload's PEP 740 attestations. This
+      # job only.
+      id-token: write
+    env:
+      VERSION: ${{ needs.authorize.outputs.version }}
+
+    steps:
+      - name: Fetch the scanned distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pypi-dist
+          path: ${{ runner.temp }}/pypi-artifact
+
+      - name: Require the bytes the build job scanned
+        env:
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          art="$RUNNER_TEMP/pypi-artifact"
+          # upload-artifact keeps paths relative to the files' common parent;
+          # find the directory that holds SHA256SUMS.
+          sums=$(find "$art" -name SHA256SUMS -print -quit)
+          if [ -z "$sums" ]; then
+            echo "::error::SHA256SUMS is missing from the artifact."
+            exit 1
+          fi
+          got=$(sha256sum "$sums" | cut -d' ' -f1)
+          if [ "$got" != "$SHA256" ]; then
+            echo "::error::SHA256SUMS changed between the build and publish jobs."
+            exit 1
+          fi
+          (cd "$(dirname "$sums")" && sha256sum --check SHA256SUMS)
+          # Only the wheel and sdist go to PyPI, from the workspace, where the
+          # publish action reads them.
+          mkdir -p dist
+          cp "$(dirname "$sums")"/*.whl "$(dirname "$sums")"/*.tar.gz dist/
+          ls -la dist
+
+      - name: Check if this version is already on PyPI (idempotency guard)
+        id: version_check
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/tzun-sdk/${VERSION}/json")
+          echo "PyPI answered $code for tzun-sdk ${VERSION}"
+          if [ "$code" = "200" ]; then
+            # On a first attempt this means the version was never bumped.
+            # Only a re-run of a partially failed attempt gets the no-op.
+            if [ "${GITHUB_RUN_ATTEMPT:-1}" = "1" ]; then
+              echo "::error::tzun-sdk ${VERSION} is already published. This run would publish nothing and still report success. Bump the versions and tag again."
+              exit 1
+            fi
+            echo "tzun-sdk ${VERSION} is already published and this is run attempt ${GITHUB_RUN_ATTEMPT}; treating it as a no-op."
+            echo "skip_publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "$code" = "404" ]; then
+            echo "skip_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::PyPI answered $code; cannot tell whether tzun-sdk ${VERSION} exists."
+            exit 1
+          fi
+
+      - name: Publish to PyPI (OIDC trusted publisher, PEP 740 attestations)
+        if: steps.version_check.outputs.skip_publish != 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+          attestations: true

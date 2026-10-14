@@ -1,0 +1,10 @@
+{
+  "_comment": "Synthetic vision-pipeline response, used to verify pipeline_tag → modelType mapping.",
+  "modelId": "synthetic-org/clip-vision-test",
+  "sha": "cafebabe00112233445566778899aabbccddeeff",
+  "pipeline_tag": "image-classification",
+  "cardData": {
+    "license": "mit",
+    "pipeline_tag": "image-classification"
+  }
+}

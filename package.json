@@ -1,0 +1,100 @@
+{
+  "name": "@tzun/sdk",
+  "version": "0.8.2",
+  "description": "Cryptographic evidence capture for human-in-the-loop AI decisions",
+  "main": "dist/src/sdk/index.js",
+  "types": "dist/src/sdk/index.d.ts",
+  "files": [
+    "dist/src/**/*",
+    "dist/data/**/*",
+    "data/known-models.json",
+    "LICENSE.md",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && node scripts/copy-build-assets.mjs",
+    "build:dev": "tsc",
+    "test": "jest --verbose",
+    "test:anvil": "jest --config jest.anvil.config.js --verbose",
+    "test:watch": "jest --watch",
+    "dev:db": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:db:stop": "docker compose -f docker-compose.dev.yml down",
+    "benchmark": "npx ts-node src/benchmark/cli.ts",
+    "benchmark:json": "npx ts-node src/benchmark/cli.ts --json",
+    "codegen:python": "pnpm exec tsx scripts/codegen-python.ts",
+    "regenerate:vectors": "pnpm exec tsx scripts/regenerate-vectors.ts"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
+  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TzunAI/tzun.git"
+  },
+  "homepage": "https://tzun.ai",
+  "bugs": {
+    "url": "https://github.com/TzunAI/tzun/issues"
+  },
+  "dependencies": {
+    "@tzun/engine": "workspace:*",
+    "@simplewebauthn/server": "^14.0.3",
+    "asn1js": "^3.0.10",
+    "better-sqlite3": "^12.11.1",
+    "ethers": "^6.17.0",
+    "express": "^5.3.0",
+    "pg": "^8.23.1",
+    "pkijs": "^3.4.1",
+    "uuid": "^14.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "@types/supertest": "^7.2.1",
+    "esbuild": "^0.28.2",
+    "jest": "^30.5.2",
+    "supertest": "^7.3.1",
+    "ts-jest": "^29.4.14",
+    "tslib": "^2.8.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "test-exclude": "^8.0.0",
+      "glob": "^13.0.0",
+      "brace-expansion": ">=2.1.4"
+    }
+  },
+  "keywords": [
+    "ai-governance",
+    "ai-accountability",
+    "human-in-the-loop",
+    "evidence",
+    "tamper-evident",
+    "hash-chain",
+    "audit-trail",
+    "provenance",
+    "ai-bom",
+    "aibom",
+    "rfc3161",
+    "trusted-timestamp",
+    "webauthn",
+    "compliance",
+    "eu-ai-act",
+    "iso-42001",
+    "nist-ai-rmf",
+    "decision-evidence",
+    "attestation",
+    "sdk"
+  ],
+  "author": "Tzun, Inc. <oss@tzun.ai> (https://tzun.ai)",
+  "engines": {
+    "node": ">=22"
+  }
+}

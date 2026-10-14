@@ -1,0 +1,27 @@
+{
+  "comment": "One real vendor wire id (`response.model` / `modelId` as the vendor's API actually returns it) for every entry in data/known-models.json. Both the TS suite (tests/ts/known-models-reachability.test.ts) and the Python suite (python/tests/ai_bom/test_parse_model_id.py) parse each id with their own parseModelId and assert it lands on exactly one bundled entry, and that every bundled entry is reached; tests/cross-sdk/test_model_id_parity.py asserts the two parsers agree on all of them. Adding a bundled entry without a row here fails all three — that is the point: an entry keyed on a shape no vendor id produces can never be reached.",
+  "rows": [
+    { "vendor": "openai", "wireId": "gpt-4o-2024-08-06" },
+    { "vendor": "openai", "wireId": "gpt-4o-mini-2024-07-18" },
+    { "vendor": "openai", "wireId": "gpt-4-turbo-2024-04-09" },
+    { "vendor": "openai", "wireId": "o1-2024-12-17" },
+    { "vendor": "openai", "wireId": "o1-mini-2024-09-12" },
+    { "vendor": "anthropic", "wireId": "claude-opus-4-7" },
+    { "vendor": "anthropic", "wireId": "claude-sonnet-4-6" },
+    { "vendor": "anthropic", "wireId": "claude-haiku-4-5-20251001" },
+    { "vendor": "anthropic", "wireId": "claude-3-5-sonnet-20241022" },
+    { "vendor": "anthropic", "wireId": "claude-3-5-haiku-20241022" },
+    { "vendor": "bedrock", "wireId": "anthropic.claude-3-5-sonnet-20241022-v2:0" },
+    { "vendor": "bedrock", "wireId": "meta.llama3-1-70b-instruct-v1:0" },
+    { "vendor": "bedrock", "wireId": "mistral.mistral-large-2402-v1:0" },
+    { "vendor": "vertex", "wireId": "gemini-1.5-pro-001" },
+    { "vendor": "vertex", "wireId": "gemini-1.5-flash-001" },
+    { "vendor": "vertex", "wireId": "gemini-2.0-flash-exp" },
+    { "vendor": "azure-ai", "wireId": "phi-3-medium-4k-instruct" },
+    { "vendor": "azure-ai", "wireId": "mistral-large-2407" },
+    { "vendor": "azure-ai", "wireId": "cohere-command-r" },
+    { "vendor": "nvidia-nim", "wireId": "meta/llama-3.1-70b-instruct" },
+    { "vendor": "nvidia-nim", "wireId": "mistralai/mistral-large" },
+    { "vendor": "hf-inference", "wireId": "meta-llama/Llama-3.1-70B-Instruct" }
+  ]
+}

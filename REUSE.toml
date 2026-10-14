@@ -1,0 +1,37 @@
+version = 1
+
+# Everything not covered by a more specific annotation below, or by an
+# SPDX header in the file itself, is Tzun source, published with no licence
+# granted (LICENSE.md).
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Tzun, Inc."
+SPDX-License-Identifier = "LicenseRef-Tzun-All-Rights-Reserved"
+
+# Conformance vectors: CC0-1.0, so verifiers and test suites can embed them.
+[[annotations]]
+path = ["vectors/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Tzun, Inc."
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "src/attestation/certs/*.pem"
+precedence = "override"
+SPDX-FileCopyrightText = "The issuing certification authorities"
+SPDX-License-Identifier = "LicenseRef-Root-Certificates"
+
+# The Contributor Covenant, version 2.1, as its official repository
+# published it under CC BY 4.0 (that repository's LICENSE.md at the same
+# commit):
+# https://github.com/EthicalSource/contributor_covenant/blob/192bcf8016ae3733e46ff7d1285f2f57152cc195/content/version/2/1/code_of_conduct.md
+# It is kept as published, without the site's front matter, except for the
+# contact address under Enforcement and a closing paragraph. It is not Tzun's
+# and LICENSE.md does not apply to it; that closing paragraph names its
+# creator, its steward and its licence, whose text is LICENSES/CC-BY-4.0.txt.
+[[annotations]]
+path = "CODE_OF_CONDUCT.md"
+precedence = "override"
+SPDX-FileCopyrightText = "Contributor Covenant, created by Coraline Ada Ehmke and stewarded by the Organization for Ethical Source"
+SPDX-License-Identifier = "CC-BY-4.0"

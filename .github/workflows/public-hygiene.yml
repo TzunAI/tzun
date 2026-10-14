@@ -1,0 +1,77 @@
+name: Public hygiene
+
+# scripts/check-public-hygiene.sh on the tracked files, on the message of every
+# commit a push or pull request adds, and on a pull request's title and body.
+# It is a workflow of its own rather than a job of ci.yml for two reasons: it
+# checks every change, Markdown-only ones included, which are the likeliest to
+# need it; and a pull request's title and body change without a push (the
+# edited event), which must not re-run or cancel the build and tests.
+#
+# It also runs on draft pull requests: a draft's title, body and commits are
+# as public as any other.
+on:
+  push:
+    branches: [main, 'release/**']
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push or edit supersedes the last run; main's runs always finish.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+jobs:
+  hygiene:
+    name: public hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history, so every commit a push or pull request adds is
+          # here to read.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The check's own tests
+        run: scripts/test-public-hygiene.sh
+
+      - name: Tracked files
+        if: ${{ !cancelled() }}
+        run: scripts/check-public-hygiene.sh tree
+
+      - name: Commit messages
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif [ "$EVENT" = push ] && [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..$AFTER"
+          else
+            # A new branch or tag, a forced push, or a manual run: every
+            # commit the pushed ref reaches.
+            range="$AFTER"
+          fi
+          echo "commits: $range"
+          scripts/check-public-hygiene.sh commits "$range"
+
+      - name: Pull request title and body
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        # Passed in the environment, never written into the script.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" | scripts/check-public-hygiene.sh text "pull request"

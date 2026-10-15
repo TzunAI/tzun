@@ -35,6 +35,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from tzun_sdk.ai_bom.connectors.openrouter import is_openrouter_base_url
 from tzun_sdk.ai_bom.hook import hook
 from tzun_sdk.contributions import single_model
 from tzun_sdk.errors import TzunError
@@ -56,21 +57,47 @@ INTERCEPTED_PATHS: dict[str, list[tuple[str, ...]]] = {
     "bedrock": [("converse",), ("invoke_model",)],
     "vertex": [("generate_content",), ("predict",)],
     "azure_ai": [("complete",), ("chat",)],
+    # An OpenAI SDK client pointed at OpenRouter: OpenAI's call surface, the
+    # gateway's records. The same two methods as openai, since OpenRouter
+    # serves both APIs and a call through either must not reach openai-python
+    # with the tzun_capture kwarg.
+    "openrouter": [("chat", "completions", "create"), ("responses", "create")],
 }
 
 
+def _base_url_of(client: Any) -> str | None:
+    """The client's base URL as text (openai-python keeps an ``httpx.URL``), else ``None``."""
+    base_url = getattr(client, "base_url", None)
+    return None if base_url is None else str(base_url)
+
+
+def _openai_or_openrouter(client: Any) -> str:
+    """``openrouter`` for an OpenAI-shaped client whose base URL host is ``openrouter.ai`` or a subdomain.
+
+    The twin of the TS ``detectVendor`` check. An explicit ``vendor=`` to
+    :func:`attach` wins over it, so ``vendor="openai"`` restores the openai
+    classification.
+    """
+    return "openrouter" if is_openrouter_base_url(_base_url_of(client)) else "openai"
+
+
 def _detect_vendor(client: Any) -> str | None:
-    """Duck-type detect the vendor from the client's class hierarchy."""
+    """Duck-type detect the vendor from the client's class hierarchy.
+
+    An OpenAI client whose base URL host is ``openrouter.ai`` or a subdomain
+    of it (``eu.openrouter.ai``) is the OpenRouter gateway, detected as
+    ``openrouter``.
+    """
     module = type(client).__module__ or ""
     qualname = type(client).__qualname__ or ""
     haystack = f"{module}.{qualname}".lower()
     if "azureopenai" in haystack or "azure.openai" in haystack:
         # Azure-OpenAI shape — caller should pass vendor='openai' explicitly
         # if they want the azure-detection path; default to openai.
-        return "openai"
+        return _openai_or_openrouter(client)
     for name in ("openai", "anthropic", "vertex"):
         if name in haystack:
-            return name
+            return _openai_or_openrouter(client) if name == "openai" else name
     if "boto" in haystack or "bedrock" in haystack:
         return "bedrock"
     if "azure" in haystack:
@@ -92,7 +119,11 @@ def attach(
     ``hook() + tzun.capture()`` if ``tzun_capture`` was present.
 
     ``vendor`` is auto-detected from the client class when omitted; pass
-    explicitly to disambiguate (e.g., Azure-OpenAI vs. OpenAI direct).
+    explicitly to disambiguate (e.g., Azure-OpenAI vs. OpenAI direct). An
+    OpenAI client whose ``base_url`` host is ``openrouter.ai`` or a subdomain
+    of it (``eu.openrouter.ai``) is detected as ``openrouter``; pass
+    ``vendor="openrouter"`` for a client that reaches OpenRouter through
+    another host, or ``vendor="openai"`` to keep the openai classification.
 
     Re-attaching a wrapped client returns the same wrapper (no nesting).
     """
@@ -143,6 +174,14 @@ class _TzunAttachedClient:
     ) -> None:
         vendor = object.__getattribute__(self, "_vendor")
         tzun = object.__getattribute__(self, "_tzun")
+        if vendor == "openrouter":
+            # The gateway base URL lives on the client instance, never in the
+            # call's kwargs. It reaches the connector as a hint (which it
+            # normalises), after the vendor call, so it is never forwarded;
+            # an explicit kwarg of the same name wins, as in TS.
+            base_url = _base_url_of(object.__getattribute__(self, "_inner"))
+            if base_url is not None:
+                params = {"openrouter_endpoint": base_url, **params}
         try:
             ai_bom = await hook(vendor, params, response, tzun=tzun)
         except Exception as exc:

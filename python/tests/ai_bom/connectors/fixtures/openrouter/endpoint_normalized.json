@@ -1,0 +1,43 @@
+{
+  "recordedAgainst": "OpenRouter /api/v1/chat/completions, OpenAI-compatible (synthetic)",
+  "recordedAt": "2026-10-15",
+  "note": "Synthetic fixture on the shape of an OpenRouter chat-completions response; the generation id, content and usage are placeholders. The endpoint hint loses its userinfo, query, fragment and trailing slash, its host's ASCII letters are lowercased and the https default port is dropped.",
+  "request": {
+    "model": "openai/gpt-oss-120b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "openrouter_endpoint": "https://alice:pw@Gateway.Example.COM:443/api/v1/?trace=1#frag"
+  },
+  "response": {
+    "id": "gen-0000000000-scrubbed000000000000",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "openai/gpt-oss-120b",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "logprobs": null,
+        "message": {
+          "role": "assistant",
+          "content": "approve",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 1,
+      "total_tokens": 11
+    },
+    "provider": "Nvidia"
+  }
+}

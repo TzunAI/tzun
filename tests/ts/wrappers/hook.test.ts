@@ -77,9 +77,9 @@ describe('Tzun#hook', () => {
   });
 
   describe('unknown-vendor: hook() throws with a helpful message listing supported vendors', () => {
-    it('throws on unknown vendor with all seven vendors named in the message', async () => {
+    it('throws on unknown vendor with all eight vendors named in the message', async () => {
       await expect(tzun.hook('does-not-exist', {}, {})).rejects.toThrow(
-        /openai.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference/,
+        /openai.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference.*openrouter/,
       );
     });
 

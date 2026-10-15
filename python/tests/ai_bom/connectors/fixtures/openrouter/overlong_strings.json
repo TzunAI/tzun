@@ -1,0 +1,43 @@
+{
+  "recordedAgainst": "OpenRouter /api/v1/chat/completions, OpenAI-compatible (synthetic)",
+  "recordedAt": "2026-10-15",
+  "note": "Synthetic fixture on the shape of an OpenRouter chat-completions response; the generation id, content and usage are placeholders. A provider or endpoint over 256 UTF-16 code units is null, so the AI-BOM never fails the exact-members rule.",
+  "request": {
+    "model": "minimax/minimax-m3",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "openrouter_endpoint": "https://openrouter.ai/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "response": {
+    "id": "gen-0000000000-scrubbed000000000000",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "minimax/minimax-m3",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "logprobs": null,
+        "message": {
+          "role": "assistant",
+          "content": "approve",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 1,
+      "total_tokens": 11
+    },
+    "provider": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  }
+}

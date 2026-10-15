@@ -128,7 +128,8 @@ def as_int(value: Any) -> int | None:
 # ── Vendor model-id parsing (byte parity with TS parseModelId) ───────
 
 SupportedVendor = str
-"""One of: openai, anthropic, bedrock, vertex, azure-ai, nvidia-nim, hf-inference."""
+"""One of: openai, anthropic, bedrock, vertex, azure-ai, nvidia-nim, hf-inference,
+openrouter."""
 
 # JS `.` excludes exactly these four line terminators; Python's excludes only
 # `\n`. Spelled out so the two parsers agree on ids containing `\r` etc.
@@ -168,7 +169,9 @@ def parse_model_id(
 
     ``api_metadata["modelVersion"]`` is the fallback only when the id encodes
     no version; ``hf-inference`` defaults to ``'main'`` instead of
-    ``'unknown'`` per the Hugging Face revision convention.
+    ``'unknown'`` per the Hugging Face revision convention. An ``openrouter``
+    id is a slug: the whole served id, variant suffix (``:free``) included, is
+    the ``modelName``, and no date is split out of it.
     """
     hint = None
     if isinstance(api_metadata, dict):
@@ -197,9 +200,48 @@ def parse_model_id(
         return model_id, hint if hint is not None else "unknown"
     if vendor == "hf-inference":
         return model_id, hint if hint is not None else "main"
-    if vendor in ("azure-ai", "nvidia-nim"):
+    if vendor in ("azure-ai", "nvidia-nim", "openrouter"):
         return model_id, hint if hint is not None else "unknown"
     raise ValueError(f"unsupported vendor for parse_model_id: {vendor!r}")
+
+
+# ── OpenRouter ids (byte parity with TS) ─────────────────────────────
+#
+# String operations only, no regular expressions, so both SDKs yield the same
+# strings for every input: ``find``/``rfind`` and slicing here, ``indexOf``/
+# ``lastIndexOf`` and ``slice`` in TS (src/models/import-vendor.ts).
+
+
+def openrouter_author(model_id: str) -> str | None:
+    """OpenRouter's author prefix of a served id: the maker as the gateway names it.
+
+    Port of TS ``openRouterAuthor``. The prefix is kept verbatim (``openai``,
+    ``meta-llama``, ``x-ai``, ...). One leading ``~`` is dropped:
+    ``~anthropic/claude-opus-latest`` is an alias in the maker's own
+    namespace. An id with no ``author/`` prefix gives ``None``, and so does
+    ``openrouter/*``: those ids name OpenRouter's routers
+    (``openrouter/auto``), not a model maker.
+    """
+    model = model_id[1:] if model_id.startswith("~") else model_id
+    slash = model.find("/")
+    if slash <= 0:
+        return None
+    author = model[:slash]
+    return None if author == "openrouter" else author
+
+
+def openrouter_variant_base(model_id: str) -> str | None:
+    """The base id of an OpenRouter id with a variant suffix, else ``None``.
+
+    Port of TS ``openRouterVariantBase``: ``author/slug:variant`` gives
+    ``author/slug``; an id with no ``/``, no ``:`` after the ``/``, or nothing
+    after the last ``:`` carries no variant.
+    """
+    slash = model_id.find("/")
+    colon = model_id.rfind(":")
+    if slash < 0 or colon <= slash or colon == len(model_id) - 1:
+        return None
+    return model_id[:colon]
 
 
 # ── Known-models enrichment (byte parity with TS) ────────────────────
@@ -297,6 +339,12 @@ def enrich_from_known_models(
 
     A catalog that cannot be loaded is not an error: the MVD is returned
     unchanged, exactly as a lookup miss would.
+
+    For the ``openrouter`` vendor only, a miss on an id with a variant suffix
+    (``:free``, ``:batch``, ...) retries with the base id, as TS
+    ``importFromVendor`` does: the variant is the base model offered with its
+    own limits or pricing, so it enriches from the base entry while keeping
+    its own ``modelName``.
     """
     if known_models is None:
         try:
@@ -308,6 +356,10 @@ def enrich_from_known_models(
     entry = lookup_known_model(
         known_models, mvd.vendor, mvd.modelName, mvd.modelVersion
     )
+    if entry is None and mvd.vendor == "openrouter":
+        base = openrouter_variant_base(mvd.modelName)
+        if base is not None:
+            entry = lookup_known_model(known_models, mvd.vendor, base, mvd.modelVersion)
     return merge_mvd_with_enrichment(mvd, entry)
 
 
@@ -323,5 +375,7 @@ __all__ = (
     "lookup_known_model",
     "merge_mvd_with_enrichment",
     "normalize_stop_sequences",
+    "openrouter_author",
+    "openrouter_variant_base",
     "parse_model_id",
 )

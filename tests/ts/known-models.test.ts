@@ -23,12 +23,13 @@ describe('known-models reference', () => {
     expect(ref.entries.length).toBeGreaterThanOrEqual(20);
   });
 
-  it('2. seed contains entries for all eight logical vendor surfaces', async () => {
+  it('2. seed contains entries for all nine logical vendor surfaces', async () => {
     const ref = await loadKnownModels();
     const vendors = new Set(ref.entries.map((e) => e.vendor));
-    // Seven conventional vendor strings cover the eight logical surfaces
-    // (Azure OpenAI is served by the `openai` vendor; the eighth surface
-    // — HF Inference — uses `hf-inference`).
+    // Eight conventional vendor strings cover the nine logical surfaces
+    // (Azure OpenAI is served by the `openai` vendor; HF Inference uses
+    // `hf-inference`; models served through the OpenRouter gateway use
+    // `openrouter`).
     const expected = [
       'openai',
       'anthropic',
@@ -37,6 +38,7 @@ describe('known-models reference', () => {
       'azure-ai',
       'nvidia-nim',
       'hf-inference',
+      'openrouter',
     ];
     for (const v of expected) {
       expect(vendors.has(v)).toBe(true);

@@ -60,7 +60,10 @@ export interface ExternalIdentifier {
  *   - `weight-attested`  — `modelDigest` is non-null and cryptographically
  *                          binds the actual model weights/artifact.
  *   - `vendor-asserted`  — identity is asserted by the vendor; `modelDigest`
- *                          may be null (closed/hosted models).
+ *                          may be null (closed/hosted models). The vendor is
+ *                          the API that served the call; for a gateway (such
+ *                          as `openrouter`) that is the gateway, not the
+ *                          model's maker.
  *
  * @tzun-canonical-sort utf16
  */
@@ -178,6 +181,7 @@ export type ModelDescriptorSource =
   | 'azure-ai-known-models'
   | 'nim-known-models'
   | 'hf-inference-known-models'
+  | 'openrouter-known-models'
   | 'imported-by-digest';
 
 /**

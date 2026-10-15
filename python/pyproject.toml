@@ -1,6 +1,6 @@
 [project]
 name = "tzun-sdk"
-version = "0.8.3"
+version = "0.8.4"
 description = "Tzun Python SDK — forensic evidence infrastructure for AI decisions"
 authors = [{ name = "Tzun, Inc.", email = "oss@tzun.ai" }]
 readme = "README.md"

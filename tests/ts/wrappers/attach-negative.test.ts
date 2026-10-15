@@ -100,13 +100,13 @@ describe('attach() / hook() negative paths', () => {
 
   it('hook() against unknown vendor throws with vendor list in message', async () => {
     await expect(tzun.hook('foo', {}, {})).rejects.toThrow(
-      /openai.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference/,
+      /openai.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference.*openrouter/,
     );
   });
 
   it('attach() against unknown client shape throws with checked-shapes message', () => {
     expect(() => tzun.attach({} as never)).toThrow(
-      /Checked.*openai.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference/,
+      /Checked.*openai.*openrouter.*anthropic.*bedrock.*vertex.*azure-ai.*nvidia-nim.*hf-inference/,
     );
   });
 });

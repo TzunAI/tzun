@@ -1,0 +1,51 @@
+{
+  "recordedAgainst": "OpenRouter /api/v1/chat/completions, OpenAI-compatible (synthetic)",
+  "recordedAt": "2026-10-15",
+  "note": "Synthetic fixture on the shape of an OpenRouter chat-completions response; the generation id, content and usage are placeholders. Every inference parameter, a system fingerprint, an upstream provider and the endpoint hint.",
+  "request": {
+    "model": "google/gemini-3.8-flash",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "max_tokens": 256,
+    "seed": 42,
+    "stop": [
+      "END",
+      "STOP"
+    ],
+    "openrouter_endpoint": "https://openrouter.ai/api/v1"
+  },
+  "response": {
+    "id": "gen-0000000000-scrubbed000000000000",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "google/gemini-3.8-flash",
+    "system_fingerprint": "fp_synthetic01",
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "logprobs": null,
+        "message": {
+          "role": "assistant",
+          "content": "approve",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 1,
+      "total_tokens": 11
+    },
+    "provider": "Google AI Studio"
+  }
+}

@@ -1,9 +1,10 @@
 /**
  * Per-vendor importers using the known-models reference.
  *
- * Supports the seven conventional vendor surfaces seeded in
+ * Supports the eight conventional vendor surfaces seeded in
  * `data/known-models.json`:
- *   openai, anthropic, bedrock, vertex, azure-ai, nvidia-nim, hf-inference.
+ *   openai, anthropic, bedrock, vertex, azure-ai, nvidia-nim, hf-inference,
+ *   openrouter.
  *
  * Each vendor's `modelId` is parsed per its native id convention. The rule of
  * the table is: the parser splits out exactly the version segment the vendor's
@@ -43,6 +44,16 @@
  *     `apiMetadata.modelVersion ?? 'unknown'`.
  *   - azure-ai: id is the deployment-name surface; full id is `modelName`.
  *   - nvidia-nim / hf-inference: full `org/model` id is the `modelName`.
+ *   - openrouter: the whole served id is the `modelName`, variant suffix
+ *     included (`nvidia/nemotron-3-super-120b-a12b:free`), with
+ *     `'unknown'` as the version. OpenRouter ids are slugs: no date is split
+ *     out, and the dated `canonical_slug` of OpenRouter's model list is not
+ *     in the response. OpenRouter is a gateway, so two more rules apply to
+ *     this vendor only: `trainedBy` is the author prefix of the served id
+ *     (`openRouterAuthor`), the maker as the gateway names it; and a lookup
+ *     that misses on an id with a variant suffix retries with the base id
+ *     (`openRouterVariantBase`), so a `:free` call enriches from the base
+ *     model's entry while keeping its own `modelName`.
  *
  * Every rule is anchored to the whole id and matches ASCII digits only; the
  * Python port (`tzun_sdk.ai_bom.connectors._base.parse_model_id`) uses
@@ -58,6 +69,10 @@
  * Note on the `source` string for NIM: the existing `ModelDescriptorSource`
  * type already encodes `'nim-known-models'` (not `'nvidia-nim-known-models'`),
  * so we map the `nvidia-nim` vendor to that source literal.
+ *
+ * The two OpenRouter helpers use string operations only, no regular
+ * expressions, so the Python port (`openrouter_author`,
+ * `openrouter_variant_base`) yields the same strings for every input.
  */
 
 import { ModelDescriptor, ModelDescriptorSource } from '@tzun/engine';
@@ -73,7 +88,8 @@ export type SupportedVendor =
   | 'vertex'
   | 'azure-ai'
   | 'nvidia-nim'
-  | 'hf-inference';
+  | 'hf-inference'
+  | 'openrouter';
 
 export interface VendorImportInput {
   vendor: SupportedVendor;
@@ -98,7 +114,7 @@ interface ParsedId {
 
 /**
  * Maps the public `SupportedVendor` literal to the `ModelDescriptorSource`
- * literal that is already typed into `src/types/ai-bom.ts`. The only
+ * literal typed in `packages/engine/src/types/ai-bom.ts`. The only
  * non-identity mapping is `nvidia-nim -> nim-known-models`.
  */
 function sourceFor(vendor: SupportedVendor): ModelDescriptorSource {
@@ -191,13 +207,43 @@ export function parseModelId(
       };
     }
     case 'azure-ai':
-    case 'nvidia-nim': {
+    case 'nvidia-nim':
+    case 'openrouter': {
       return {
         modelName: modelId,
         modelVersion: hint ?? 'unknown',
       };
     }
   }
+}
+
+/**
+ * OpenRouter's author prefix of a served id: the maker as the gateway names it
+ * (`openai`, `meta-llama`, `x-ai`, ...), verbatim.
+ *
+ * One leading `~` is dropped: `~anthropic/claude-opus-latest` is an alias in
+ * the maker's own namespace. An id with no `author/` prefix gives `null`, and
+ * so does `openrouter/*`: those ids name OpenRouter's routers
+ * (`openrouter/auto`), not a model maker.
+ */
+export function openRouterAuthor(modelId: string): string | null {
+  const id = modelId.startsWith('~') ? modelId.slice(1) : modelId;
+  const slash = id.indexOf('/');
+  if (slash <= 0) return null;
+  const author = id.slice(0, slash);
+  return author === 'openrouter' ? null : author;
+}
+
+/**
+ * The base id of an OpenRouter id with a variant suffix
+ * (`author/slug:variant` -> `author/slug`), or `null` when the id carries no
+ * variant: no `/`, no `:` after the `/`, or nothing after the last `:`.
+ */
+export function openRouterVariantBase(modelId: string): string | null {
+  const slash = modelId.indexOf('/');
+  const colon = modelId.lastIndexOf(':');
+  if (slash < 0 || colon <= slash || colon === modelId.length - 1) return null;
+  return modelId.slice(0, colon);
 }
 
 /**
@@ -320,7 +366,7 @@ export function importFromVendor(
     apiMetadata,
   );
 
-  const enrichment = lookupKnownModel(
+  let enrichment = lookupKnownModel(
     knownModels,
     vendor,
     modelName,
@@ -328,6 +374,21 @@ export function importFromVendor(
   );
 
   const mvd = mvdFor(vendor, modelName, modelVersion);
+  if (vendor === 'openrouter') {
+    // The maker is the author prefix of the served id, as the gateway states
+    // it. The bundled OpenRouter entries carry no `trainedBy`, so enrichment
+    // never replaces this with a display name for some models and not others.
+    mvd.trainedBy = openRouterAuthor(modelName);
+    // A variant (`:free`, `:batch`, ...) is the base model offered with its
+    // own limits or pricing: enrich from the base entry when the variant has
+    // none of its own. The descriptor keeps the variant in `modelName`.
+    if (enrichment === null) {
+      const base = openRouterVariantBase(modelName);
+      if (base !== null) {
+        enrichment = lookupKnownModel(knownModels, vendor, base, modelVersion);
+      }
+    }
+  }
   const descriptor = mergeMvdWithEnrichment(mvd, enrichment);
 
   return {

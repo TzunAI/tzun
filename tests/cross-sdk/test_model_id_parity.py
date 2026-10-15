@@ -75,6 +75,19 @@ EDGE_SHAPES: list[dict[str, object]] = [
     {"vendor": "vertex", "modelId": "gemini-1.5-pro", "apiMetadata": {"modelVersion": "hint"}},
     # A non-string hint is ignored on both sides.
     {"vendor": "vertex", "modelId": "gemini-1.5-pro", "apiMetadata": {"modelVersion": 7}},
+    # OpenRouter: the whole served id is the name, variant and all; no date is
+    # split out, and a trailing newline is kept rather than anchored away.
+    {"vendor": "openrouter", "modelId": "nvidia/nemotron-3-super-120b-a12b:free"},
+    {"vendor": "openrouter", "modelId": "google/gemini-4-argon:batch"},
+    {"vendor": "openrouter", "modelId": "openai/gpt-4o-2024-08-06"},
+    {"vendor": "openrouter", "modelId": "deepseek/deepseek-v4-pro-0813"},
+    {"vendor": "openrouter", "modelId": "anthropic/claude-3-5-sonnet-20241022"},
+    {"vendor": "openrouter", "modelId": "~anthropic/claude-opus-latest"},
+    {"vendor": "openrouter", "modelId": "openrouter/auto"},
+    {"vendor": "openrouter", "modelId": "no-prefix"},
+    {"vendor": "openrouter", "modelId": "openai/gpt-oss-120b\n"},
+    {"vendor": "openrouter", "modelId": "x/y", "apiMetadata": {"modelVersion": "v9"}},
+    {"vendor": "openrouter", "modelId": "x/y", "apiMetadata": {"modelVersion": 9}},
 ]
 
 

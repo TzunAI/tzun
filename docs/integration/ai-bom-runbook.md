@@ -21,19 +21,20 @@ A record names the models behind a decision in its contributions ([Record §7](h
 
 If you call a managed AI API, you do not need to register anything by hand. Per-call AI-BOM extraction is done via `tzun.hook(vendor, request, response)`. For applications that want auto-capture per call, `tzun.attach(client)` returns a wrapped client where any method invocation carrying a `tzun_capture` kwarg fires `hook()` + `capture()` after the underlying call returns.
 
-The seven vendor labels cover eight logical surfaces:
+The eight vendor labels cover nine logical surfaces:
 
 | Vendor label | SDK / endpoint | Detection (for attach) |
 |--------------|----------------|------------------------|
-| `openai` | OpenAI direct, Azure OpenAI | `client.chat.completions.create` |
+| `openai` | OpenAI direct, Azure OpenAI | `client.chat.completions.create` (any base URL but OpenRouter's) |
 | `anthropic` | Anthropic direct | `client.messages.create` |
 | `bedrock` | AWS Bedrock | `client.send` + `BedrockRuntimeClient` |
 | `vertex` | GCP Vertex AI | `client.generateContent` or `.predict` |
 | `azure-ai` | Azure AI Foundry | `client.complete` or `.getChatCompletions` |
 | `nvidia-nim` | NVIDIA NIM | OpenAI-compatible; pass `{ vendor: 'nvidia-nim' }` |
 | `hf-inference` | HF Inference Endpoints | `client.chatCompletion` or `.textGeneration` |
+| `openrouter` | OpenRouter gateway (models of every maker it lists) | `client.chat.completions.create` with `baseURL` on `openrouter.ai` or a subdomain such as `eu.openrouter.ai`, or `wrapOpenRouter` |
 
-Below is one snippet per supported vendor. All seven follow the same shape: import the SDK, instantiate as you would today, hand the client to `tzun.attach()`, then use the wrapped client exactly as before — adding `tzun_capture: { action, reason, decider }` to the call when it drives a decision. The wrapper records the model as a contributions list of one (`singleModel(aiBom)`), the only place a record states a model. On the cloud transport (`apiKey`) the model is registered in the hosted service's per-account catalog (`POST /v1/models`); against a service that does not serve that endpoint the wrapper records the decision without its model (`contributions: null`) and logs `capture_model_not_recordable`. `decider` names who decided by an opaque id (`{ kind: 'human', id: 'acct:<account id>' }`), never an email address or a name.
+Below is one snippet per supported vendor. All eight follow the same shape: import the SDK, instantiate as you would today, hand the client to `tzun.attach()`, then use the wrapped client exactly as before — adding `tzun_capture: { action, reason, decider }` to the call when it drives a decision. The wrapper records the model as a contributions list of one (`singleModel(aiBom)`), the only place a record states a model. On the cloud transport (`apiKey`) the model is registered in the hosted service's per-account catalog (`POST /v1/models`); against a service that does not serve that endpoint the wrapper records the decision without its model (`contributions: null`) and logs `capture_model_not_recordable`. `decider` names who decided by an opaque id (`{ kind: 'human', id: 'acct:<account id>' }`), never an email address or a name.
 
 ### OpenAI
 
@@ -208,6 +209,59 @@ await nim.chat.completions.create({
   },
 });
 ```
+
+### OpenRouter
+
+OpenRouter serves models of many makers (OpenAI, Anthropic, Google, Meta, Mistral, xAI, DeepSeek, Qwen, NVIDIA, Microsoft, Amazon, Cohere, Moonshot AI, Z.ai, MiniMax and more) through one OpenAI-compatible API. Point the OpenAI SDK at it and attach: a client whose `baseURL` host is `openrouter.ai` or a subdomain such as `eu.openrouter.ai` (OpenRouter's data-region hosts) is detected as `openrouter`.
+
+```typescript
+import OpenAI from 'openai';
+import { Tzun } from '@tzun/sdk';
+
+const tzun = await Tzun.init();
+const router = tzun.attach(
+  new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: process.env.OPENROUTER_API_KEY,
+  }),
+  { aiSystemId: 'claims-triage' },
+);
+
+await router.chat.completions.create({
+  model: 'nvidia/nemotron-3-super-120b-a12b:free',
+  messages: [{ role: 'user', content: 'Triage this claim...' }],
+  temperature: 0.2,
+  tzun_capture: {
+    action: 'accepted',
+    reason: 'matches the policy wording',
+    decider: { kind: 'human', id: 'acct:u-4821' },
+  },
+});
+```
+
+The record states what the gateway reported, and nothing it did not:
+
+| Field | Value | From |
+|---|---|---|
+| descriptor `vendor` | `openrouter` | the API that served the call |
+| `modelName` | `nvidia/nemotron-3-super-120b-a12b:free` | `response.model`, verbatim, variant suffix included |
+| `modelVersion` | `unknown` | OpenRouter ids carry no version |
+| `trainedBy` | `nvidia` | the author prefix of the served id |
+| `integrityTier` | `vendor-asserted` | asserted by the gateway; nothing is attested by the maker |
+| `infrastructure.provider` | `Nvidia` | `response.provider`: the upstream OpenRouter routed the call to, as OpenRouter names it |
+| `infrastructure.endpoint` | `https://openrouter.ai/api/v1` | the client's base URL, without credentials, query or trailing `/`, its host lowercased and a default port (`:443`, `:80`) dropped |
+| `infrastructure.region`, `.apiVersion` | `null` | OpenRouter reports neither |
+
+- **The served model, not the requested one.** With a `models` fallback list or a router such as `openrouter/auto`, the model that answered is not necessarily the one asked for; the record names the one in `response.model`. A response with no `model` gets no AI-BOM (`connector_no_aibom`).
+- **The maker is the gateway's author id.** For this vendor `trainedBy` is the author prefix of the id as OpenRouter writes it (`openai`, `meta-llama`, `x-ai`, `qwen`), with an alias's leading `~` dropped; OpenRouter's routers (`openrouter/*`) and ids with no prefix name no maker. It is not a display name, so a Llama served through Bedrock says `Meta` and one served through OpenRouter says `meta-llama`, and one maker can have more than one prefix: Meta's Llama models are listed under `meta-llama/` and its Muse models under `meta/`. Only the `openrouter/` namespace is treated as a router. A router another publisher lists in its own namespace (`nvidia/switchyard`, `typesafe/jev-router`) is recorded with that publisher as `trainedBy` if a response names the router rather than the model it routed to.
+- **Variants.** A `:free` or `:batch` id is its own descriptor, enriched from the base model's entry in the bundled reference (`nvidia/nemotron-3-super-120b-a12b:free` takes the license and Hugging Face repo of `nvidia/nemotron-3-super-120b-a12b`).
+- **The tier.** `vendor-asserted` means the identity is asserted by the vendor, and the vendor is the API that served the call: for a gateway, the gateway. OpenRouter asserts the served id, the author and the upstream provider.
+- **Enrichment.** The bundled reference (`data/known-models.json`) carries entries for selected current models of the major makers on OpenRouter, not for every id it lists. A model without one is still recorded truthfully, only with `license`, `modelType` and `modelCardUrl` null. Each entry follows these rules:
+  - **Published weights.** The entry names the Hugging Face repository as an `hf-repo` external identifier, by its canonical id as the Hugging Face API resolves it, which may differ in case or organisation name from the `hugging_face_id` in OpenRouter's model list. A model published only as quantised repositories, with no base repository, is named by its full-precision (BF16) one.
+  - **The license of published weights** is the model card's `license`; when the card says `other`, the card's `license_name`; when the card names no license id, a slug of the title of the repository's `LICENSE` file (`mistral-modified-mit` for the Modified MIT License of Mistral Medium 3.5).
+  - **Unpublished weights.** The license is `<maker>-commercial` (`openai-commercial`, `anthropic-commercial`, `google-commercial`, `meta-commercial`, `mistral-commercial`, `cohere-commercial`, `xai-commercial`, `amazon-commercial`), which means the weights are not published and the model is used under its maker's commercial terms. Such an entry names no repository.
+- **Not recorded in the AI-BOM:** the generation id, token usage and cost are per-call facts, not a bill of materials; through `attach()` the whole response, `provider` and `usage` included, is the record's `aiOutput` already.
+- **`hook()` callers** pass the base URL as `request.openrouter_endpoint` to record it; no endpoint is assumed without it. A gateway behind a host of your own (a proxy in front of OpenRouter) is pinned with `wrapOpenRouter(client, tzun)`; `{ vendor: 'openai' }` restores the `openai` classification for an OpenRouter client.
 
 ### Hugging Face Inference Endpoints
 
@@ -760,6 +814,21 @@ await nim.chat.completions.create({
 
 NIM shares OpenAI's call surface; `{ vendor: 'nvidia-nim' }` is required to disambiguate. The connector sets `vendor: 'nvidia-nim'` on the descriptor regardless of the underlying client class.
 
+### OpenRouter
+
+```typescript
+import OpenAI from 'openai';
+
+const router = tzun.attach(new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey }));
+await router.chat.completions.create({
+  model: 'anthropic/claude-sonnet-5.5',
+  messages,
+  tzun_capture: { action, reason, decider },
+});
+```
+
+Detected by the client's base URL host (`openrouter.ai` or a subdomain such as `eu.openrouter.ai`); `wrapOpenRouter(client, tzun)` pins the vendor for any base URL. The descriptor's `vendor` is `openrouter`, `trainedBy` is the author prefix of the served id, `infrastructure.provider` is the upstream OpenRouter reports and `infrastructure.endpoint` is the base URL (see §1).
+
 ### Hugging Face Inference Endpoints
 
 ```typescript
@@ -780,7 +849,8 @@ Intercepts `chatCompletion` and `textGeneration`.
 ```typescript
 interface AttachOptions {
   vendor?: 'openai' | 'anthropic' | 'bedrock' | 'vertex'
-         | 'azure-ai' | 'nvidia-nim' | 'hf-inference';   // Explicit override (required for NIM)
+         | 'azure-ai' | 'nvidia-nim' | 'hf-inference'
+         | 'openrouter';                                  // Explicit override (required for NIM)
   aiSystemId?: string;                                    // Default aiSystemId on captured DEOs
   emitAiBom?: boolean;                                    // Default true; false is a CAPTURE kill-switch, not just an AI-BOM one
   cacheCapacity?: number;                                 // Declared, not read: the hook cache holds 256 entries

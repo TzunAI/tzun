@@ -26,7 +26,7 @@ if sys.version_info < (3, 11):  # noqa: UP036 — runtime guard for sub-3.11 use
         f"got {sys.version_info.major}.{sys.version_info.minor}"
     )
 
-__version__ = "0.8.3"
+__version__ = "0.8.4"
 
 # Public re-exports — these submodules are loaded eagerly so users can
 # write `from tzun_sdk import Tzun, hook, attach, storage, models, errors`

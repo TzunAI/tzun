@@ -2,7 +2,7 @@
 
 Exports the primary :func:`tzun_sdk.hook` API, the optional
 :func:`tzun_sdk.attach` sugar, the descriptor LRU cache
-(:class:`DescriptorCache`), and the five vendor connectors.
+(:class:`DescriptorCache`), and the six vendor connectors.
 """
 
 from __future__ import annotations

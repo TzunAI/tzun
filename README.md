@@ -456,7 +456,10 @@ where known its lineage and integrity tier.
 
 Eight inference vendors are covered through one extraction API — OpenAI, Azure
 OpenAI, Anthropic, AWS Bedrock, GCP Vertex, Azure AI Foundry, NVIDIA NIM and HF
-Inference Endpoints:
+Inference Endpoints — and so is the OpenRouter gateway, which serves the models
+of every major maker (OpenAI, Anthropic, Google, Meta, Mistral, xAI, DeepSeek,
+Qwen, NVIDIA, Microsoft, Amazon, Cohere, Moonshot AI, Z.ai, MiniMax and more)
+and is recorded as the gateway that served them:
 
 ```ts
 import { singleModel } from '@tzun/sdk';

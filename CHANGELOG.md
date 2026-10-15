@@ -22,7 +22,7 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
-## [0.8.3] — 2026-10-14
+## [0.8.3] — 2026-10-15
 
 ### Added
 

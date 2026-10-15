@@ -228,6 +228,23 @@ URLS: list[Any] = [
     "https:/openrouter.ai/api/v1",
     " https://openrouter.ai/api/v1",
     "https://openrouter.ai /api/v1",
+    # Subdomains and the trailing dot of a fully qualified host.
+    "https://eu.openrouter.ai/api/v1",
+    "https://us.openrouter.ai/api/v1",
+    "https://EU.OpenRouter.AI:443/api/v1",
+    "https://a.b-c.openrouter.ai/v1",
+    "https://openrouter.ai./api/v1",
+    "https://eu.openrouter.ai.:443/api/v1",
+    "https://openrouter.ai../api/v1",
+    "https://.openrouter.ai/api/v1",
+    "https://eu..openrouter.ai/api/v1",
+    "https://eu_1.openrouter.ai/api/v1",
+    "https://evil.example.com\\.openrouter.ai/v1",
+    "https://notopenrouter.ai/api/v1",
+    "https://eu.openrouter.ai.example.com/api/v1",
+    "https://\u0130.openrouter.ai/api/v1",
+    "https://\u212a.openrouter.ai/api/v1",
+    "https://eu.openrouter.ai\n/api/v1",
 ]
 
 

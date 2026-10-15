@@ -45,21 +45,21 @@ rewritten to the engine's exact version at publish time.
   of at most 256 code units each (never truncated). The TypeScript and Python
   connectors record the same bytes for the same call.
 - TypeScript: `tzun.attach()` detects an OpenAI-compatible client whose base
-  URL host is `openrouter.ai` as `openrouter` and records its base URL;
-  `wrapOpenRouter` pins the vendor for any base URL. `tzun.hook('openrouter',
-  request, response)` records the endpoint passed as
-  `request.openrouter_endpoint`. `SUPPORTED_VENDORS` has eight labels. The
-  importer exports the `openRouterAuthor` and `openRouterVariantBase` id
-  helpers.
+  URL host is `openrouter.ai` or a subdomain such as `eu.openrouter.ai` as
+  `openrouter` and records its base URL; `wrapOpenRouter` pins the vendor for
+  any base URL. `tzun.hook('openrouter', request, response)` records the
+  endpoint passed as `request.openrouter_endpoint`. `SUPPORTED_VENDORS` has
+  eight labels. The importer exports the `openRouterAuthor` and
+  `openRouterVariantBase` id helpers.
 - Python: the `openrouter` connector (`tzun_sdk.ai_bom.connectors.openrouter`,
   registry key `openrouter`), so `hook("openrouter", request, response)`
   works, with the endpoint passed as `request["openrouter_endpoint"]`.
-  `attach()` detects an OpenAI client whose `base_url` host is
-  `openrouter.ai` as `openrouter` and records its base URL; `vendor=
-  "openrouter"` pins the vendor for any base URL. It intercepts the same two
-  methods as for `openai`, `chat.completions.create` and `responses.create`.
-  `parse_model_id` gains the `openrouter` rule, and `openrouter_author` and
-  `openrouter_variant_base` are the id helpers.
+  `attach()` detects an OpenAI client whose `base_url` host is `openrouter.ai`
+  or a subdomain such as `eu.openrouter.ai` as `openrouter` and records its
+  base URL; `vendor="openrouter"` pins the vendor for any base URL. It
+  intercepts the same two methods as for `openai`, `chat.completions.create`
+  and `responses.create`. `parse_model_id` gains the `openrouter` rule, and
+  `openrouter_author` and `openrouter_variant_base` are the id helpers.
 - 39 `openrouter` entries in the bundled known-models reference
   (`data/known-models.json`, version `2026-10-15`), for selected current
   models of OpenAI, Anthropic, Google, Meta, Mistral AI, xAI, DeepSeek, Qwen,
@@ -80,12 +80,13 @@ rewritten to the engine's exact version at publish time.
 ### Changed
 
 - A capture through an attached OpenAI SDK client whose base URL host is
-  `openrouter.ai` now registers a descriptor with `vendor: 'openrouter'`, the
-  served id as `modelName`, and an `infrastructure` block, where it registered
-  `vendor: 'openai'` with no infrastructure. This holds in both SDKs. Records
-  already captured are unchanged and still verify. `tzun.attach(client, {
-  vendor: 'openai' })` (TypeScript) and `attach(client, tzun=tzun,
-  vendor="openai")` (Python) keep the old classification.
+  `openrouter.ai` or a subdomain such as `eu.openrouter.ai` now registers a
+  descriptor with `vendor: 'openrouter'`, the served id as `modelName`, and an
+  `infrastructure` block, where it registered `vendor: 'openai'` with no
+  infrastructure. This holds in both SDKs. Records already captured are
+  unchanged and still verify. `tzun.attach(client, { vendor: 'openai' })`
+  (TypeScript) and `attach(client, tzun=tzun, vendor="openai")` (Python) keep
+  the old classification.
 
 ### Removed
 

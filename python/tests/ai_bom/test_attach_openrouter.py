@@ -2,8 +2,8 @@
 
 The Python twin of ``tests/ts/wrappers/openrouter.test.ts``. An OpenAI SDK
 client pointed at OpenRouter has OpenAI's call surface, so ``attach()`` tells
-them apart by the client's base URL: a host of ``openrouter.ai`` is the
-gateway. Its captures register a descriptor with ``vendor: 'openrouter'`` (not
+them apart by the client's base URL: a host of ``openrouter.ai`` or a
+subdomain of it is the gateway. Its captures register a descriptor with ``vendor: 'openrouter'`` (not
 ``openai``), record the base URL as ``infrastructure.endpoint`` and the
 upstream OpenRouter names as ``infrastructure.provider``. The base URL is read
 off the client instance and given to the connector only; it never reaches the
@@ -322,6 +322,21 @@ def test_the_endpoint_of_an_httpx_url_is_the_endpoint_of_the_raw_string(base_url
     assert openrouter_endpoint(str(httpx.URL(base_url))) == openrouter_endpoint(base_url)
 
 
+async def test_a_client_on_a_data_region_host_records_that_host() -> None:
+    """``eu.openrouter.ai`` is OpenRouter's EU data-region host: detected, and recorded as the endpoint."""
+    inner = _FakeOpenAI(None, gateway_response("mistralai/mistral-small-2603", "Mistral"))
+    inner.base_url = httpx.URL("https://EU.OpenRouter.AI/api/v1/")  # type: ignore[assignment]
+    tzun, registered = await _init()
+    try:
+        wrapped = attach(inner, tzun=tzun)
+        await wrapped.chat.completions.create(model="mistralai/mistral-small-2603", messages=[], tzun_capture=capture_input())
+        assert registered[0].vendor == "openrouter"
+        ai_bom, _ = await _stored_ai_bom(tzun)
+        assert ai_bom["infrastructure"]["endpoint"] == "https://eu.openrouter.ai/api/v1"
+    finally:
+        await tzun.close()
+
+
 async def test_explicit_vendor_openai_restores_the_openai_classification() -> None:
     inner = _FakeOpenAI("https://openrouter.ai/api/v1/", gateway_response("openai/gpt-6-astra", "OpenAI"))
     tzun, registered = await _init()
@@ -432,6 +447,10 @@ async def test_the_sync_client_records_the_same_ai_bom() -> None:
     [
         ("https://openrouter.ai/api/v1/", "openrouter"),
         ("https://OpenRouter.ai:443/api/v1/", "openrouter"),
+        ("https://eu.openrouter.ai/api/v1/", "openrouter"),
+        ("https://us.openrouter.ai/api/v1/", "openrouter"),
+        ("https://openrouter.ai./api/v1/", "openrouter"),
+        ("https://notopenrouter.ai/api/v1/", "openai"),
         ("https://api.openai.com/v1/", "openai"),
         ("https://openrouter.ai.example.com/api/v1/", "openai"),
         ("https://openrouter.ai@gateway.example.com/v1/", "openai"),

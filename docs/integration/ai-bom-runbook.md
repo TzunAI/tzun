@@ -32,7 +32,7 @@ The eight vendor labels cover nine logical surfaces:
 | `azure-ai` | Azure AI Foundry | `client.complete` or `.getChatCompletions` |
 | `nvidia-nim` | NVIDIA NIM | OpenAI-compatible; pass `{ vendor: 'nvidia-nim' }` |
 | `hf-inference` | HF Inference Endpoints | `client.chatCompletion` or `.textGeneration` |
-| `openrouter` | OpenRouter gateway (models of every maker it lists) | `client.chat.completions.create` with `baseURL` on `openrouter.ai`, or `wrapOpenRouter` |
+| `openrouter` | OpenRouter gateway (models of every maker it lists) | `client.chat.completions.create` with `baseURL` on `openrouter.ai` or a subdomain such as `eu.openrouter.ai`, or `wrapOpenRouter` |
 
 Below is one snippet per supported vendor. All eight follow the same shape: import the SDK, instantiate as you would today, hand the client to `tzun.attach()`, then use the wrapped client exactly as before — adding `tzun_capture: { action, reason, decider }` to the call when it drives a decision. The wrapper records the model as a contributions list of one (`singleModel(aiBom)`), the only place a record states a model. On the cloud transport (`apiKey`) the model is registered in the hosted service's per-account catalog (`POST /v1/models`); against a service that does not serve that endpoint the wrapper records the decision without its model (`contributions: null`) and logs `capture_model_not_recordable`. `decider` names who decided by an opaque id (`{ kind: 'human', id: 'acct:<account id>' }`), never an email address or a name.
 
@@ -212,7 +212,7 @@ await nim.chat.completions.create({
 
 ### OpenRouter
 
-OpenRouter serves models of many makers (OpenAI, Anthropic, Google, Meta, Mistral, xAI, DeepSeek, Qwen, NVIDIA, Microsoft, Amazon, Cohere, Moonshot AI, Z.ai, MiniMax and more) through one OpenAI-compatible API. Point the OpenAI SDK at it and attach: a client whose `baseURL` host is `openrouter.ai` is detected as `openrouter`.
+OpenRouter serves models of many makers (OpenAI, Anthropic, Google, Meta, Mistral, xAI, DeepSeek, Qwen, NVIDIA, Microsoft, Amazon, Cohere, Moonshot AI, Z.ai, MiniMax and more) through one OpenAI-compatible API. Point the OpenAI SDK at it and attach: a client whose `baseURL` host is `openrouter.ai` or a subdomain such as `eu.openrouter.ai` (OpenRouter's data-region hosts) is detected as `openrouter`.
 
 ```typescript
 import OpenAI from 'openai';
@@ -827,7 +827,7 @@ await router.chat.completions.create({
 });
 ```
 
-Detected by the client's base URL host (`openrouter.ai`); `wrapOpenRouter(client, tzun)` pins the vendor for any base URL. The descriptor's `vendor` is `openrouter`, `trainedBy` is the author prefix of the served id, `infrastructure.provider` is the upstream OpenRouter reports and `infrastructure.endpoint` is the base URL (see §1).
+Detected by the client's base URL host (`openrouter.ai` or a subdomain such as `eu.openrouter.ai`); `wrapOpenRouter(client, tzun)` pins the vendor for any base URL. The descriptor's `vendor` is `openrouter`, `trainedBy` is the author prefix of the served id, `infrastructure.provider` is the upstream OpenRouter reports and `infrastructure.endpoint` is the base URL (see §1).
 
 ### Hugging Face Inference Endpoints
 

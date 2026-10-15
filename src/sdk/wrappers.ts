@@ -398,7 +398,7 @@ export const TZUN_CAPTURE_KWARG = 'tzun_capture' as const;
  * client's call surface in a fixed priority order:
  *
  *   1. `client.chat.completions.create` → openrouter when the client's
- *      `baseURL` host is `openrouter.ai`, else openai
+ *      `baseURL` host is `openrouter.ai` or a subdomain of it, else openai
  *      (NIM shares this shape; callers MUST pass `vendor: 'nvidia-nim'`
  *       to override. `vendor: 'openai'` restores the openai classification
  *       for an OpenRouter client.)

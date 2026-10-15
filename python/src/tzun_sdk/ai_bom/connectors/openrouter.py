@@ -70,6 +70,7 @@ No I/O is performed. Same input → same output.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from tzun_sdk._record_rules import utf16_length
@@ -198,19 +199,32 @@ def openrouter_endpoint(value: Any) -> str | None:
     return out if utf16_length(out) <= AI_BOM_MAX_STRING_LENGTH else None
 
 
+#: One or more DNS labels, each followed by a dot: the part of a subdomain left of ``openrouter.ai``.
+_SUBDOMAIN_LABELS = re.compile(r"(?:[a-z0-9-]+\.)+")
+
+
 def is_openrouter_base_url(value: Any) -> bool:
     """Whether a client's base URL points at OpenRouter.
 
-    Port of TS ``isOpenRouterBaseUrl``: the host, without the port and
-    compared case-insensitively, is ``openrouter.ai``.
+    Port of TS ``isOpenRouterBaseUrl``: the host, without the port, its ASCII
+    letters lowercased and one trailing ``.`` dropped, is ``openrouter.ai`` or
+    a subdomain of it, such as the data-region hosts ``eu.openrouter.ai`` and
+    ``us.openrouter.ai``. A subdomain's labels are ASCII letters, digits and
+    ``-``.
     """
     parts = _split_http_url(value)
     if parts is None:
         return False
     authority = parts[1]
     colon = authority.rfind(":")
-    host = authority if colon < 0 else authority[:colon]
-    return host.lower() == "openrouter.ai"
+    host = _ascii_lower(authority if colon < 0 else authority[:colon])
+    if host.endswith("."):
+        host = host[:-1]
+    if host == "openrouter.ai":
+        return True
+    return host.endswith(".openrouter.ai") and (
+        _SUBDOMAIN_LABELS.fullmatch(host[: len(host) - len("openrouter.ai")]) is not None
+    )
 
 
 # ── Connector implementation ──────────────────────────────────────

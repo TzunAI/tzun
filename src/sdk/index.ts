@@ -4116,7 +4116,7 @@ export class Tzun {
    *
    * Detection is duck-typed against the vendor call shapes:
    *   - `chat.completions.create` → openrouter when the client's `baseURL`
-   *     host is `openrouter.ai`, else openai (also NIM via
+   *     host is `openrouter.ai` or a subdomain of it, else openai (also NIM via
    *     `{ vendor: 'nvidia-nim' }`)
    *   - `messages.create` → anthropic
    *   - `send` + `BedrockRuntimeClient` constructor → bedrock

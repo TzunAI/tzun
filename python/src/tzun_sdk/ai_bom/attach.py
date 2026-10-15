@@ -72,7 +72,7 @@ def _base_url_of(client: Any) -> str | None:
 
 
 def _openai_or_openrouter(client: Any) -> str:
-    """``openrouter`` for an OpenAI-shaped client whose base URL host is ``openrouter.ai``.
+    """``openrouter`` for an OpenAI-shaped client whose base URL host is ``openrouter.ai`` or a subdomain.
 
     The twin of the TS ``detectVendor`` check. An explicit ``vendor=`` to
     :func:`attach` wins over it, so ``vendor="openai"`` restores the openai
@@ -84,8 +84,9 @@ def _openai_or_openrouter(client: Any) -> str:
 def _detect_vendor(client: Any) -> str | None:
     """Duck-type detect the vendor from the client's class hierarchy.
 
-    An OpenAI client whose base URL host is ``openrouter.ai`` is the
-    OpenRouter gateway, detected as ``openrouter``.
+    An OpenAI client whose base URL host is ``openrouter.ai`` or a subdomain
+    of it (``eu.openrouter.ai``) is the OpenRouter gateway, detected as
+    ``openrouter``.
     """
     module = type(client).__module__ or ""
     qualname = type(client).__qualname__ or ""
@@ -119,10 +120,10 @@ def attach(
 
     ``vendor`` is auto-detected from the client class when omitted; pass
     explicitly to disambiguate (e.g., Azure-OpenAI vs. OpenAI direct). An
-    OpenAI client whose ``base_url`` host is ``openrouter.ai`` is detected as
-    ``openrouter``; pass ``vendor="openrouter"`` for a client that reaches
-    OpenRouter through another host, or ``vendor="openai"`` to keep the
-    openai classification.
+    OpenAI client whose ``base_url`` host is ``openrouter.ai`` or a subdomain
+    of it (``eu.openrouter.ai``) is detected as ``openrouter``; pass
+    ``vendor="openrouter"`` for a client that reaches OpenRouter through
+    another host, or ``vendor="openai"`` to keep the openai classification.
 
     Re-attaching a wrapped client returns the same wrapper (no nesting).
     """

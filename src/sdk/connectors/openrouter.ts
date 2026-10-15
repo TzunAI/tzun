@@ -187,16 +187,27 @@ export function openRouterEndpoint(value: unknown): string | null {
   return out.length <= AI_BOM_MAX_STRING_LENGTH ? out : null;
 }
 
+/** One or more DNS labels, each followed by a dot: the part of a subdomain left of `openrouter.ai`. */
+const SUBDOMAIN_LABELS = /^(?:[a-z0-9-]+\.)+$/;
+
 /**
  * Whether a client's base URL points at OpenRouter: its host, without the
- * port and compared case-insensitively, is `openrouter.ai`.
+ * port, its ASCII letters lowercased and one trailing `.` dropped, is
+ * `openrouter.ai` or a subdomain of it, such as the data-region hosts
+ * `eu.openrouter.ai` and `us.openrouter.ai`. A subdomain's labels are ASCII
+ * letters, digits and `-`.
  */
 export function isOpenRouterBaseUrl(value: unknown): boolean {
   const parts = splitHttpUrl(value);
   if (parts === null) return false;
   const colon = parts.authority.lastIndexOf(':');
-  const host = colon < 0 ? parts.authority : parts.authority.slice(0, colon);
-  return host.toLowerCase() === 'openrouter.ai';
+  let host = asciiLower(colon < 0 ? parts.authority : parts.authority.slice(0, colon));
+  if (host.endsWith('.')) host = host.slice(0, -1);
+  if (host === 'openrouter.ai') return true;
+  return (
+    host.endsWith('.openrouter.ai') &&
+    SUBDOMAIN_LABELS.test(host.slice(0, host.length - 'openrouter.ai'.length))
+  );
 }
 
 // ── Connector implementation ──────────────────────────────────────

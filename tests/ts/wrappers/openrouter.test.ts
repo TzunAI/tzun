@@ -4,7 +4,7 @@ import { modelOf } from '../helpers/step-model';
  *
  * An OpenAI SDK client pointed at OpenRouter has OpenAI's call surface, so
  * `attach()` tells them apart by the client's base URL: a host of
- * `openrouter.ai` is the gateway. Its captures register a descriptor with
+ * `openrouter.ai` or a subdomain of it is the gateway. Its captures register a descriptor with
  * `vendor: 'openrouter'` (not `openai`), record the base URL as
  * `infrastructure.endpoint` and the upstream OpenRouter names as
  * `infrastructure.provider`. The base URL is read off the client instance
@@ -260,6 +260,10 @@ describe('detectVendor and the OpenRouter base URL', () => {
   it.each<[unknown, string]>([
     ['https://openrouter.ai/api/v1', 'openrouter'],
     ['https://OpenRouter.ai:443/api/v1/', 'openrouter'],
+    ['https://eu.openrouter.ai/api/v1', 'openrouter'],
+    ['https://us.openrouter.ai/api/v1/', 'openrouter'],
+    ['https://openrouter.ai./api/v1', 'openrouter'],
+    ['https://notopenrouter.ai/api/v1', 'openai'],
     ['https://api.openai.com/v1', 'openai'],
     ['https://openrouter.ai.example.com/api/v1', 'openai'],
     ['https://openrouter.ai@gateway.example.com/v1', 'openai'],

@@ -81,12 +81,13 @@ asyncio.run(main())
 - `attach(client, *, tzun)` — optional sugar wrapping a vendor client so
   per-call `tzun_capture=DecisionInput(...)` triggers `hook() + capture()`
   automatically. Kwarg-absent calls pass through with zero overhead. An
-  OpenAI client whose `base_url` host is `openrouter.ai` is detected as
-  `openrouter`, and its base URL is recorded as the endpoint; pass
-  `vendor="openai"` to keep the openai classification, or
-  `vendor="openrouter"` for a client that reaches OpenRouter through another
-  host. The `openrouter` vendor intercepts the same two methods as `openai`:
-  `chat.completions.create` and `responses.create`.
+  OpenAI client whose `base_url` host is `openrouter.ai` or a subdomain such
+  as `eu.openrouter.ai` is detected as `openrouter`, and its base URL is
+  recorded as the endpoint; pass `vendor="openai"` to keep the openai
+  classification, or `vendor="openrouter"` for a client that reaches
+  OpenRouter through another host. The `openrouter` vendor intercepts the
+  same two methods as `openai`: `chat.completions.create` and
+  `responses.create`.
 - `tzun.agents`, `tzun.links`, `tzun.deciders`, `tzun.decision_graph`,
   `tzun.mandates` — the agent catalog, links between records and link
   records, decider commitment openings, the bounded walk over a record's

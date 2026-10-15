@@ -514,10 +514,13 @@ describe('the chain the sender signed', () => {
     const input = { ...s.input, publication: publicationFrom(block, 0), headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) } };
     expect(await verifyEvmPublication(input)).toMatchObject({ valid: false, reason: 'evm_chain_mismatch', facts: { signedChainId: null } });
     // The CAIP-2 grammar of a manifest entry names chain ids from 1: an entry on
-    // eip155:0 makes the manifest unreadable, and the publication undecided.
+    // eip155:0 makes the manifest unreadable, and the publication undecided,
+    // even with a header source on chain 0 at hand.
     const zero = manifestOf(entry(s.publisher), { address: s.publisher.address, chain: 'eip155:0', namespace: 'test' });
-    const v = await verifyEvmPublication({ ...input, manifest: zero });
-    expect(v.valid).toBeNull();
+    const onZero = Object.assign(new FakeHeaderSource(block), { chain: 0n });
+    const v = await verifyEvmPublication({ ...input, manifest: zero, headerSources: { ...input.headerSources, 'eip155:0': onZero } });
+    expect(v).toMatchObject({ valid: null, reason: 'publication_not_checked' });
+    expect(v.checks.tx.reason).toBe('input_not_supplied:publisher_manifest');
   });
 
   it('the header source is chosen by the manifest entry\'s chain, and must itself be on that chain', async () => {

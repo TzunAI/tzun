@@ -34,9 +34,8 @@
 #                  SDK's public API and are not checked.
 #   cross-ref      <name>#<number>, an issue or pull request of another
 #                  repository; tzun# and tzun-verify#<number> are allowed.
-#                  tzun-spec#<number> is refused: the bare name tzun-spec
-#                  passes prefixed-name, an issue or pull request of it does
-#                  not.
+#                  The bare name tzun-spec passes prefixed-name;
+#                  tzun-spec#<number> is refused here.
 #   session        a link to a conversation with an assistant.
 #   local-path     an absolute path under a home, temporary, mount or root
 #                  directory, on any operating system.

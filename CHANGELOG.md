@@ -30,9 +30,12 @@ rewritten to the engine's exact version at publish time.
   `better-sqlite3` database and a `pg` pool. A project that type-checks
   library declarations (`skipLibCheck: false`) and did not install the two
   `@types` packages itself failed to compile against the packed SDK with
-  TS7016. CI now packs `@tzun/engine` and `@tzun/sdk` and compiles a strict
-  consumer of the two tarballs (`scripts/check-packed-types.sh`)
-  (TzunAI/tzun#9).
+  TS7016. The ranges, `^7.6.0 || ^9.6.0` and `^8.11.0`, also accept the
+  older versions a project may have installed itself. CI now packs
+  `@tzun/engine` and `@tzun/sdk` and compiles two strict consumers of the two
+  tarballs, one with nothing else installed and one with the oldest version
+  of each `@types` package the ranges accept
+  (`scripts/check-packed-types.sh`) (TzunAI/tzun#9).
 
 ## [0.8.2] — 2026-10-06
 

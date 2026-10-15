@@ -91,10 +91,12 @@ jobs:
       # The build above has every dev dependency installed and sets
       # skipLibCheck, so a public declaration that imports types only a dev
       # dependency provides compiles here and fails in a consumer's project.
-      # This packs both packages as release.yml does and compiles a strict
-      # consumer of the two tarballs, with skipLibCheck off.
-      - name: Packed declarations type-check in a strict consumer
-        run: scripts/check-packed-types.sh
+      # This packs both packages as release.yml does and compiles two strict
+      # consumers of the two tarballs, with skipLibCheck off: one with nothing
+      # else installed, one with the oldest @types/pg and @types/better-sqlite3
+      # the SDK supports. --no-build packs what the build steps above built.
+      - name: Packed declarations type-check in strict consumers
+        run: scripts/check-packed-types.sh --no-build
 
   python:
     name: Python SDK (python/tests/)

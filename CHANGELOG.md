@@ -63,10 +63,11 @@ rewritten to the engine's exact version at publish time.
 ### Fixed
 
 - A transaction with a `nonce` from 2^53 to 2^64 - 1 is read and its sender
-  recovered. A chain can hold such a nonce, and the SDKs refused it as
-  `malformed_publication` only because ethers reads a nonce as a JavaScript
-  safe integer (the Python SDK copied that limit). A legacy `v` above
-  2^256 - 1 (a chain id of 2^255 or more) is read for the same reason.
+  recovered. An account's nonce is a 64-bit integer, so a nonce above 2^53 - 1
+  can be real; the SDKs refused it as `malformed_publication` only because
+  ethers reads a nonce as a JavaScript safe integer (the Python SDK copied
+  that limit). A legacy `v` above 2^256 - 1 (a chain id of 2^255 or more) is
+  read for the same reason.
 
 ### Added
 

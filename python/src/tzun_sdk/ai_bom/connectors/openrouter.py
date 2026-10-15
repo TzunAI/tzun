@@ -139,7 +139,12 @@ def _split_http_url(value: Any) -> tuple[str, str, str] | None:
 
     The authority is without userinfo and the path without query or fragment,
     by string operations only. ``None`` for a value that is not a string, has
-    another scheme (the match is case-sensitive), or has an empty authority.
+    another scheme (the match is case-sensitive), has an empty authority, or
+    has a ``\\`` in its authority, userinfo included: openai-node's ``URL``
+    reads that ``\\`` as ``/`` and httpx keeps it in the userinfo, so the two
+    clients would call different hosts
+    (``https://evil.example.com\\@openrouter.ai`` calls evil.example.com from
+    TS and openrouter.ai from Python), and no host can be named for both.
     """
     if not isinstance(value, str):
         return None
@@ -158,6 +163,8 @@ def _split_http_url(value: Any) -> tuple[str, str, str] | None:
     slash = rest.find("/")
     authority = rest if slash < 0 else rest[:slash]
     path = "" if slash < 0 else rest[slash:]
+    if "\\" in authority:
+        return None
     # Drop the userinfo (`user:password@`).
     authority = authority[authority.rfind("@") + 1 :]
     if not authority:
@@ -180,8 +187,9 @@ def openrouter_endpoint(value: Any) -> str | None:
     and the scheme's default port (``:443`` for https, ``:80`` for http) is
     dropped, as ``httpx.URL`` does, so ``https://OpenRouter.AI:443/api/v1/``
     records ``https://openrouter.ai/api/v1``. The path is kept as given.
-    ``None`` when the value is not an ``http(s)://`` URL, the host is empty, or
-    the result is longer than 256 UTF-16 code units.
+    ``None`` when the value is not an ``http(s)://`` URL, the host is empty,
+    the authority holds a ``\\``, or the result is longer than 256 UTF-16
+    code units.
     """
     parts = _split_http_url(value)
     if parts is None:

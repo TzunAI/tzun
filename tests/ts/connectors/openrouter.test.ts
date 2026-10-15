@@ -564,6 +564,11 @@ describe('openRouterEndpoint', () => {
     // Userinfo is dropped (written with an empty password here: `user:@host`).
     ['https://user:@openrouter.ai/api/v1', 'https://openrouter.ai/api/v1'],
     ['https://a@b:c:@openrouter.ai/api/v1', 'https://openrouter.ai/api/v1'],
+    // A `\` in the host part is refused: openai-node reads it as `/`, httpx
+    // keeps it in the userinfo, so the two would call different hosts.
+    ['https://evil.example.com\\@openrouter.ai/v1', null],
+    ['https://evil.example.com\\@eu.openrouter.ai/v1', null],
+    ['https://openrouter.ai\\@evil.example.com/v1', null],
     // The scheme match is case-sensitive.
     ['HTTPS://openrouter.ai/api/v1', null],
     ['ftp://openrouter.ai/api/v1', null],
@@ -615,6 +620,10 @@ describe('isOpenRouterBaseUrl', () => {
     ['https://eu..openrouter.ai/api/v1', false],
     ['https://eu_1.openrouter.ai/api/v1', false],
     ['https://evil.example.com\\.openrouter.ai/v1', false],
+    // A `\` in the host part: openai-node and httpx would call different hosts.
+    ['https://evil.example.com\\@openrouter.ai/v1', false],
+    ['https://evil.example.com\\@eu.openrouter.ai/v1', false],
+    ['https://openrouter.ai\\@evil.example.com/v1', false],
     ['https://notopenrouter.ai/api/v1', false],
     ['https://eu.openrouter.ai.example.com/api/v1', false],
     ['https://api.openai.com/v1', false],

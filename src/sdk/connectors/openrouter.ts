@@ -126,7 +126,12 @@ interface HttpUrlParts {
 /**
  * Splits an `http(s)://` URL into scheme, authority (without userinfo) and
  * path (without query or fragment), by string operations only. `null` for a
- * value that is not a string, has another scheme, or has an empty authority.
+ * value that is not a string, has another scheme, has an empty authority, or
+ * has a `\` in its authority, userinfo included: openai-node's `URL` reads
+ * that `\` as `/` and httpx keeps it in the userinfo, so the two clients
+ * would call different hosts (`https://evil.example.com\@openrouter.ai`
+ * calls evil.example.com from TS and openrouter.ai from Python), and no host
+ * can be named for both.
  */
 function splitHttpUrl(value: unknown): HttpUrlParts | null {
   if (typeof value !== 'string') return null;
@@ -145,6 +150,7 @@ function splitHttpUrl(value: unknown): HttpUrlParts | null {
   const slash = rest.indexOf('/');
   let authority = slash < 0 ? rest : rest.slice(0, slash);
   const path = slash < 0 ? '' : rest.slice(slash);
+  if (authority.includes('\\')) return null;
   // Drop the userinfo (`user:password@`).
   authority = authority.slice(authority.lastIndexOf('@') + 1);
   if (authority.length === 0) return null;
@@ -170,7 +176,8 @@ function asciiLower(s: string): string {
  * https, `:80` for http) is dropped, as openai-python's `httpx.URL` does, so
  * `https://OpenRouter.AI:443/api/v1/` records `https://openrouter.ai/api/v1`.
  * The path is kept as given. `null` when the value is not an `http(s)://` URL,
- * the host is empty, or the result is longer than 256 UTF-16 code units.
+ * the host is empty, the authority holds a `\`, or the result is longer
+ * than 256 UTF-16 code units.
  */
 export function openRouterEndpoint(value: unknown): string | null {
   const parts = splitHttpUrl(value);

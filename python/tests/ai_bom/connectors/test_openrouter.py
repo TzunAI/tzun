@@ -706,6 +706,11 @@ def test_vendor_fingerprint_is_system_fingerprint_only() -> None:
         # Userinfo is dropped (written with an empty password here: `user:@host`).
         ("https://user:@openrouter.ai/api/v1", "https://openrouter.ai/api/v1"),
         ("https://a@b:c:@openrouter.ai/api/v1", "https://openrouter.ai/api/v1"),
+        # A `\` in the host part is refused: openai-node reads it as `/`, httpx
+        # keeps it in the userinfo, so the two would call different hosts.
+        ("https://evil.example.com\\@openrouter.ai/v1", None),
+        ("https://evil.example.com\\@eu.openrouter.ai/v1", None),
+        ("https://openrouter.ai\\@evil.example.com/v1", None),
         # The scheme match is case-sensitive.
         ("HTTPS://openrouter.ai/api/v1", None),
         ("ftp://openrouter.ai/api/v1", None),
@@ -765,6 +770,10 @@ def test_openrouter_endpoint_allows_256_utf16_code_units_and_refuses_257() -> No
         ("https://eu..openrouter.ai/api/v1", False),
         ("https://eu_1.openrouter.ai/api/v1", False),
         ("https://evil.example.com\\.openrouter.ai/v1", False),
+        # A `\` in the host part: openai-node and httpx would call different hosts.
+        ("https://evil.example.com\\@openrouter.ai/v1", False),
+        ("https://evil.example.com\\@eu.openrouter.ai/v1", False),
+        ("https://openrouter.ai\\@evil.example.com/v1", False),
         ("https://notopenrouter.ai/api/v1", False),
         ("https://eu.openrouter.ai.example.com/api/v1", False),
         ("https://api.openai.com/v1", False),

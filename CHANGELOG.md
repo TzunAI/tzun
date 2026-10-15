@@ -38,12 +38,14 @@ rewritten to the engine's exact version at publish time.
   credentials, query or trailing `/`, its host lowercased and a default port
   dropped. The tier is `vendor-asserted`, asserted by the gateway. It assumes
   nothing it was not told: no `model` in the response gives no AI-BOM, and a
-  missing provider or base URL is `null`. A value the AI-BOM rules would
-  refuse is recorded as `null` rather than failing the capture: `maxTokens`
-  and `seed` are kept only as safe integers, an infrastructure string only up
-  to 256 UTF-16 code units, and `stopSequences` only when there are at most 16
-  of at most 256 code units each (never truncated). The TypeScript and Python
-  connectors record the same bytes for the same call.
+  missing provider or base URL is `null`, as is a base URL with a `\` in its
+  host part, which openai-node and httpx send to different hosts. A value the
+  AI-BOM rules would refuse is recorded as `null` rather than failing the
+  capture: `maxTokens` and `seed` are kept only as safe integers, an
+  infrastructure string only up to 256 UTF-16 code units, and `stopSequences`
+  only when there are at most 16 of at most 256 code units each (never
+  truncated). The TypeScript and Python connectors record the same bytes for
+  the same call.
 - TypeScript: `tzun.attach()` detects an OpenAI-compatible client whose base
   URL host is `openrouter.ai` or a subdomain such as `eu.openrouter.ai` as
   `openrouter` and records its base URL; `wrapOpenRouter` pins the vendor for

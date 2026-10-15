@@ -89,7 +89,9 @@ class SignedEvmTransaction:
 
     #: 0 (legacy), 1 (EIP-2930) or 2 (EIP-1559).
     type: int
-    #: The chain id the sender signed; 0 for an unprotected legacy transaction (``v`` 27 or 28).
+    #: The chain id the sender signed; 0 for an unprotected legacy transaction (``v`` 27 or
+    #: 28), which signs none: no manifest entry is on chain 0, and its ``signedChainId`` fact
+    #: is ``None``.
     chain_id: int
     #: The calldata.
     data: bytes

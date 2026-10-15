@@ -7,7 +7,7 @@
     "manifestEntry": "The entry every case starts from, for anchorOrigin: the publisher on the file's chain. A case's bounds are set on it, and its manifest is { \"publishers\": { anchorOrigin: [ entry ] } }.",
     "validityBounds": "name; bounds, the members set on manifestEntry (an absent member is left absent, null is set to null); window, whether §9 makes the entry valid at blockTime (admits, excludes) or unreadable (malformed); expect, per mode, the verdict of verifyEvmPublication: valid, reason (absent when valid is true), the anchor.evm.tx and anchor.evm.canonical checks, each with outcome and reason (absent when checked-correct), and inclusion when valid is true.",
     "modes": "header: the publication as given (blockHeader, txIndex and txProof carried), with headerSource, so the window is judged at the header's time (§10.4 item 6) and again at the time the source confirms (item 13). noHeader: the publication without blockHeader, txIndex and txProof, with headerSource, so the window is judged only at the time the source confirms, and the source's lookup places the transaction (item 12). offline: the publication as given and no header source, so the header can make the publication fail but never pass.",
-    "transactionCases": "chain, blockNumber and blockHash: what every case's publication claims (no header, no trie proof, no header source: offline). A case is { \"kind\": \"evm-calldata/1\", \"chain\": chain, \"transactionId\": transactionId, \"rawTransaction\": rawTransaction, \"blockNumber\": blockNumber, \"blockHash\": blockHash }, verified for P = p of this file and anchorOrigin, with the manifest { \"publishers\": { anchorOrigin: [ { \"address\": publisher, \"chain\": chain, \"namespace\": \"test\" } ] } }. Each case: id; name; rule, the rule of item 2 it breaks, by the specification's label (chain-id: Chain id, legacy-v: Legacy v, signature-values: Signature values, fees: Fees, recovery: Recovery, encoding: Encoding, field-sizes: Field sizes), or null when item 2 reads it; each refused case breaks that rule and no other; item2, refuses or reads; rawTransaction and transactionId (its keccak-256); publisher, the address the signing key has, or for a signature no key made, the address it recovers (for a high s, read as n - s with the other parity); sender, the address item 2 recovers (null when it refuses); expect, the verdict of verifyEvmPublication, as for validityBounds. An encoding or field-sizes case is the signing key's signature over the canonical encoding of the same field values, so a reader that took the values would recover the publisher."
+    "transactionCases": "chain, blockNumber and blockHash: what every case's publication claims (no header, no trie proof, no header source: offline). A case is { \"kind\": \"evm-calldata/1\", \"chain\": chain, \"transactionId\": transactionId, \"rawTransaction\": rawTransaction, \"blockNumber\": blockNumber, \"blockHash\": blockHash }, verified for P = p of this file and anchorOrigin, with the manifest { \"publishers\": { anchorOrigin: [ { \"address\": publisher, \"chain\": chain, \"namespace\": \"test\" } ] } }. Each case: id; name; rule, the rule of item 2 it breaks, by the specification's label (chain-id: Chain id, legacy-v: Legacy v, signature-values: Signature values, fees: Fees, recovery: Recovery, encoding: Encoding, field-sizes: Field sizes), or null when item 2 reads it; each refused case breaks that rule and no other; item2, refuses or reads; rawTransaction and transactionId (its keccak-256); publisher, the address the signing key has, or for a signature no key made, the address it recovers (for a high s, read as n - s with the other parity); sender, the address item 2 recovers (null when it refuses); signedChainId, the signedChainId fact of anchor.evm.tx (§10.7) when item 2 reads the transaction: the chain id the sender signed, in decimal, or null for a legacy transaction signed before EIP-155 (v 27 or 28), which signs none; null when item 2 refuses, since anchor.evm.tx then reports no facts; expect, the verdict of verifyEvmPublication, as for validityBounds. An encoding or field-sizes case is the signing key's signature over the canonical encoding of the same field values, so a reader that took the values would recover the publisher."
   },
   "chain": "eip155:31337",
   "anchorOrigin": "test.vectors.tzun/380ebe56b8af417a1117079b31bd3c9c/anchors",
@@ -3199,6 +3199,7 @@
         "transactionId": "0xc0763944e6f9bb832e28a00b9e8dbc2782365d426a76757cd7b317282ad49473",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3221,6 +3222,7 @@
         "transactionId": "0xfeaa3cbe091f5dc97b2cddebc4ac229747f08439d835ec9a8d35ee4ccb8dc921",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3243,6 +3245,7 @@
         "transactionId": "0x62ec50b389c5781d94248336b8547d8e3c2a43cd87e29c1b2df664d558465077",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3264,6 +3267,7 @@
         "transactionId": "0x63e2ae61828074ec086111fe6f02adca33d49d83cfe8ca4fea2c7932fc5cb0b4",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3285,6 +3289,7 @@
         "transactionId": "0xc88a1d56d7245f032bc8aa06084a9cb4ca19265b14b79843d77dba642793ac00",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3307,6 +3312,7 @@
         "transactionId": "0xb9a4bacb6e229bd2cf5cfe8387cfdf2ccd5809d4b891c718ccd142584879b32c",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3329,6 +3335,7 @@
         "transactionId": "0xc040294a8b1560400d08bff597821387a79ff71def0677616c9f3b262af5c02e",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3351,6 +3358,7 @@
         "transactionId": "0xfa8f1c6ff7fbf683855fecba79d20627bcad9b40403750ffed69a13590e44b26",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3372,6 +3380,7 @@
         "transactionId": "0x9eaf79f6828dbdb2ba3f4d4bb20c0d98d6c667b7707796f5268fda76d00c1e0f",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3393,6 +3402,7 @@
         "transactionId": "0x4401278364a2d7c405c269393a89af25e0677f8d2d27068250ecc662f3506326",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "evm_chain_mismatch",
@@ -3415,6 +3425,7 @@
         "transactionId": "0xe84d09015e4450bc334d6db1edcd7aa03cc75b799b7f6a78428ca09f4f2d202a",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "evm_chain_mismatch",
@@ -3437,6 +3448,7 @@
         "transactionId": "0x83f8e52fceca284c7ff59aa4671da8149d8e466879a7c2cd7e3a46cbf359c5a5",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3459,6 +3471,7 @@
         "transactionId": "0x7e23dfc34dd6934686de3ce1dbfd7efaa32c3775b88f08b31175a94e4f379f88",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3481,6 +3494,7 @@
         "transactionId": "0xce61b2da94402f877db1d3ce2cf5daa805f4c5fb34774aad5918caf0dc75c83f",
         "publisher": "0xa08fcb417b34c8be9830fe650192f4b3777cd4ad",
         "sender": "0xa08fcb417b34c8be9830fe650192f4b3777cd4ad",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3502,6 +3516,7 @@
         "transactionId": "0xf477f514f145fc73c546648ff5a97b535423470a01075147d5480c755b48afde",
         "publisher": "0xa08fcb417b34c8be9830fe650192f4b3777cd4ad",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3524,6 +3539,7 @@
         "transactionId": "0x0793b2a2df650b18b5e66deb946048a5d6fb94cee664f6feede6cac632cb062d",
         "publisher": "0xced9b89f6c70a95854e464018296e971a4cf8b34",
         "sender": "0xced9b89f6c70a95854e464018296e971a4cf8b34",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3545,6 +3561,7 @@
         "transactionId": "0x01992fb31100d5cdb24addf50ae985e0efabecd948304e2422bc801d6ec39be0",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3567,6 +3584,7 @@
         "transactionId": "0xeeca6748800cb48d06dbe4c469878e5179414ef7246d04f8970637216240917c",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3589,6 +3607,7 @@
         "transactionId": "0x4fa3d5f57e2fdeb953ef499369b95d64fb00c9a69e2022ea0d458ebc6c5395a0",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3611,6 +3630,7 @@
         "transactionId": "0x71db30d18a065fa367be3a8d87d16bafc94e8c8c2135bda53d1976314275eae2",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3633,6 +3653,7 @@
         "transactionId": "0x1e6571451c5a2aa045558f459cca15ac5e6ea34337f6656b8d2eb616a5de4bb4",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3655,6 +3676,7 @@
         "transactionId": "0x8da02f133d675e28929e27e260517465463abe510894a019df5d7644a2152867",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3676,6 +3698,7 @@
         "transactionId": "0x65caf92054ca6d98a423c85a243d5fd74c2a9d3c7f7cebde0c9afa32730092eb",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3698,6 +3721,7 @@
         "transactionId": "0x05f392d68bc7aa0ffe4c031df4a93a9b3fa7083c2ae8dca931bc64b151aaa46d",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3720,6 +3744,7 @@
         "transactionId": "0x5d2993cdeb84f1f644cf59523fad0e06b76ee0b2aae1336cdcf43f598f782e15",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3742,6 +3767,7 @@
         "transactionId": "0xf8f85de75601f7bd47ba09878f2ac674eb59c4b00c7d663a2fda94fbf8ca7b0e",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3764,6 +3790,7 @@
         "transactionId": "0x1a1a791844b4480a3832707eb73bb9af0607cf16aa325362be132e376a8b4870",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3786,6 +3813,7 @@
         "transactionId": "0xcb1198614ccc5b67cf37fb22d0c3603dc8e4b76790707521af642279b6329f2a",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3808,6 +3836,7 @@
         "transactionId": "0xc532ca6a4632cc782be2e9fe0e4b89eef1bfc01926cd5ef4b844818230fb87b4",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3830,6 +3859,7 @@
         "transactionId": "0xfb3632b4136d5cf26600706083e76cba7e33311443c5b9c6eecd20a9e55ca088",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3852,6 +3882,7 @@
         "transactionId": "0xef3f12a887d65da5b3aa1b1f995e5c2063453effaa0f49ce449b68b21879adf6",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3874,6 +3905,7 @@
         "transactionId": "0xf4de93208f138fcbf31035386120d769a084ab4f7d392c74d5a89a8a2df82229",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3896,6 +3928,7 @@
         "transactionId": "0xd02f825cc4298dc2195bfef525e7564e8e748efe1f99ca5b970fe9cf416cb968",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3918,6 +3951,7 @@
         "transactionId": "0x392d22c58efcdc71251d3f9017510080db676a3423e3f72197603159b95505d8",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3940,6 +3974,7 @@
         "transactionId": "0xb2130fd4ae21175a320d114e6fe36fb0e3df144f73cb03f533f5b73f963011fa",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -3962,6 +3997,7 @@
         "transactionId": "0x137aa02f57b4b677fefb0c69be1da4e887ef311b27caf4b3e78441bbb2f4e4e2",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -3983,6 +4019,7 @@
         "transactionId": "0x60e31b03e2d2a4917033d9c3524169b0fe9aee7295c006b1b124c7322c06842a",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4004,6 +4041,7 @@
         "transactionId": "0xf41b32f90a61797dcdea1d2333ed43034ada745c9145b6d235095c12bbb07668",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4025,6 +4063,7 @@
         "transactionId": "0xcd8dfbd5d3d69f6bdd3c9510b1ff2a90abed7e049f4f6b85435ce85afeaa148c",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4047,6 +4086,7 @@
         "transactionId": "0xc5a168a4341d95ca8f5ad04ccf2396b8a8554bf39065eb3c19cb5439566ff678",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4068,6 +4108,7 @@
         "transactionId": "0xc2d5417fa234bcc0317d59307bb4ddf6ed8afaff7246c20bd24490e2afdb7b0f",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4090,6 +4131,7 @@
         "transactionId": "0x348e205cbdd608ce09104044f7f99aeecc0a92159333c7719610becee64fe05c",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4111,6 +4153,7 @@
         "transactionId": "0xe0dbccd9b1fb2cd8d051cc6ea5fdeb72a8cd417e77cb3acfd784c1ab0297d1d5",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4133,6 +4176,7 @@
         "transactionId": "0xdaec3bb04c78c25bdcf4f00d1ce8ffb4d606d66dfc8fd3fbfec9f749de479a57",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4154,6 +4198,7 @@
         "transactionId": "0x1ea1c1d38d880f8493af96fd37496c9cf004f6a7b5fa421a2cf4bedf4c5b11ef",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4176,6 +4221,7 @@
         "transactionId": "0x329e802f044fe43bc56ee54273e22c93b18e016a52f05f93ba1bfdca03cc5b45",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4197,6 +4243,7 @@
         "transactionId": "0xea4e5b17d024fa45d833f1e3e6900a86f05d67eb248cbdf65e33f64d475476f2",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4218,6 +4265,7 @@
         "transactionId": "0xb0dd00a14c37ef6b33b857a97e8b922144463a8a63dd7fc6a5a926af05d29133",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4240,6 +4288,7 @@
         "transactionId": "0x3b8eec2faa05c7a49542dc6dae851b3c6676389f92dc7c335ff8e71a57293988",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "1",
         "expect": {
           "valid": null,
           "reason": "publication_not_checked",
@@ -4261,6 +4310,7 @@
         "transactionId": "0xc227621f0d20bd0d89a4f238b9effe2d7b3a5fc34527354c928bd9c0276c164b",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
         "expect": {
           "valid": false,
           "reason": "evm_chain_mismatch",
@@ -4283,6 +4333,7 @@
         "transactionId": "0x947061e181542a7f0955429a62e1439e1e9f494f9fdef87c7cdffe07e80c5732",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",
@@ -4305,6 +4356,7 @@
         "transactionId": "0x9493b732756109986341a5d9e9f75e42ce3d8853bb1dcb68a426b5e5aecd0a0a",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "signedChainId": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
         "expect": {
           "valid": false,
           "reason": "evm_chain_mismatch",
@@ -4327,6 +4379,7 @@
         "transactionId": "0x4025fd79ce8e8b34731cf9c78426ea16d7af5143ec6a16b9a72eb530f009def4",
         "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
         "sender": null,
+        "signedChainId": null,
         "expect": {
           "valid": false,
           "reason": "malformed_publication",

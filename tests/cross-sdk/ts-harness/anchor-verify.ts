@@ -832,6 +832,15 @@ async function anchorScenarios(): Promise<AnchorCase[]> {
     add('EVM: two true publications that disagree on finality', withPubs(r, [e.envelope, e2.envelope]), r.digest, { ...base, publisherManifest: m2, publicationMaterial: [e.full, e2.full], evmHeaderSources: S({ ...sources, finalized: e.block.number + 64, finality: 'finalized' }) });
     add('EVM: one true, one false', withPubs(r, [e.envelope, e2.envelope]), r.digest, { ...base, publicationMaterial: [e.full, e2.full], evmHeaderSources: S({ ...sources, finalized: e.block.number + 64 }) });
   }
+  {
+    // A legacy publication signed before EIP-155 (v 27): it signs no chain id, so item 5
+    // refuses it, and anchor.evm.tx reports signedChainId null (tzun-anchor/1 §10.7).
+    const legacy = signLegacy(e.publisher.signingKey, { data: '0x' + r.p, eip155: false, yParity: 0 });
+    const block = fabricateBlock([...(await fillers(2)), legacy], e.block.number + 1, e.block.timestamp + 12);
+    const full = publicationFrom(block, 2);
+    const envelope = { kind: 'evm-calldata/1', chain: SEPOLIA_CHAIN, transactionId: full.transactionId, blockNumber: full.blockNumber, blockHash: full.blockHash, publisher: e.publisher.address };
+    add('EVM: a legacy publication signed before EIP-155', withPubs(r, [envelope]), r.digest, { ...base, publicationMaterial: [full], evmHeaderSources: S(sourceOf(block)) });
+  }
   add('EVM: [null, true]', withPubs(r, [null, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
   add('EVM: [no kind, true]', withPubs(r, [{ token: 'x' }, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
   add('EVM: [unknown kind, not checked]', withPubs(r, [{ kind: 'witness/1' }, e.envelope]), r.digest, base);

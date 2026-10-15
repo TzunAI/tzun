@@ -63,6 +63,13 @@ rewritten to the engine's exact version at publish time.
   more, which ethers refuses. An unprotected legacy transaction (`v` 27 or 28)
   is read as before, and §10.4 item 5 refuses its chain. Types other than 0, 1
   and 2 abstain as before. See TzunAI/tzun-verify#37.
+- The `signedChainId` fact of a legacy transaction signed before EIP-155 (`v`
+  27 or 28) is `null` in both SDKs, as tzun-anchor/1 §10.7 states and
+  tzun-verify reports. It was `"0"`. The type is `string | null`
+  (`EvmPublicationFacts.signedChainId`) and `str | None` in Python, and the
+  `anchor.evm.tx` check of `verifyAnchor` and `verify_anchor` carries the
+  `null`. The verdict is unchanged: such a transaction signs no chain id, so
+  §10.4 item 5 matches it to no manifest entry (`evm_chain_mismatch`).
 
 ### Fixed
 
@@ -88,7 +95,11 @@ rewritten to the engine's exact version at publish time.
   transactions at each edge of each rule of item 2, those it refuses and those
   just inside, each refused case with the one rule it breaks (`chain-id`,
   `legacy-v`, `signature-values`, `fees`, `recovery`, `encoding`,
-  `field-sizes`), and the verdict for each. Its existing cases are unchanged.
+  `field-sizes`), and the verdict for each. Each case states the `sender` and
+  `signedChainId` that `anchor.evm.tx` reports once item 2 reads the
+  transaction: `signedChainId` is the chain id in decimal, `null` for the two
+  cases with `v` 27 and 28, and `null` for a refused case, which reports no
+  facts. Its existing cases are unchanged.
 
 ## [0.8.2] — 2026-10-06
 

@@ -92,6 +92,7 @@ interface TransactionCase {
   transactionId: string;
   publisher: string;
   sender: string | null;
+  signedChainId: string | null;
   expect: Expect;
 }
 
@@ -132,6 +133,17 @@ describe('vectors/evm-anchor-vectors.json: the transaction cases of tzun-anchor/
       canonical: withoutUndefined(v.checks.canonical),
       sender: v.facts.sender ?? null,
     }).toEqual({ ...c.expect, sender: c.sender });
+    // tzun-anchor/1 §10.7: the signed chain id once the transaction decodes, null for v 27 or
+    // 28; no facts at all when item 2 refuses it.
+    if (c.rule === null) expect(v.facts).toHaveProperty('signedChainId', c.signedChainId);
+    else expect(v.facts).not.toHaveProperty('signedChainId');
+  });
+
+  it('states the signed chain id of each transaction item 2 reads, and null for v 27 and 28', () => {
+    const read = txCases.filter((c) => c.rule === null);
+    expect(txCases.filter((c) => c.rule !== null).every((c) => c.signedChainId === null)).toBe(true);
+    expect(read.filter((c) => c.signedChainId === null).map((c) => c.id).sort()).toEqual(['legacy-v-27', 'legacy-v-28']);
+    expect(read.every((c) => c.signedChainId === null || /^[1-9][0-9]*$/.test(c.signedChainId))).toBe(true);
   });
 
   it.each(txCases.map((c) => [c.id, c] as const))('%s: readEvmTransaction reports the rule it breaks', (_id, c) => {

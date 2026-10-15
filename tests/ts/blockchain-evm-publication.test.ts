@@ -482,7 +482,7 @@ describe('the chain the sender signed', () => {
     expect(v.facts.signedChainId).toBe('1');
   });
 
-  it('a pre-EIP-155 legacy transaction binds no chain → evm_chain_mismatch', async () => {
+  it('a pre-EIP-155 legacy transaction binds no chain → evm_chain_mismatch, and signedChainId null', async () => {
     const s = await honest();
     const unsigned = Transaction.from({
       type: 0,
@@ -503,7 +503,8 @@ describe('the chain the sender signed', () => {
       headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) },
     });
     expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
-    expect(v.facts.signedChainId).toBe('0');
+    // tzun-anchor/1 §10.7: a legacy transaction signed before EIP-155 signs no chain id.
+    expect(v.facts).toHaveProperty('signedChainId', null);
   });
 
   it('the header source is chosen by the manifest entry\'s chain, and must itself be on that chain', async () => {
@@ -1067,7 +1068,8 @@ describe('tzun-anchor/1 §10.4 item 2: the rules item 2 states', () => {
       expect(signatureOf(raw).v).toBe(27n + BigInt(yParity));
       const v = await verifyEvmPublication(alone(raw, publisher.address, p));
       expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
-      expect(v.facts).toMatchObject({ sender: publisher.address.toLowerCase(), signedChainId: '0' });
+      expect(v.facts).toMatchObject({ sender: publisher.address.toLowerCase(), signedChainId: null });
+      expect(v.facts).toHaveProperty('signedChainId', null);
     });
 
     it.each([0n, 1n, 26n, 29n, 30n, 34n])('v %i → false, malformed_publication (ethers refuses it too)', async (badV) => {

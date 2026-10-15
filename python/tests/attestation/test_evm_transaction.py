@@ -14,6 +14,7 @@ signed by ethers itself are compared across the SDKs in
 
 from __future__ import annotations
 
+import asyncio
 import json
 import pathlib
 
@@ -25,6 +26,7 @@ require_anchor_extra()
 
 from coincurve import PrivateKey  # noqa: E402
 
+from tzun_sdk.attestation.evm_publication import verify_evm_publication  # noqa: E402
 from tzun_sdk.attestation.evm_rlp import decode_rlp, encode_rlp  # noqa: E402
 from tzun_sdk.attestation.evm_transaction import (  # noqa: E402
     ITEM_TWO_RULES,
@@ -312,6 +314,38 @@ class TestItemTwo:
         assert legacy_v(raw) == 27 + y_parity
         tx = decode_signed_transaction(raw)
         assert (tx.chain_id, tx.sender) == (0, KEY_ADDRESS)
+
+    @pytest.mark.parametrize(("eip155", "y_parity"), [(False, 0), (False, 1), (True, 0), (True, 1)])
+    def test_the_signed_chain_id_fact_is_null_for_v_27_and_28(
+        self, eip155: bool, y_parity: int
+    ) -> None:
+        """tzun-anchor/1 §10.7: ``signedChainId`` is the decimal chain id the sender
+        signed, or None for a legacy transaction signed before EIP-155, which signs
+        none (and item 5 then matches no manifest entry)."""
+        raw = legacy_with_parity(y_parity, chain_id=1 if eip155 else 0)
+        publication = {
+            "kind": "evm-calldata/1",
+            "chain": "eip155:1",
+            "transactionId": "0x" + keccak256(raw).hex(),
+            "rawTransaction": "0x" + raw.hex(),
+            "blockNumber": 1,
+            "blockHash": "0x" + "11" * 32,
+        }
+        origin = "test.tzun/anchors"
+        manifest = {
+            "publishers": {origin: [{"address": KEY_ADDRESS, "chain": "eip155:1", "namespace": "test"}]}
+        }
+        v = asyncio.run(
+            verify_evm_publication(publication, p=P.hex(), anchor_origin=origin, manifest=manifest)
+        )
+        assert v["facts"]["sender"] == KEY_ADDRESS
+        assert "signedChainId" in v["facts"]
+        if eip155:
+            assert v["facts"]["signedChainId"] == "1"
+            assert v["reason"] == "publication_not_checked"
+        else:
+            assert v["facts"]["signedChainId"] is None
+            assert v["reason"] == "evm_chain_mismatch"
 
     @pytest.mark.parametrize("v", [0, 1, 26, 29, 30, 34])
     def test_any_other_legacy_v_below_37_is_refused(self, v: int) -> None:

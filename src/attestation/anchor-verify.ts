@@ -198,7 +198,8 @@ export interface AnchorCheckResult {
    *   number was compared (whether or not it matched), `false` when none was
    *   supplied;
    * - `anchor.evm.tx[i]`, on every outcome once the transaction parses:
-   *   `transactionId`, `txType`, `sender` and `signedChainId`;
+   *   `transactionId`, `txType`, `sender` and `signedChainId` (`null` for
+   *   a legacy transaction signed before EIP-155);
    * - `anchor.evm.canonical[i]`: `finality` on every outcome once the header
    *   source's chain id matched (absent when the source declares none), and,
    *   when it is checked-correct, `chain`, `namespace`, `network`, `blockTime`

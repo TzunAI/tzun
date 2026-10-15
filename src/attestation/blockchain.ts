@@ -245,8 +245,12 @@ export interface EvmPublicationFacts {
   txType?: number;
   /** Recovered from the signature. Reported whatever the verdict. */
   sender?: string;
-  /** The chain id the sender signed, in decimal; `'0'` for a pre-EIP-155 transaction. */
-  signedChainId?: string;
+  /**
+   * The chain id the sender signed, in decimal; `null` for a legacy
+   * transaction signed before EIP-155 (`v` 27 or 28), which signs none
+   * (tzun-anchor/1 §10.7).
+   */
+  signedChainId?: string | null;
   /** As the publication claims it. Confirmed only when `valid` is `true`. */
   blockNumber?: number;
   /** As the publication claims it. Confirmed only when `valid` is `true`. */
@@ -454,7 +458,11 @@ const MAX_LEGACY_V = MAX_UINT256 * 2n + 36n;
 export interface EvmSignedTransaction {
   /** 0 (legacy), 1 (EIP-2930) or 2 (EIP-1559). */
   type: 0 | 1 | 2;
-  /** The chain id the sender signed; 0 for an unprotected legacy transaction (`v` 27 or 28). */
+  /**
+   * The chain id the sender signed; 0 for an unprotected legacy transaction
+   * (`v` 27 or 28), which signs none: no manifest entry is on chain 0, and
+   * its `signedChainId` fact is `null`.
+   */
   chainId: bigint;
   /** The calldata, `0x` and lowercase hex. */
   data: string;
@@ -1069,7 +1077,8 @@ export async function verifyEvmPublication(input: EvmPublicationInput): Promise<
     facts.transactionId = computedId;
     facts.txType = tx.type;
     facts.sender = sender;
-    facts.signedChainId = tx.chainId.toString();
+    // Only an unprotected legacy transaction reads as chain id 0: item 2 refuses a typed one.
+    facts.signedChainId = tx.chainId === 0n ? null : tx.chainId.toString();
 
     if (transactionId !== undefined && (transactionId as string).toLowerCase() !== computedId) {
       return txFailed('evm_tx_proof_invalid');

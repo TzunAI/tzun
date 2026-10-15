@@ -1103,6 +1103,44 @@ def test_every_anchor_scenario_gets_the_same_verdict(
     assert len(readable) >= 5 and len(tsa) - len(readable) >= 20
 
 
+def test_a_legacy_publication_signed_before_eip155_reports_no_signed_chain_id(
+    anchor_scenarios: list[dict[str, Any]],
+) -> None:
+    """tzun-anchor/1 §10.7: a legacy transaction with ``v`` 27 or 28 signs no chain id, so
+    both SDKs report its ``signedChainId`` as null, beside the sender item 2 recovers."""
+    case = next(
+        c for c in anchor_scenarios if c["name"] == "EVM: a legacy publication signed before EIP-155"
+    )
+    ts = case["verdict"]
+    assert py_verify_anchor(case) == ts
+    tx = next(c for c in ts["publications"][0]["checks"] if c["id"] == "anchor.evm.tx[0]")
+    assert (tx["outcome"], tx["reason"]) == ("checked-wrong", "evm_chain_mismatch")
+    assert tx["facts"]["txType"] == 0
+    assert "signedChainId" in tx["facts"] and tx["facts"]["signedChainId"] is None
+
+
+def test_the_evm_transaction_cases_report_the_signed_chain_id_the_file_states() -> None:
+    """Each transaction case of evm-anchor-vectors.json that item 2 reads reports the
+    signedChainId the file states, null for ``v`` 27 and 28, in both SDKs; a refused one
+    reports none."""
+    tx = EVM_ANCHOR["transactionCases"]
+    # _evm_vector_cases() ends with the transaction cases, in the file's order.
+    cases = _evm_vector_cases()[-len(tx["cases"]) :]
+    ts = harness({"action": "verify-evm", "cases": cases})["verdicts"]
+    for stated, case, verdict in zip(tx["cases"], cases, ts, strict=True):
+        assert case["input"]["publication"]["rawTransaction"] == stated["rawTransaction"]
+        assert py_verify_evm(case) == verdict
+        if stated["rule"] is None:
+            assert "signedChainId" in verdict["facts"], stated["id"]
+            assert verdict["facts"]["signedChainId"] == stated["signedChainId"], stated["id"]
+        else:
+            assert "signedChainId" not in verdict["facts"], stated["id"]
+    assert [s["id"] for s in tx["cases"] if s["rule"] is None and s["signedChainId"] is None] == [
+        "legacy-v-27",
+        "legacy-v-28",
+    ]
+
+
 def test_a_trust_anchor_that_cannot_be_read_is_refused_by_both(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:

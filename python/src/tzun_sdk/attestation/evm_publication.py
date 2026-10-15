@@ -146,8 +146,9 @@ class EvmPublicationFacts(TypedDict, total=False):
     txType: int
     #: Recovered from the signature. Reported whatever the verdict.
     sender: str
-    #: The chain id the sender signed, in decimal; ``'0'`` for a pre-EIP-155 transaction.
-    signedChainId: str
+    #: The chain id the sender signed, in decimal; ``None`` for a legacy transaction signed
+    #: before EIP-155 (``v`` 27 or 28), which signs none (tzun-anchor/1 §10.7).
+    signedChainId: str | None
     #: As the publication claims it. Confirmed only when ``valid`` is true.
     blockNumber: int
     blockHash: str
@@ -777,7 +778,8 @@ async def verify_evm_publication(
         facts["transactionId"] = computed_id
         facts["txType"] = tx.type
         facts["sender"] = sender
-        facts["signedChainId"] = str(tx.chain_id)
+        # Only an unprotected legacy transaction reads as chain id 0: item 2 refuses a typed one.
+        facts["signedChainId"] = None if tx.chain_id == 0 else str(tx.chain_id)
 
         if transaction_id is not None and str(transaction_id).lower() != computed_id:
             return tx_failed("evm_tx_proof_invalid")

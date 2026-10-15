@@ -8,7 +8,8 @@ outside the block time, compared at full precision, and dates
 in each of the file's three modes. It also holds §10.4 item 2's transaction
 cases: a transaction that breaks one of the rules item 2 states is false,
 ``malformed_publication``, refused for the very rule the file names, and the one
-just inside each edge is read, with the sender the file states. These need the
+just inside each edge is read, with the sender and signed chain id the file
+states (None for a legacy ``v`` of 27 or 28, which signs none). These need the
 ``anchor`` extra: without it they are skipped, except under CI, where they fail.
 
 This file needs no Node. ``tests/ts/evm-anchor-vectors.test.ts`` holds the
@@ -178,6 +179,21 @@ def test_the_transaction_cases_break_each_rule_and_meet_each_at_its_edge() -> No
         assert c["item2"] == ("reads" if c["rule"] is None else "refuses")
 
 
+def test_the_transaction_cases_state_the_signed_chain_id() -> None:
+    """Each read case states its signed chain id, null only for v 27 and 28 (tzun-anchor/1
+    §10.7); each refused case states null."""
+    read = [c for c in TX_CASES if c["rule"] is None]
+    assert all(c["signedChainId"] is None for c in TX_CASES if c["rule"] is not None)
+    assert sorted(c["id"] for c in read if c["signedChainId"] is None) == [
+        "legacy-v-27",
+        "legacy-v-28",
+    ]
+    assert all(
+        c["signedChainId"] is None or str(int(c["signedChainId"])) == c["signedChainId"]
+        for c in read
+    )
+
+
 @pytest.mark.parametrize("case", TX_CASES, ids=[c["id"] for c in TX_CASES])
 def test_every_transaction_case_gets_its_stated_verdict(case: dict[str, Any]) -> None:
     _needs_anchor_extra()
@@ -221,6 +237,13 @@ def test_every_transaction_case_gets_its_stated_verdict(case: dict[str, Any]) ->
         "canonical": e["canonical"],
         "sender": case["sender"],
     }
+    # tzun-anchor/1 §10.7: the signed chain id once the transaction decodes, None for v 27 or
+    # 28; no facts at all when item 2 refuses it.
+    if case["rule"] is None:
+        assert "signedChainId" in v["facts"]
+        assert v["facts"]["signedChainId"] == case["signedChainId"]
+    else:
+        assert "signedChainId" not in v["facts"]
 
 
 @pytest.mark.parametrize("case", TX_CASES, ids=[c["id"] for c in TX_CASES])

@@ -131,7 +131,8 @@ class AnchorCheckResult(TypedDict):
     - ``anchor.leafIndex``: ``leafIndexChecked``, ``True`` when a supplied sequence
       number was compared (whether or not it matched), ``False`` when none was;
     - ``anchor.evm.tx[i]``, on every outcome once the transaction parses:
-      ``transactionId``, ``txType``, ``sender`` and ``signedChainId``;
+      ``transactionId``, ``txType``, ``sender`` and ``signedChainId`` (``None`` for a
+      legacy transaction signed before EIP-155);
     - ``anchor.evm.canonical[i]``: ``finality`` on every outcome once the header
       source's chain id matched (absent when the source declares none), and, when
       it is checked-correct, ``chain``, ``namespace``, ``network``, ``blockTime``

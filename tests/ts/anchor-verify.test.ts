@@ -20,7 +20,7 @@ import type {
   PublisherManifestEntry,
 } from '../../src/attestation/blockchain';
 import { makeTsaFixture, type TokenFaults } from './rfc3161-fixture';
-import { SEPOLIA, fabricateBlock, publicationFrom, signAnchorTx, type FabricatedBlock } from './helpers/evm-fixtures';
+import { SEPOLIA, fabricateBlock, publicationFrom, signAnchorTx, signLegacy, type FabricatedBlock } from './helpers/evm-fixtures';
 import { PLATFORM_PREFIX, SDK_PREFIX, TEST_PREFIX, anchoredRecord, sha256, type AnchoredRecord } from './helpers/anchor-fixtures';
 
 const SEPOLIA_CHAIN = 'eip155:11155111';
@@ -1085,6 +1085,29 @@ describe('the check catalogue (tzun-anchor/1 §10.7)', () => {
     const v = await verifyAnchor({ anchor: { ...s.record.anchor, publications, ...rest } }, s.record.digest, { ...s.options, ...extra });
     expect(v.checks[0]).toEqual({ id: 'anchor', ...(expected as object) });
     expect(v.checks[0].reason).toBe(v.anchorReason);
+  });
+
+  it.each([0, 1] as const)('a legacy publication signed before EIP-155 (v 27 + %i) reports signedChainId null', async (yParity) => {
+    const record = anchoredRecord();
+    const publisher = Wallet.createRandom();
+    const raw = signLegacy(publisher.signingKey, { data: '0x' + record.p, eip155: false, yParity });
+    const block = fabricateBlock([raw], 7_123_456, 1_790_000_000);
+    const full = publicationFrom(block, 0);
+    const v = await verifyAnchor(withPublications(record, [full]), record.digest, {
+      sequenceNumber: record.sequenceNumber,
+      chainId: record.chainId,
+      publisherManifest: manifestFor(record.anchorOrigin, entry(publisher)),
+      evmHeaderSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) },
+    });
+    // Item 2 reads it; it signs no chain id, so item 5 matches no entry.
+    expect(v.publications[0]).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
+    expect(v.publications[0].checks[1]).toEqual({
+      id: 'anchor.evm.tx[0]',
+      outcome: 'checked-wrong',
+      value: false,
+      reason: 'evm_chain_mismatch',
+      facts: { transactionId: full.transactionId, txType: 0, sender: publisher.address.toLowerCase(), signedChainId: null },
+    });
   });
 });
 

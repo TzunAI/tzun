@@ -468,12 +468,14 @@ interface BodyOptions {
   gasPrice?: bigint;
   gasLimit?: bigint;
   value?: bigint;
+  to?: string;
+  accessList?: RlpStructuredData[];
 }
 
 function typedBody(type: 1 | 2, opts: BodyOptions = {}): RlpStructuredData[] {
   const head = [scalar(opts.chainId ?? TX_CHAIN), scalar(opts.nonce ?? 0n)];
   const fees = type === 2 ? [scalar(opts.tip ?? 1_000_000_000n), scalar(opts.cap ?? 3_000_000_000n)] : [scalar(opts.gasPrice ?? 2_000_000_000n)];
-  return [...head, ...fees, scalar(opts.gasLimit ?? 30_000n), KEY_ADDRESS, scalar(opts.value ?? 0n), TX_P, []];
+  return [...head, ...fees, scalar(opts.gasLimit ?? 30_000n), opts.to ?? KEY_ADDRESS, scalar(opts.value ?? 0n), TX_P, opts.accessList ?? []];
 }
 
 /** The key's signature over a typed body. */
@@ -492,9 +494,9 @@ function signedTypedWhere(type: 1 | 2, opts: BodyOptions, want: (t: Built) => bo
 }
 
 /** The key's legacy signature: EIP-155 for chainId when it is not null, else unprotected; at the first nonce with this parity. */
-function signedLegacy(chainId: bigint | null, yParity: 0 | 1): Built {
+function signedLegacy(chainId: bigint | null, yParity: 0 | 1, gasPrice = 2_000_000_000n): Built {
   for (let nonce = 0; nonce < 64; nonce++) {
-    const body: RlpStructuredData[] = [scalar(nonce), scalar(2_000_000_000n), scalar(30_000), KEY_ADDRESS, '0x', TX_P];
+    const body: RlpStructuredData[] = [scalar(nonce), scalar(gasPrice), scalar(30_000), KEY_ADDRESS, '0x', TX_P];
     const v = chainId === null ? 27n + BigInt(yParity) : chainId * 2n + 35n + BigInt(yParity);
     const sig = KEY.sign(signingDigest(0, body, v));
     if (sig.yParity === yParity) return { type: 0, body, v, r: BigInt(sig.r), s: BigInt(sig.s) };
@@ -535,6 +537,9 @@ const parity0 = signedTypedWhere(2, {}, (t) => t.v === 0n);
 const parity1 = signedTypedWhere(2, {}, (t) => t.v === 1n);
 const shortR = signedTypedWhere(2, {}, (t) => t.r < 2n ** 248n);
 const legacy37 = signedLegacy(TX_CHAIN, 0);
+// Byte strings keep their leading zero bytes: address 1 and storage key 0, each at its full width.
+const ADDRESS_1 = '0x' + '00'.repeat(19) + '01';
+const STORAGE_KEY_0 = '0x' + '00'.repeat(32);
 const MAX_LEGACY_CHAIN = MAX_UINT256;
 
 const transactionSpecs: Array<{ id: string; name: string; built: Built; rule: Rule | null; signer: 'key' | 'recovered' }> = [
@@ -585,6 +590,7 @@ const transactionSpecs: Array<{ id: string; name: string; built: Built; rule: Ru
   { id: 'type2-list-length-padded', name: 'EIP-1559 signed by the publisher, the list\'s length written with a leading zero byte', built: { ...base2, rewrite: { paddedListLength: true } }, rule: 'encoding', signer: 'key' },
   { id: 'type2-trailing-byte', name: 'EIP-1559 signed by the publisher, one byte after the list', built: { ...base2, rewrite: { trailing: '00' } }, rule: 'encoding', signer: 'key' },
   { id: 'legacy-gas-price-leading-zero', name: 'legacy v 37 signed by the publisher with gasPrice written with a leading zero byte', built: { ...legacy37, rewrite: { field: [1, '0x85' + '00' + scalar(2_000_000_000n).slice(2)] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-to-and-storage-key-leading-zeros', name: 'EIP-1559 signed by the publisher to address 1 (19 zero bytes, then 01), its access list holding that address with storage key 0 (32 zero bytes): byte strings, whose leading zero bytes are part of their value', built: signedTyped(2, typedBody(2, { to: ADDRESS_1, accessList: [[ADDRESS_1, [STORAGE_KEY_0]]] })), rule: null, signer: 'key' },
 
   // Field sizes: nonce and gasLimit at most 2^64 - 1, chain id, value, gasPrice and the fees
   // at most 2^256 - 1, a legacy v at most 2 * (2^256 - 1) + 36.
@@ -597,7 +603,10 @@ const transactionSpecs: Array<{ id: string; name: string; built: Built; rule: Ru
   { id: 'type2-value-2^256', name: 'EIP-1559 signed by the publisher with value 2^256', built: signedTyped(2, typedBody(2, { value: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
   { id: 'type2-max-fee-2^256-1', name: 'EIP-1559 signed by the publisher with maxFeePerGas 2^256 - 1', built: signedTyped(2, typedBody(2, { cap: MAX_UINT256 })), rule: null, signer: 'key' },
   { id: 'type2-max-fee-2^256', name: 'EIP-1559 signed by the publisher with maxFeePerGas 2^256', built: signedTyped(2, typedBody(2, { cap: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type2-tip-and-max-fee-2^256-1', name: 'EIP-1559 signed by the publisher with maxPriorityFeePerGas and maxFeePerGas both 2^256 - 1', built: signedTyped(2, typedBody(2, { tip: MAX_UINT256, cap: MAX_UINT256 })), rule: null, signer: 'key' },
+  { id: 'type1-gas-price-2^256-1', name: 'EIP-2930 signed by the publisher with gasPrice 2^256 - 1', built: signedTyped(1, typedBody(1, { gasPrice: MAX_UINT256 })), rule: null, signer: 'key' },
   { id: 'type1-gas-price-2^256', name: 'EIP-2930 signed by the publisher with gasPrice 2^256', built: signedTyped(1, typedBody(1, { gasPrice: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'legacy-gas-price-2^256-1', name: 'legacy v 37 signed by the publisher with gasPrice 2^256 - 1', built: signedLegacy(TX_CHAIN, 0, MAX_UINT256), rule: null, signer: 'key' },
   { id: 'type2-chain-id-2^256-1', name: 'EIP-1559 signed by the publisher for chain id 2^256 - 1 (item 5)', built: signedTyped(2, typedBody(2, { chainId: MAX_UINT256 })), rule: null, signer: 'key' },
   { id: 'type2-chain-id-2^256', name: 'EIP-1559 signed by the publisher for chain id 2^256', built: signedTyped(2, typedBody(2, { chainId: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
   { id: 'legacy-v-max', name: 'legacy v 2 * (2^256 - 1) + 36: an EIP-155 signature by the publisher for chain id 2^256 - 1 (item 5)', built: signedLegacy(MAX_LEGACY_CHAIN, 1), rule: null, signer: 'key' },

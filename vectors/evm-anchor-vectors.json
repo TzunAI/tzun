@@ -3954,6 +3954,27 @@
         }
       },
       {
+        "id": "type2-to-and-storage-key-leading-zeros",
+        "name": "EIP-1559 signed by the publisher to address 1 (19 zero bytes, then 01), its access list holding that address with storage key 0 (32 zero bytes): byte strings, whose leading zero bytes are part of their value",
+        "rule": null,
+        "item2": "reads",
+        "rawTransaction": "0x02f8c30180843b9aca0084b2d05e0082753094000000000000000000000000000000000000000180a012107b82a91db3886dc71388590db16c84d553505c7cd80ea6b0e366210f46bef838f7940000000000000000000000000000000000000001e1a0000000000000000000000000000000000000000000000000000000000000000080a06eab1cfa20d91ade75e4c3b7a295c2469010fe55e643eca3216f5964dc4d7f27a029afb204ce4ee403f1b60022baf5da5fe989b8830f1c1c3d7485d6754051470d",
+        "transactionId": "0x137aa02f57b4b677fefb0c69be1da4e887ef311b27caf4b3e78441bbb2f4e4e2",
+        "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "expect": {
+          "valid": null,
+          "reason": "publication_not_checked",
+          "tx": {
+            "outcome": "checked-correct"
+          },
+          "canonical": {
+            "outcome": "not-checked",
+            "reason": "input_not_supplied:evm_header_source"
+          }
+        }
+      },
+      {
         "id": "type2-nonce-2^53+1",
         "name": "EIP-1559 signed by the publisher with nonce 2^53 + 1, above a JavaScript safe integer",
         "rule": null,
@@ -4147,6 +4168,48 @@
         }
       },
       {
+        "id": "type2-tip-and-max-fee-2^256-1",
+        "name": "EIP-1559 signed by the publisher with maxPriorityFeePerGas and maxFeePerGas both 2^256 - 1",
+        "rule": null,
+        "item2": "reads",
+        "rawTransaction": "0x02f8c20180a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff827530949d8a62f656a8d1615c1294fd71e9cfb3e4855a4f80a012107b82a91db3886dc71388590db16c84d553505c7cd80ea6b0e366210f46bec001a0e679d35959a9cedba3053658ed4582d8624dab3c31cee528f35862013efbf7ada009cbcb5f53055c5e94da240016d8691bf85654d94d0c7209dad33e5188581c29",
+        "transactionId": "0x329e802f044fe43bc56ee54273e22c93b18e016a52f05f93ba1bfdca03cc5b45",
+        "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "expect": {
+          "valid": null,
+          "reason": "publication_not_checked",
+          "tx": {
+            "outcome": "checked-correct"
+          },
+          "canonical": {
+            "outcome": "not-checked",
+            "reason": "input_not_supplied:evm_header_source"
+          }
+        }
+      },
+      {
+        "id": "type1-gas-price-2^256-1",
+        "name": "EIP-2930 signed by the publisher with gasPrice 2^256 - 1",
+        "rule": null,
+        "item2": "reads",
+        "rawTransaction": "0x01f8a10180a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff827530949d8a62f656a8d1615c1294fd71e9cfb3e4855a4f80a012107b82a91db3886dc71388590db16c84d553505c7cd80ea6b0e366210f46bec001a0e9377b6b33e61f545bf0d596e34158187a210983bc914696d66527872e64cff9a05c33c7fdf8a45889aea926addeaf90a95becf542fd2fc42716dbd2dc3209a86d",
+        "transactionId": "0xea4e5b17d024fa45d833f1e3e6900a86f05d67eb248cbdf65e33f64d475476f2",
+        "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "expect": {
+          "valid": null,
+          "reason": "publication_not_checked",
+          "tx": {
+            "outcome": "checked-correct"
+          },
+          "canonical": {
+            "outcome": "not-checked",
+            "reason": "input_not_supplied:evm_header_source"
+          }
+        }
+      },
+      {
         "id": "type1-gas-price-2^256",
         "name": "EIP-2930 signed by the publisher with gasPrice 2^256",
         "rule": "field-sizes",
@@ -4165,6 +4228,27 @@
           "canonical": {
             "outcome": "not-checked",
             "reason": "blocked_by:anchor.evm.tx"
+          }
+        }
+      },
+      {
+        "id": "legacy-gas-price-2^256-1",
+        "name": "legacy v 37 signed by the publisher with gasPrice 2^256 - 1",
+        "rule": null,
+        "item2": "reads",
+        "rawTransaction": "0xf89f03a0ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff827530949d8a62f656a8d1615c1294fd71e9cfb3e4855a4f80a012107b82a91db3886dc71388590db16c84d553505c7cd80ea6b0e366210f46be25a02cfdea06cfac70caad9020b0beb5908045f2a909bb2aa1eec1732641de32b9b9a05b195cd0b2a6502182e64ab7dcdfafa3e61ad32b27ca31f0317112851f6f9dfd",
+        "transactionId": "0x3b8eec2faa05c7a49542dc6dae851b3c6676389f92dc7c335ff8e71a57293988",
+        "publisher": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "sender": "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f",
+        "expect": {
+          "valid": null,
+          "reason": "publication_not_checked",
+          "tx": {
+            "outcome": "checked-correct"
+          },
+          "canonical": {
+            "outcome": "not-checked",
+            "reason": "input_not_supplied:evm_header_source"
           }
         }
       },

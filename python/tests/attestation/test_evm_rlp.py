@@ -146,6 +146,8 @@ def test_rlp_form_canonical(label: str, encoded: str) -> None:
         ("a short length in the long form (list)", "f800"),
         ("a long length with a leading zero byte (string)", "b90038" + STR56),
         ("a long length with a leading zero byte (list)", "f90038" + "c0" * 56),
+        ("55 bytes in the long form (string)", "b837" + "ab" * 55),
+        ("a list of 55 bytes in the long form", "f837" + "c0" * 55),
         ("a byte after the item (decode_rlp refuses it too)", "0500"),
         ("a byte after a list (decode_rlp refuses it too)", "c000"),
         ("a non-canonical item inside a list", "c3c28105"),

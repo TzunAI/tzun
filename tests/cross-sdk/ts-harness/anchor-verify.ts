@@ -379,6 +379,16 @@ async function transactions(): Promise<Array<{ name: string; raw: string }>> {
   add('two bytes after the list', t2 + '0000');
   add('legacy gas price with a leading zero byte', legacyWith(1, '0x00' + (legacy[1] as string).slice(2)));
   add('legacy trailing byte', t0 + '00');
+  // An access-list entry of an address and one key is 55 bytes, the longest
+  // item the short form holds: read as 0xf7, refused as 0xf837.
+  const entry55 = [wallet.address.toLowerCase(), ['0x' + '01'.repeat(32)]];
+  const listed55 = signTypedFields(wallet.signingKey, 2, [
+    q(SEPOLIA), q(0n), q(1_000_000_000n), q(3_000_000_000n), q(30_000n), wallet.address.toLowerCase(), q(0n), p, [entry55],
+  ]);
+  const fields55 = decodeRlp('0x' + listed55.slice(4)) as RlpStructuredData[];
+  add('an access-list entry of 55 bytes', listed55);
+  add('an access-list entry of 55 bytes in the long form',
+    '0x02' + listOfEncoded(fields55.map((f, j) => (j === 8 ? listOfEncoded(['f837' + enc(entry55).slice(2)]) : enc(f)))));
 
   // Field sizes, each signed by the publisher over its own values: nonce and
   // gasLimit up to 2^64 - 1, the chain id, value and fees up to 2^256 - 1, a

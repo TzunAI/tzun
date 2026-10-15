@@ -1207,6 +1207,8 @@ describe('tzun-anchor/1 §10.4 item 2: the rules item 2 states', () => {
         ['a short length in the long form (list)', '0xf800'],
         ['a long length with a leading zero byte (string)', '0xb90038' + str56],
         ['a long length with a leading zero byte (list)', '0xf90038' + 'c0'.repeat(56)],
+        ['55 bytes in the long form (string)', '0xb837' + 'ab'.repeat(55)],
+        ['a list of 55 bytes in the long form', '0xf837' + 'c0'.repeat(55)],
         ['a byte after the item (ethers refuses it too)', '0x0500'],
         ['a byte after a list (ethers refuses it too)', '0xc000'],
         ['a non-canonical item inside a list', '0xc3c28105'],
@@ -1259,6 +1261,28 @@ describe('tzun-anchor/1 §10.4 item 2: the rules item 2 states', () => {
       const raw = withField(s.block.raws[2], 1, '0x00' + (envelopeFields(s.block.raws[2]).fields[1] as string).slice(2));
       expect(Transaction.from(raw).from).toBe(s.publisher.address);
       expect(ruleOf(raw)).toBe('encoding');
+    });
+
+    it('an access-list entry of exactly 55 bytes is read in the short form, and in the long form → false, malformed_publication', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      // An address and one storage key: 21 + 34 = 55 bytes, the longest item the short form holds.
+      const entry = [publisher.address.toLowerCase(), ['0x' + '01'.repeat(32)]];
+      const short = encodeRlp(entry).slice(2);
+      expect(short.slice(0, 2)).toBe('f7');
+      const raw = signTypedFields(publisher.signingKey, 2, [
+        q(SEPOLIA), q(0n), q(1_000_000_000n), q(3_000_000_000n), q(30_000n), publisher.address.toLowerCase(), q(0n), p, [entry],
+      ]);
+      expect(decodeEvmTransaction(raw)?.sender).toBe(publisher.address.toLowerCase());
+      const long = 'f837' + short.slice(2);
+      const accessList = 'f8' + (long.length / 2).toString(16) + long;
+      const { fields } = envelopeFields(raw);
+      const payload = fields.map((f, j) => (j === 8 ? accessList : encodeRlp(f).slice(2))).join('');
+      const variant = '0x02f8' + (payload.length / 2).toString(16).padStart(2, '0') + payload;
+      // ethers reads the values and recovers the publisher.
+      expect(Transaction.from(variant).from).toBe(publisher.address);
+      expect(ruleOf(variant)).toBe('encoding');
+      expect(await verifyEvmPublication(alone(variant, publisher.address, p))).toMatchObject(MALFORMED);
     });
   });
 

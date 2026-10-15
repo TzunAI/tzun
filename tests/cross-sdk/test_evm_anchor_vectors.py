@@ -8,8 +8,8 @@ outside the block time, compared at full precision, and dates
 in each of the file's three modes. It also holds §10.4 item 2's transaction
 cases: a transaction that breaks one of the rules item 2 states is false,
 ``malformed_publication``, refused for the very rule the file names, and the one
-just inside each edge is read, with the sender the file states. These need the ``anchor`` extra: without it they are
-skipped, except under CI, where they fail.
+just inside each edge is read, with the sender the file states. These need the
+``anchor`` extra: without it they are skipped, except under CI, where they fail.
 
 This file needs no Node. ``tests/ts/evm-anchor-vectors.test.ts`` holds the
 TypeScript verifier to the same file, and ``test_anchor_verify_parity.py``

@@ -455,6 +455,19 @@ class TestEncoding:
         fields[1] = b"\x00" + fields[1]  # type: ignore[operator]
         assert rule_of(encode_rlp(fields)) == "encoding"
 
+    def test_an_access_list_entry_of_55_bytes_in_the_long_form(self) -> None:
+        # An address and one storage key: 21 + 34 = 55 bytes, the longest item
+        # the short form holds. Read as 0xf7; written 0xf837 it is refused.
+        entry = [TO, [b"\x01" * 32]]
+        short = encode_rlp(entry)
+        assert short[0] == 0xF7
+        raw = type2(access=[entry])
+        assert decode_signed_transaction(raw).sender == KEY_ADDRESS
+        long = b"\xf8\x37" + short[1:]
+        items = self._encoded(raw)
+        items[8] = b"\xf8" + bytes([len(long)]) + long
+        assert rule_of(_listed(items)) == "encoding"
+
 
 class TestFieldSizes:
     """Field sizes: nonce and gasLimit fit 64 bits; the chain id, value, gasPrice and

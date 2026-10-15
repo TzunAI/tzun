@@ -49,16 +49,20 @@ rewritten to the engine's exact version at publish time.
     `value`, `gasPrice`, `maxPriorityFeePerGas` or `maxFeePerGas` above
     2^256 - 1; a legacy `v` above 2 * (2^256 - 1) + 36.
 
-  No block on a chain a manifest can name can include such a transaction
-  today, so no real anchor is refused. Before, ethers recovered a sender for a
-  typed transaction on chain id 0, for a high `s` (read as `n - s`), for
-  non-canonical RLP and for a `gasLimit` of 2^64 or more, so such a
-  publication from a listed publisher could be `evm_chain_mismatch` or
-  `true`; go-ethereum recovers one for a legacy `v` of 35 or 36, for a tip
-  above the fee cap, and for a `value` or fee of 2^256 or more, which ethers
-  refuses. An unprotected legacy transaction (`v` 27 or 28) is read as
-  before, and §10.4 item 5 refuses its chain. Types other than 0, 1 and 2
-  abstain as before. See TzunAI/tzun-verify#37.
+  Ethereum mainnet, Sepolia and Hoodi, the chains of the network table in §9,
+  refuse such a transaction under the rules they apply today, so no block they
+  produce today holds one, and refusing it refuses no publication made on
+  them. A development chain can be more lenient: anvil, for one, mines a
+  transaction whose `s` is above (n - 1) / 2. A publication on such a chain
+  that breaks one of these rules is refused like any other. Before, ethers
+  recovered a sender for a typed transaction on chain id 0, for a high `s`
+  (read as `n - s`), for non-canonical RLP and for a `gasLimit` of 2^64 or
+  more, so such a publication from a listed publisher could be
+  `evm_chain_mismatch` or `true`; go-ethereum recovers one for a legacy `v` of
+  35 or 36, for a tip above the fee cap, and for a `value` or fee of 2^256 or
+  more, which ethers refuses. An unprotected legacy transaction (`v` 27 or 28)
+  is read as before, and §10.4 item 5 refuses its chain. Types other than 0, 1
+  and 2 abstain as before. See TzunAI/tzun-verify#37.
 
 ### Fixed
 

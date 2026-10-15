@@ -105,7 +105,6 @@ exclude = ["tests"]
 [[tool.mypy.overrides]]
 module = [
   "rfc3161_client.*",
-  "sigstore.*",
   "asyncpg.*",
   "psycopg.*",
   "psycopg_pool.*",

@@ -69,8 +69,8 @@ TS_DIGESTS: dict[str, tuple[str, str]] = {
         "53bdc1fce542a324be3f9d27c42259267a2af4537183ec50ed8fc083586076d2",
     ),
     "happy": (
-        "sha256:16bf7d873802d850efbfe88ba6af31bca640a01f8b783e8649f3cf7b53e44feb",
-        "b4304332f70bef375c304c8de5d14c2ae2129e97bb6fef9fea3c8ed58153491e",
+        "sha256:cee92abf7baee4f3bbeeddd8080c54bfcf871c14950c726cc61fd5f97c2e969d",
+        "3d19e6f0ca869f7ddfde4567fa3cb78ce2fe6b5a0619568259ca0a8b9ff6973e",
     ),
     "non_integer_tokens": (
         "sha256:b670355c905ffdf830042b9226d592a1acefe262254c977c6e8bb0f3740ed94e",
@@ -257,7 +257,7 @@ def test_happy_a_free_nemotron_call_through_the_gateway() -> None:
                 "evaluations": [],
             },
             "regulatoryMarkings": [],
-            "externalIdentifiers": [hf("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8")],
+            "externalIdentifiers": [hf("nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16")],
         },
         "vendorFingerprint": None,
         "promptTemplate": None,

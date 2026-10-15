@@ -118,7 +118,7 @@ describe('OpenRouter connector', () => {
           evaluations: [],
         },
         regulatoryMarkings: [],
-        externalIdentifiers: [HF('nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8')],
+        externalIdentifiers: [HF('nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16')],
       },
       vendorFingerprint: null,
       promptTemplate: null,

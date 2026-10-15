@@ -565,10 +565,10 @@
       "externalIdentifiers": [
         {
           "scheme": "hf-repo",
-          "value": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
+          "value": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16",
           "issuedBy": null,
           "issuedAt": null,
-          "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+          "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16"
         }
       ]
     },

@@ -34,16 +34,27 @@ interface OfflineSigner {
 
 /**
  * An external signer that signs with `signer` and returns each signature with
- * a high `s`, as a KMS or HSM signer can. `returned` holds every transaction
- * it returned, in order.
+ * a high `s`, as a KMS or HSM signer can. `requests` holds every request,
+ * `signed` every transaction `signer` signed for it, and `returned` the
+ * high-`s` twin of each that it returned, in order. Over an ethers `Wallet`, which signs deterministically (RFC 6979),
+ * it returns the same bytes every time it is asked for the same transaction.
  */
-export function highSSigner(signer: OfflineSigner): AnchorTransactionSigner & { returned: string[] } {
+export function highSSigner(
+  signer: OfflineSigner,
+): AnchorTransactionSigner & { requests: AnchorTransactionRequest[]; signed: string[]; returned: string[] } {
+  const requests: AnchorTransactionRequest[] = [];
+  const signed: string[] = [];
   const returned: string[] = [];
   return {
+    requests,
+    signed,
     returned,
     getAddress: () => signer.getAddress(),
     async signTransaction(request) {
-      const raw = toHighS(await signer.signTransaction(request));
+      requests.push(request);
+      const low = await signer.signTransaction(request);
+      signed.push(low);
+      const raw = toHighS(low);
       returned.push(raw);
       return raw;
     },
@@ -52,13 +63,9 @@ export function highSSigner(signer: OfflineSigner): AnchorTransactionSigner & { 
 
 const rlpInteger = (n: bigint | number): string => (BigInt(n) === 0n ? '0x' : toBeHex(n));
 
-/**
- * The EIP-1559 transaction `request` describes, signed by `key` over its
- * signing hash with no check on its values: a tip above the fee cap or a chain
- * id of 0, which ethers will not sign, are signed as given.
- */
-export function signType2(key: SigningKey, request: AnchorTransactionRequest): string {
-  const fields = [
+/** The unsigned fields of the EIP-1559 transaction `request` describes, as RLP writes them. */
+function type2Fields(request: AnchorTransactionRequest): Array<string | never[]> {
+  return [
     rlpInteger(request.chainId),
     rlpInteger(request.nonce),
     rlpInteger(request.maxPriorityFeePerGas),
@@ -69,8 +76,30 @@ export function signType2(key: SigningKey, request: AnchorTransactionRequest): s
     request.data,
     [],
   ];
-  const sig = key.sign(keccak256(concat(['0x02', encodeRlp(fields)])));
-  return concat(['0x02', encodeRlp([...fields, rlpInteger(sig.yParity), toBeHex(BigInt(sig.r)), toBeHex(BigInt(sig.s))])]);
+}
+
+/** The hash an EIP-1559 signature over `request` signs: keccak256(0x02 ‖ rlp(unsigned fields)). */
+export function type2SigningHash(request: AnchorTransactionRequest): string {
+  return keccak256(concat(['0x02', encodeRlp(type2Fields(request))]));
+}
+
+/**
+ * The EIP-1559 transaction `request` describes, carrying the signature
+ * (`yParity`, `r`, `s`) as given: for a signature no key was asked to make,
+ * such as one with `s` at an edge of EIP-2.
+ */
+export function type2WithSignature(request: AnchorTransactionRequest, sig: { yParity: number; r: bigint; s: bigint }): string {
+  return concat(['0x02', encodeRlp([...type2Fields(request), rlpInteger(sig.yParity), rlpInteger(sig.r), rlpInteger(sig.s)])]);
+}
+
+/**
+ * The EIP-1559 transaction `request` describes, signed by `key` over its
+ * signing hash with no check on its values: a tip above the fee cap or a chain
+ * id of 0, which ethers will not sign, are signed as given.
+ */
+export function signType2(key: SigningKey, request: AnchorTransactionRequest): string {
+  const sig = key.sign(type2SigningHash(request));
+  return type2WithSignature(request, { yParity: sig.yParity, r: BigInt(sig.r), s: BigInt(sig.s) });
 }
 
 /** A signed EIP-1559 transaction with its field at `index` written as the RLP string `value`, the signature kept. */
@@ -78,4 +107,18 @@ export function rewriteType2Field(raw: string, index: number, value: string): st
   const fields = decodeRlp(`0x${raw.slice(4)}`) as string[];
   fields[index] = value;
   return concat(['0x02', encodeRlp(fields)]);
+}
+
+/**
+ * A signed EIP-1559 transaction with its field at `index` written as the
+ * bytes `encoded`, whatever RLP they are (`0x8105` for the byte 5, say), the
+ * other fields and the signature kept, in a list with a minimal header.
+ */
+export function rewriteType2Encoding(raw: string, index: number, encoded: string): string {
+  const fields = decodeRlp(`0x${raw.slice(4)}`) as Array<string | never[]>;
+  const body = concat(fields.map((f, i) => (i === index ? encoded : encodeRlp(f))));
+  const length = (body.length - 2) / 2;
+  if (length > 0xffff) throw new Error('the list is too long for this helper');
+  const header = length <= 55 ? toBeHex(0xc0 + length) : length <= 0xff ? concat(['0xf8', toBeHex(length, 1)]) : concat(['0xf9', toBeHex(length, 2)]);
+  return concat(['0x02', header, body]);
 }

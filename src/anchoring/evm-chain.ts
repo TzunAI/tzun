@@ -535,18 +535,26 @@ const rlpInteger = (n: bigint): string => (n === 0n ? '0x' : toBeHex(n));
 
 /**
  * `raw` with its signature's `s` replaced by n − s and its recovery parity
- * flipped (tzun-anchor/1 §7.2 rule 3): a typed `yParity` of 0 becomes 1 and 1
- * becomes 0, and a legacy `v` becomes the other of its pair, 27 and 28, or
- * c × 2 + 35 and c × 2 + 36 for a chain id c. The hash a transaction's
- * signature signs covers none of `v`, `yParity`, `r` and `s`, so the result is
- * an equivalent signature by the same key over the same hash, and the same
- * sender recovers from it. The other fields keep their bytes.
+ * flipped, the replacement tzun-anchor/1 §7.2 rule 3 allows a writer: a typed
+ * `yParity` of 0 becomes 1 and 1 becomes 0, and an EIP-155 legacy `v` becomes
+ * the other of its pair, c × 2 + 35 and c × 2 + 36 for a chain id c. The hash
+ * a transaction's signature signs covers none of `v`, `yParity`, `r` and `s`,
+ * so the result is an equivalent signature by the same key over the same
+ * hash, and the same sender recovers from it. The other fields keep their
+ * bytes, and the three it changes are written as RLP writes an integer.
  *
  * `null` unless `raw` is the canonical RLP of a signed type 0, 1 or 2
  * transaction whose `s` is above (n − 1) / 2 and below n, whose `r` is from 1
- * to n − 1, and whose typed `yParity` is 0 or 1 (a legacy `v`, 27 or above).
- * The result is not checked against the other rules of item 2:
- * {@link transactionToBroadcast} reads it again. Never throws.
+ * to n − 1, and whose typed `yParity` is 0 or 1, or whose legacy `v` is 35 or
+ * more. A legacy `v` of 27 or 28 gives `null`: such a transaction signs no
+ * chain id, and rule 3 requires the chain id, so the writer never sends one,
+ * lowered or not.
+ *
+ * It lowers `s` and does nothing else. The result meets §10.4 item 2 only when
+ * `raw` broke no other rule, which {@link transactionToBroadcast} checks by
+ * reading it again. Rule 3's checks of the type, the chain id the transaction
+ * signs and its sender are made in {@link checkSignedTransaction}. Never
+ * throws.
  */
 export function withLowS(raw: string): string | null {
   try {
@@ -567,8 +575,8 @@ export function withLowS(raw: string): string | null {
     if (r < 1n || r >= SECP256K1_N || s <= SECP256K1_HALF_N || s >= SECP256K1_N) return null;
     let flipped: bigint;
     if (type === 0) {
-      // 27 and c × 2 + 35 are odd, 28 and c × 2 + 36 even: each moves to the other of its pair.
-      if (parity < 27n) return null;
+      // c × 2 + 35 is odd and c × 2 + 36 even: each moves to the other of its pair.
+      if (parity < 35n) return null;
       flipped = parity % 2n === 1n ? parity + 1n : parity - 1n;
     } else {
       if (parity !== 0n && parity !== 1n) return null;
@@ -582,10 +590,9 @@ export function withLowS(raw: string): string | null {
 }
 
 /**
- * What the publisher may broadcast for the signed transaction `raw`, as
- * tzun-anchor/1 §7.2 rule 3 and §11 item 6 require of a writer: a transaction
- * that meets every rule of §10.4 item 2, read by the verifier's own reader
- * (`readEvmTransaction`).
+ * The signed transaction `raw` as it meets tzun-anchor/1 §10.4 item 2, read
+ * by the verifier's own reader (`readEvmTransaction`), as §7.2 rule 3 and §11
+ * item 6 require of every transaction a writer broadcasts:
  *
  * - When `raw` meets every rule: `raw` itself, its bytes unchanged.
  * - When the only rule it breaks is an `s` above (n − 1) / 2 (EIP-2), which
@@ -594,9 +601,13 @@ export function withLowS(raw: string): string | null {
  *   same sender (`lowered: true`). It is another transaction id.
  * - Otherwise: the rule it breaks, by the vectors' id, or `null` when it is
  *   no signed transaction of type 0, 1 or 2. When a high `s` is not the only
- *   rule broken, the rule is the one still broken with `s` lowered.
+ *   rule broken, the rule is the one still broken with `s` lowered; when `s`
+ *   cannot be lowered (a legacy `v` of 27 or 28, see {@link withLowS}), it is
+ *   `signature-values`.
  *
- * Never throws.
+ * Item 2 is all it checks. Rule 3's checks of the type, the chain id the
+ * transaction signs and its sender are made in {@link checkSignedTransaction},
+ * against the request and the publisher's address. Never throws.
  */
 export function transactionToBroadcast(
   raw: string,
@@ -614,7 +625,7 @@ export function transactionToBroadcast(
 const ITEM_TWO_BREACH: Readonly<Record<EvmItemTwoRule, string>> = {
   'chain-id': 'a typed transaction signed for chain id 0',
   'legacy-v': 'a legacy v other than 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more',
-  'signature-values': 'r is not from 1 to n - 1, s is 0 or n or more, or yParity is not 0 or 1',
+  'signature-values': 'r is not from 1 to n - 1, s is not from 1 to (n - 1) / 2 and cannot be lowered, or yParity is not 0 or 1',
   fees: 'maxPriorityFeePerGas above maxFeePerGas',
   recovery: 'no public key recovers from the signature',
   encoding: 'not the canonical RLP of its fields',
@@ -623,20 +634,32 @@ const ITEM_TWO_BREACH: Readonly<Record<EvmItemTwoRule, string>> = {
 
 /**
  * The signed transaction `raw`, checked against `request` and the publisher's
- * `address`, as the bytes the publisher stores and broadcasts. First it must
- * meet every rule of tzun-anchor/1 §10.4 item 2 ({@link transactionToBroadcast}):
- * a signature whose only fault is an `s` above (n − 1) / 2 is replaced by the
+ * `address`, as the bytes the publisher stores and broadcasts. Its type must
+ * be one tzun-anchor/1 §10.4 item 2 reads (0, 1 or 2); a typed transaction of
+ * another type is an {@link AnchorSignerError} whose `field` is `type`. Then
+ * it must meet every rule of item 2 ({@link transactionToBroadcast}): a
+ * signature whose only fault is an `s` above (n − 1) / 2 is replaced by the
  * equivalent one with n − s, and a transaction that breaks any other rule is
- * an {@link AnchorSignerError} whose `rule` names it. Then: it is signed, the
- * recovered sender is the publisher, every field is the one requested, it
- * carries no access list, and its bytes are ethers' canonical serialisation of
- * it (so its hash is the one a node will report). Anything else is an
+ * an {@link AnchorSignerError} whose `rule` names it. Then, as §7.2 rule 3
+ * requires: it is signed, the recovered sender is the publisher, every field
+ * is the one requested (the type and the chain id it signs among them), it
+ * carries no access list, and its bytes are ethers' canonical serialisation
+ * of it (so its hash is the one a node will report). Anything else is an
  * {@link AnchorSignerError}, and nothing is stored or sent. A transaction that
  * meets every rule is returned with its bytes unchanged.
  */
 export function checkSignedTransaction(raw: unknown, request: AnchorTransactionRequest, address: string): SignedTransaction {
   if (typeof raw !== 'string' || !/^0x([0-9a-fA-F]{2})+$/.test(raw)) {
     throw new AnchorSignerError('encoding', 'not 0x hex bytes');
+  }
+  // An EIP-2718 envelope of a type item 2 does not read (type 3, 4 and so on):
+  // named by its type, not refused as bytes that are no transaction.
+  const envelopeType = parseInt(raw.slice(2, 4), 16);
+  if (envelopeType >= 3 && envelopeType <= 0x7f) {
+    throw new AnchorSignerError(
+      'type',
+      `a transaction of type ${envelopeType}, which tzun-anchor/1 §10.4 item 2 does not read, where ${String(request.type)} was asked for`,
+    );
   }
   const ready = transactionToBroadcast(raw);
   if (!ready.ok) {

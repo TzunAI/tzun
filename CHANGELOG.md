@@ -88,7 +88,11 @@ rewritten to the engine's exact version at publish time.
     so on) is neither stored nor broadcast: the pass fails with an
     `AnchorSignerError` whose `field` and new `rule` name the rule, and the
     `anchor_signer_mismatch` alarm. A transaction that meets every rule is
-    stored and broadcast with its bytes unchanged.
+    stored and broadcast with its bytes unchanged. A transaction of a type
+    item 2 does not read (3, 4 and so on) is refused for its `type`, and the
+    error's message names the type and says item 2 does not read it. A high
+    `s` on a legacy `v` of 27 or 28 is never lowered: such a transaction
+    signs no chain id, and rule 3 requires one.
   - It checks the bytes it is about to send on every broadcast, a stored
     transaction sent again included: they must meet every rule, sign the
     publisher's chain id, and recover the sender authenticated for the
@@ -155,10 +159,12 @@ rewritten to the engine's exact version at publish time.
   the same rule as `.rule`, and `rlp_form` (`tzun_sdk.attestation.evm_rlp`)
   is `evmRlpForm`.
 - `withLowS` and `transactionToBroadcast` (`src/anchoring/evm-chain.ts`,
-  exported from that module, not from the package entry): the high-`s`
-  replacement, and what the scheduler may broadcast for a signed transaction
-  (the transaction, unchanged or with its `s` lowered, or the rule of item 2
-  it breaks).
+  exported from that module, not from the package entry). `withLowS` is the
+  high-`s` replacement, for a typed transaction or an EIP-155 legacy `v`, and
+  `null` for a legacy `v` of 27 or 28. `transactionToBroadcast` is a signed
+  transaction as it meets item 2: unchanged, with its `s` lowered, or the
+  rule of item 2 it breaks. Rule 3's checks of the type, the chain id and the
+  sender are made in `checkSignedTransaction`.
 - `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
   transactions at each edge of each rule of item 2, those it refuses and those
   just inside, each refused case with the one rule it breaks (`chain-id`,

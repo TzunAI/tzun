@@ -71,6 +71,17 @@ const ITEM_TWO_LABEL: Readonly<Record<EvmItemTwoRule, string>> = {
 };
 
 /**
+ * Why tzun-anchor/1 §10.4 item 2 does not read a transaction, from
+ * `readEvmTransaction`'s `rule`: the rule it breaks, by label and vector id,
+ * or, for `null`, that it is no signed transaction of type 0, 1 or 2.
+ */
+export function itemTwoRefusal(rule: EvmItemTwoRule | null): string {
+  return rule === null
+    ? 'it is not a signed transaction of type 0, 1 or 2'
+    : `it breaks the ${ITEM_TWO_LABEL[rule]} rule of tzun-anchor/1 §10.4 item 2 (${rule}), which every verifier refuses`;
+}
+
+/**
  * The publisher's signer returned something other than the transaction it
  * was asked to sign: another address signed it, or a field differs (a nonce,
  * a fee, the calldata). Or it returned a transaction that breaks a rule of
@@ -179,11 +190,14 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    Stops anchoring: publishing past it would vouch for it, and the
  *                                    log is insert-only, so the domain moves to a new identity.
  *   anchor_publication_unexplained   a publication row is not one the scheduler made: an attempt not
- *                                    signed by an allowed publisher inside its window, or a prepared
- *                                    row whose P the scheduler cannot re-derive. Nothing is signed.
- *                                    Stops anchoring.
+ *                                    signed by an allowed publisher inside its window, or one that
+ *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 (a stored high-s twin
+ *                                    among them), or a prepared row whose P the scheduler cannot
+ *                                    re-derive; or a transaction about to be sent fails that item, the
+ *                                    chain id or the sender. Nothing is signed or sent. Stops anchoring.
  *   anchor_wallet_tx_unexplained     an accounted wallet transaction is not the signed transaction it
- *                                    claims to be. Stops anchoring.
+ *                                    claims to be, or breaks a rule of tzun-anchor/1 §10.4 item 2.
+ *                                    Nothing is sent. Stops anchoring.
  *   anchor_fill_conflict             a record does not match its evidence leaf (another chain, another
  *                                    position, or a digest the leaf's path does not place); the fill
  *                                    skipped it. A store written before 0.8.0, the demo-tamper hooks or

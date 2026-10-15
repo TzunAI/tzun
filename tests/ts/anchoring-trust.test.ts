@@ -15,7 +15,7 @@
  * the custody log was anchored.
  */
 import { createHash } from 'node:crypto';
-import { Transaction, Wallet, keccak256 } from 'ethers';
+import { Transaction, Wallet, decodeRlp, keccak256 } from 'ethers';
 import type { EvidenceEnvelope } from '@tzun/engine';
 import {
   AnchoringConfigError,
@@ -28,11 +28,12 @@ import {
 import { checkpointDigest, formatCheckpoint } from '../../src/attestation/checkpoint';
 import { verifyAnchor } from '../../src/attestation/anchor-verify';
 import { extendCompactRange } from '../../src/attestation/merkle';
-import type { EvmHeaderSource } from '../../src/attestation/blockchain';
-import { anchorStoreFor, logStoreFor, type AnchorPublication, type AnchorStore, type LogStore } from '../../src/storage/log-store';
+import { readEvmTransaction, type EvmHeaderSource, type EvmItemTwoRule } from '../../src/attestation/blockchain';
+import { anchorStoreFor, assertWalletTx, logStoreFor, type AnchorPublication, type AnchorStore, type LogStore } from '../../src/storage/log-store';
 import { makeEnvelope } from './storage-conformance/fixtures';
 import { FakeEvmChain } from './helpers/anchoring-fake-chain';
 import { buildHeader, buildTxTrie } from './helpers/evm-fixtures';
+import { rewriteType2Field, toHighS } from './helpers/signer-faults';
 import { type LogBackend, type OpenedStore, type RawDb, logBackends } from './helpers/log-store-backends';
 
 const HOUR = 60 * 60_000;
@@ -54,6 +55,21 @@ function headerSource(chain: FakeEvmChain): EvmHeaderSource {
     },
   };
 }
+
+/**
+ * Twins of a signed EIP-1559 transaction that anyone who can write the store
+ * can make without the key: the same signer's signature over the same hash,
+ * from which a lenient reader (ethers) recovers the same sender, and which
+ * tzun-anchor/1 §10.4 item 2 refuses by the rule named.
+ */
+const TWINS: Array<[string, (raw: string) => string, EvmItemTwoRule]> = [
+  ['its high-s twin (n - s, the parity flipped)', (raw) => toHighS(raw).toLowerCase(), 'signature-values'],
+  [
+    'its values in RLP that is not canonical (gasLimit with a leading zero byte)',
+    (raw) => rewriteType2Field(raw, 4, `0x00${(decodeRlp(`0x${raw.slice(4)}`) as string[])[4].slice(2)}`).toLowerCase(),
+    'encoding',
+  ],
+];
 
 type Adapter = {
   store(e: EvidenceEnvelope, chainId?: string): Promise<void>;
@@ -500,6 +516,121 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
       const after = await publications();
       expect(after).toHaveLength(1);
       expect(after[0].state).toBe('submitted');
+    });
+  });
+
+  describe('what the scheduler sends again (tzun-anchor/1 §7.2 rule 3, §11 item 6)', () => {
+    /** A submitted publication whose transaction the node has dropped, so the next pass sends it again. */
+    async function evictedSubmission(): Promise<{ s: AnchorScheduler; pub: AnchorPublication }> {
+      await capture('alpha', 2);
+      const s = await scheduler({ tuning: { stuckAfterMs: 100 * HOUR } });
+      offset += HOUR;
+      await pass(s);
+      const [pub] = await publications();
+      expect(pub.state).toBe('submitted');
+      chain.evict(pub.attempts[0].txHash);
+      return { s, pub };
+    }
+    const twinOf = (pub: AnchorPublication, make: (raw: string) => string, rule: EvmItemTwoRule): string => {
+      const twin = make(pub.attempts[0].rawTx);
+      expect(readEvmTransaction(twin)).toEqual({ ok: false, rule });
+      expect(Transaction.from(twin).from).toBe(wallet.address);
+      return twin;
+    };
+
+    it.each(TWINS)('a stored attempt replaced by %s is not the scheduler\'s: anchoring stops, and nothing is sent', async (_what, make, rule) => {
+      const { s, pub } = await evictedSubmission();
+      const twin = twinOf(pub, make, rule);
+      await asOwner('UPDATE anchor_publications SET attempts = ? WHERE id = ?', [
+        JSON.stringify([{ ...pub.attempts[0], rawTx: twin, txHash: keccak256(twin) }]),
+        pub.id,
+      ]);
+      const sent = chain.broadcasts.length;
+      const report = await pass(s);
+      expect(report.halted).toBe(true);
+      expect(report.alarms).toContainEqual(
+        expect.objectContaining({ code: 'anchor_publication_unexplained', message: expect.stringMatching(new RegExp(`is not one the scheduler made: .*\\(${rule}\\)`)) }),
+      );
+      expect(chain.broadcasts.slice(sent)).toEqual([]);
+    });
+
+    it.each(TWINS)('%s, appended as a new attempt as the triggers allow, is not sent', async (_what, make, rule) => {
+      const { s, pub } = await evictedSubmission();
+      const twin = twinOf(pub, make, rule);
+      await raw.run('UPDATE anchor_publications SET attempts = ? WHERE id = ?', [
+        JSON.stringify([...pub.attempts, { ...pub.attempts[0], rawTx: twin, txHash: keccak256(twin), broadcast: 'unknown' }]),
+        pub.id,
+      ]);
+      const sent = chain.broadcasts.length;
+      const report = await pass(s);
+      expect(report.halted).toBe(true);
+      expect(report.alarms).toContainEqual(
+        expect.objectContaining({ code: 'anchor_publication_unexplained', message: expect.stringMatching(new RegExp(`is not one the scheduler made: .*\\(${rule}\\)`)) }),
+      );
+      expect(chain.broadcasts.slice(sent)).toEqual([]);
+    });
+
+    it('a stored attempt rewritten during the pass, after its row was authenticated, is read again before it is sent, and is not sent', async () => {
+      await capture('alpha', 2);
+      const s = await scheduler({ tuning: { stuckAfterMs: 100 * HOUR } });
+      offset += HOUR;
+      await pass(s);
+      chain.mine(1);
+      await pass(s);
+      const [pub] = await publications();
+      expect(pub.state).toBe('included');
+      // A reorg drops its block and the node forgets it: the next pass moves
+      // the row back to submitted, reads it again, and sends its attempt.
+      chain.reorg(1);
+      const twin = twinOf(pub, TWINS[0][1], 'signature-values');
+      const receipt = chain.receipt.bind(chain);
+      let rewritten = false;
+      chain.receipt = async (hash) => {
+        if (!rewritten) {
+          rewritten = true;
+          await asOwner('UPDATE anchor_publications SET attempts = ? WHERE id = ?', [
+            JSON.stringify([{ ...pub.attempts[0], rawTx: twin, txHash: keccak256(twin) }]),
+            pub.id,
+          ]);
+        }
+        return receipt(hash);
+      };
+      const sent = chain.broadcasts.length;
+      const report = await pass(s);
+      expect(rewritten).toBe(true);
+      expect(report.halted).toBe(true);
+      expect(report.alarms).toContainEqual(
+        expect.objectContaining({ code: 'anchor_publication_unexplained', message: expect.stringContaining('is not sent: it breaks the Signature values rule') }),
+      );
+      expect(chain.broadcasts.slice(sent)).toEqual([]);
+    });
+
+    it.each(TWINS)('a stored sweep replaced by %s is not sent again', async (_what, make, rule) => {
+      await capture('alpha', 2);
+      const seen: string[] = [];
+      const s = await scheduler({ onAlarm: (a) => seen.push(`${a.code}: ${a.message}`) });
+      await epoch(s);
+      const swept = await s.sweep(Wallet.createRandom().address);
+      expect(swept.broadcast).toMatchObject({ outcome: 'accepted' });
+      chain.evict(swept.tx.txHash);
+      const twin = make(swept.tx.rawTx);
+      expect(readEvmTransaction(twin)).toEqual({ ok: false, rule });
+      expect(Transaction.from(twin).from).toBe(wallet.address);
+      // The id a lenient reader gives it: ethers hashes RLP it has made
+      // canonical, which is the original's id; a high s it refuses to hash.
+      const id = rule === 'encoding' ? swept.tx.txHash : keccak256(twin);
+      expect(() => assertWalletTx({ ...swept.tx, rawTx: twin, txHash: id })).toThrow(`rawTx breaks the ${rule} rule of tzun-anchor/1 §10.4 item 2`);
+      await asOwner('UPDATE anchor_wallet_txs SET raw_tx = ?, tx_hash = ? WHERE address = ? AND chain = ? AND nonce = ?', [
+        twin,
+        id,
+        swept.tx.address,
+        CHAIN,
+        swept.tx.nonce,
+      ]);
+      const sent = chain.broadcasts.length;
+      await expect(s.rebroadcastAccountedTransaction()).rejects.toThrow(/anchor_wallet_tx_unexplained/);
+      expect(chain.broadcasts.slice(sent)).toEqual([]);
+      expect(seen).toContainEqual(expect.stringMatching(new RegExp(`^anchor_wallet_tx_unexplained: .*breaks the ${rule} rule of tzun-anchor/1 §10\\.4 item 2`)));
     });
   });
 

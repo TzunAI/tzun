@@ -39,10 +39,13 @@
  * signed past one the chain has not taken. A mined publication awaiting
  * finality does not block the next epoch.
  *
- * Nothing the scheduler signs, fills or plans rests on a row because it is
- * stored (explain.ts). Every publication row is authenticated at the start of
- * each pass by its signed transactions and a sender the configuration or the
- * manifest names, inside that sender's window. A first signature is given only
+ * Nothing the scheduler signs, sends, fills or plans rests on a row because
+ * it is stored (explain.ts). Every publication row is authenticated at the
+ * start of each pass by its signed transactions, each read as tzun-anchor/1
+ * §10.4 item 2 reads one, and a sender the configuration or the manifest
+ * names, inside that sender's window. Every broadcast, a stored transaction
+ * sent again included, reads the bytes about to be sent the same way first
+ * (`unsendable`, §7.2 rule 3). A first signature is given only
  * to an epoch this process planned, or to a prepared one the anchor log
  * re-derives above the published size B, when the cadence calls it due (the
  * sign gate). An epoch is planned only on the anchor log explained above B,
@@ -67,7 +70,7 @@
 import { randomBytes } from 'node:crypto';
 import type { AttestationExpectation } from '@tzun/engine';
 import { anchorLogOrigin, checkpointDigest, parseOrigin } from '../attestation/checkpoint';
-import { verifyEvmTransactionProof, type PublisherManifest } from '../attestation/blockchain';
+import { readEvmTransaction, verifyEvmTransactionProof, type PublisherManifest } from '../attestation/blockchain';
 import {
   ANCHOR_LEASE_HOLDER_PREFIX,
   ANCHOR_LOG_KIND,
@@ -101,6 +104,7 @@ import {
   AnchorSignerUnavailableError,
   AnchorWalletError,
   STOPPING_ALARMS,
+  itemTwoRefusal,
   type AnchorAlarm,
   type AnchorAlarmCode,
 } from './errors';
@@ -913,6 +917,53 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
   };
 
   /**
+   * Why the signed transaction `raw` must not be sent, or null when it may
+   * be. Every broadcast reads the bytes about to be sent as tzun-anchor/1
+   * §10.4 item 2 reads a transaction, a stored one sent again included (§7.2
+   * rule 3, §11 item 6): they must meet every rule of that item (so they are
+   * of type 0, 1 or 2), sign the publisher's chain id, and recover `sender`.
+   * A record that they were checked before is not enough: whoever can write
+   * the store can replace a stored transaction with its twin, with n − s and
+   * the recovery parity flipped, which needs no key, recovers the same
+   * sender and which every verifier refuses. Bytes that fail are never
+   * lowered or otherwise repaired here: a stored attempt is append-only, and
+   * changing it would hide the tampering and change its id.
+   */
+  const unsendable = (raw: string, sender: string | null): string | null => {
+    const reading = readEvmTransaction(raw);
+    if (!reading.ok) return itemTwoRefusal(reading.rule);
+    const { chainId, sender: signer } = reading.transaction;
+    if (chainId !== publisher.chainId) return `it is signed for chain id ${chainId}, not ${publisher.chainId}`;
+    if (sender === null) return 'no sender of it was authenticated this pass';
+    if (signer !== sender) return `it is signed by ${signer}, not ${sender}`;
+    return null;
+  };
+
+  /**
+   * Broadcast `raw`, a transaction of `publication` signed by `sender`, when
+   * `unsendable` finds nothing against it. Otherwise nothing is sent, null is
+   * returned, and `anchor_publication_unexplained` stops anchoring.
+   */
+  const broadcastPublication = async (
+    report: AnchorPassReport,
+    publication: AnchorPublication,
+    raw: string,
+    sender: string | null,
+  ): Promise<EvmBroadcastResult | null> => {
+    const why = unsendable(raw, sender);
+    if (why !== null) {
+      raise(
+        report,
+        'anchor_publication_unexplained',
+        `A transaction of publication ${publication.id} (nonce ${String(publication.nonce)}) is not sent: ${why}. Anchoring is stopped.`,
+        String(publication.id),
+      );
+      return null;
+    }
+    return chain.broadcast(raw);
+  };
+
+  /**
    * Whether the configured publisher's window contains now: outside it,
    * verifiers refuse what it sends, so nothing is signed and the pass defers
    * (`anchor_publisher_outside_window`).
@@ -1006,7 +1057,8 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
     authenticated.set(current.id, { p: signable.p, anchorSize: signable.anchorSize, nonce, fromAddress: publisher.address });
     await hooks.afterPersistAttempt?.(current);
     await holdLease();
-    const result = await chain.broadcast(signed.raw);
+    const result = await broadcastPublication(report, current, signed.raw, publisher.address);
+    if (result === null) return current;
     await hooks.afterBroadcast?.(current, result);
     current = await recordBroadcast(report, current, current.attempts.length - 1, result, true);
     if (result.reason === 'nonce_too_low') current = await afterNonceTooLow(report, current);
@@ -1214,12 +1266,15 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
       await confirmIncluded(report, included);
       return;
     }
-    // No receipt: rebroadcast the stored bytes. A transaction a node never
-    // propagated, or evicted, comes back unchanged.
+    // No receipt: send the stored bytes again, as they are, once they pass
+    // `unsendable` now, signed by the sender authenticated for the row at the
+    // start of the pass. A transaction a node never propagated, or evicted,
+    // goes out unchanged; one that fails is not sent, and anchoring stops.
     const { attempt, index } = liveAttempt(publication);
     const latest = publication.attempts[publication.attempts.length - 1];
     await holdLease();
-    const result = await chain.broadcast(attempt.rawTx);
+    const result = await broadcastPublication(report, publication, attempt.rawTx, authenticated.get(publication.id)?.fromAddress ?? null);
+    if (result === null) return;
     let current = await recordBroadcast(report, publication, index, result, false);
     if (result.reason === 'nonce_too_low') {
       await afterNonceTooLow(report, current);
@@ -2063,9 +2118,25 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
     return true;
   };
 
-  /** Broadcast a stored accounted transaction; the wallet is retired only when the node did not refuse it. */
+  /**
+   * Broadcast a stored accounted transaction; the wallet is retired only when
+   * the node did not refuse it. Its bytes pass `unsendable` first, with the
+   * wallet as sender, as tzun-anchor/1 §7.2 rule 3 asks of the publisher
+   * key's accounting transactions too: bytes that fail are not sent, and
+   * `anchor_wallet_tx_unexplained` stops anchoring.
+   */
   const sendAccounted = async (w: AnchorWallet, tx: AnchorWalletTx): Promise<AccountedTransactionResult> => {
     await walletLease();
+    const why = unsendable(tx.rawTx, w.address);
+    if (why !== null) {
+      raise(
+        null,
+        'anchor_wallet_tx_unexplained',
+        `The accounted transaction of ${tx.address} at nonce ${tx.nonce} is not sent: ${why}. Anchoring is stopped.`,
+        `${tx.address}@${tx.nonce}`,
+      );
+      throw new Error(`The accounted transaction of ${tx.address} at nonce ${tx.nonce} is not sent (${why}): anchor_wallet_tx_unexplained.`);
+    }
     const broadcast = await chain.broadcast(tx.rawTx);
     const retired = broadcast.outcome === 'rejected' ? false : await retire(w);
     log('anchor_wallet_accounted_tx', { kind: tx.kind, nonce: tx.nonce, txHash: tx.txHash, outcome: broadcast.outcome, retired });

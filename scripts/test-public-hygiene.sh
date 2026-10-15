@@ -29,6 +29,8 @@ root=root
 req=REQ
 w=widgets
 ref="${w}#9"
+# The project that builds spec.tzun.ai.
+sp="$t-spec"
 # The line Dependabot signs off its commits with, GitHub's support address
 # on its own, and Dependabot as a commit's author.
 signoff="Signed-off-by: dependabot[bot] <support@""github.com>"
@@ -68,6 +70,14 @@ catches org-repo "see $org/widgets for the code"
 catches org-repo "https://github.com/$org/widgets/pull/3"
 catches org-repo "git@github.com:$org/widgets.git"
 catches org-repo "npm install @$lc_org/widgets"
+# The repository that builds spec.tzun.ai, which a reader outside Tzun cannot
+# open, in each form; its bare name passes (below).
+catches org-repo "see $org/$sp for the source"
+catches org-repo "https://github.com/$org/$sp/blob/main/README.md"
+catches org-repo "git@github.com:$org/$sp.git"
+catches org-repo "https://github.com/${lc_org}/${T}-SPEC/pull/14"
+catches org-repo "- Senders follow the rules ($org/${sp}#14)."
+catches cross-ref "as ${sp}#3 says"
 catches prefixed-name "the $t-widgets repository"
 catches prefixed-name "the T""zun-widgets service"
 # Full-width letters read as ASCII once normalized.
@@ -100,13 +110,13 @@ catches private-status "the widgets live in the repo that is not public; the rep
 # Text no rule may catch.
 passes "github.com/$org/tzun-verify/internal/report"
 passes "https://github.com/$org/$t and https://github.com/$org/$t.git"
-passes "https://github.com/$org/$t-spec/blob/main/README.md"
 passes "npm install @$t/sdk @$t/engine; pip install $t-sdk; import $t""_sdk"
 passes "export $T""_TSA_URL=1 and the $t""_envelopes table"
 passes "$t-mandate/1, $t-agent/2, $t-assertion-v1, $t-cmt-salt-v1 and the Tzun-Signature header"
 passes "x-$t-api-key, x-$t-admin-token, @$t-omit-when-unset, @$t-hashed-fields, $t-test-active-chain-"
 passes "security@$tz, hello@$tz and oss@$tz; https://api.$tz/v1"
-passes "see ${t}#12 and ${t}-spec#3"
+passes "see ${t}#12 and ${t}-verify#3"
+passes "the $sp project builds spec.$tz"
 passes "https://github.com/$org/tzun-verify.git"
 passes "Merge pull request #5 from $org/feat/corpus"
 passes "an anchor under $t-anchor/1 and a $t-verify-report/1 report"
@@ -177,6 +187,9 @@ g rm -q --cached signoff.txt
 printf '## [1.0.0]\n\n- Fixed the parser (#%s).\n' 4 > "$repo/CHANGELOG.md"
 g add CHANGELOG.md
 expect 1 "tree mode, a bare #N in CHANGELOG.md" "$repo/scripts/check-public-hygiene.sh" tree
+printf '## [1.0.0]\n\n- Fixed the parser (%s/%s#%s).\n' "$org" "$sp" 4 > "$repo/CHANGELOG.md"
+g add CHANGELOG.md
+expect 1 "tree mode, an owner/repo#N in CHANGELOG.md naming the source of spec.$tz" "$repo/scripts/check-public-hygiene.sh" tree
 printf '## [1.0.0]\n\n- Fixed the parser (%s/%s#%s).\n' "$org" "$t" 4 > "$repo/CHANGELOG.md"
 g add CHANGELOG.md
 expect 0 "tree mode, an owner/repo#N in CHANGELOG.md" "$repo/scripts/check-public-hygiene.sh" tree

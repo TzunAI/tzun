@@ -19,6 +19,8 @@ import { Transaction, type Wallet } from 'ethers';
 import type { EvidenceEnvelope } from '@tzun/engine';
 import { Tzun, verifyAnchor, RpcEvmHeaderSource, verifyEvmPublication } from '../../src/sdk';
 import { ClosureSigner } from '../ts/helpers/closure-signer';
+import { highSSigner, toHighS } from '../ts/helpers/signer-faults';
+import { readEvmTransaction } from '../../src/attestation/blockchain';
 import { SqliteStorageAdapter } from '../../src/storage/sqlite';
 import { anchorStoreFor, type AnchorPublication } from '../../src/storage/log-store';
 import { AnchorForceRateLimitedError, createAnchorScheduler, type AnchorScheduler, type AnchorSchedulerOptions } from '../../src/anchoring';
@@ -300,6 +302,69 @@ suite('the anchor scheduler on anvil', () => {
       existedBy: { source: 'evm-calldata' },
     });
     expect(verified).not.toHaveProperty('anchorReason');
+  });
+
+  it('an external signer that returns a high s: the transaction mined is the one its key signed, with s at most (n - 1) / 2, which every rule of tzun-anchor/1 §10.4 item 2 reads, and the anchor verifies', async () => {
+    const publisher = await node.fundedWallet();
+    const signer = highSSigner(new ClosureSigner(publisher.privateKey));
+    const tzun = await Tzun.init({
+      mode: 'dev',
+      dbPath: join(dir, 'high-s.db'),
+      chainId: 'high-s',
+      logNamespace: NS,
+      anchoring: { publishers: { evm: { rpcUrl: node.rpcUrl, chain: CHAIN, signer } }, autoStart: false },
+    });
+    open.push(tzun);
+    const id = (await tzun.capture({ decider: { kind: 'human', id: 'acct:u-test', agent: null, credential: null, freshness: null }, aiOutput: { highS: true }, action: 'approved', reason: 'high s', aiSystemId: 'anvil-suite' })).envelope.payload.evidenceId;
+    await tzun.anchorNow({ force: true });
+    for (let i = 0; i < 10; i++) {
+      await node.mine(3);
+      await tzun.anchorNow();
+      const state = (await tzun.getAnchorState())!;
+      if (state.lastFinalized && state.inFlight.length === 0 && state.fillBacklog === 0) break;
+    }
+    const state = (await tzun.getAnchorState())!;
+    expect(state.alarms).toEqual([]);
+    expect(signer.returned).toHaveLength(1);
+    // What the signer returned, a verifier refuses; what was mined, it reads, with the publisher as sender.
+    expect(readEvmTransaction(signer.returned[0])).toEqual({ ok: false, rule: 'signature-values' });
+    const [publication] = await anchorStoreFor(tzun.getStorage())!.listAnchorPublications({ kind: 'evm-calldata/1' });
+    expect(publication.state).toBe('finalized');
+    const mined = await node.rpc<string>('eth_getRawTransactionByHash', [publication.minedTxHash]);
+    // What the wrapped key signed, before the signer made its high-s twin.
+    expect(mined.toLowerCase()).toBe(signer.signed[0].toLowerCase());
+    expect(mined.toLowerCase()).not.toBe(signer.returned[0].toLowerCase());
+    const reading = readEvmTransaction(mined);
+    expect(reading.ok && reading.transaction.sender).toBe(publisher.address.toLowerCase());
+
+    const manifest = { publishers: { [state.anchorOrigin]: [{ address: publisher.address, chain: CHAIN, namespace: 'test' as const }] } };
+    expect(
+      await tzun.verify(id, undefined, {
+        anchor: { publisherManifest: manifest, evmHeaderSources: { [CHAIN]: new RpcEvmHeaderSource(node.provider as never, { finality: 'finalized' }) } },
+      }),
+    ).toMatchObject({ verified: true, anchorValid: true });
+  });
+
+  it('anvil itself mines a transaction with a high s, which item 2 refuses: the node does not stop one, so the writer must not send one', async () => {
+    const sender = await node.fundedWallet();
+    const low = await sender.signTransaction({
+      type: 2,
+      chainId: ANVIL_CHAIN_ID,
+      nonce: 0,
+      to: sender.address,
+      value: 0n,
+      data: '0x' + 'ab'.repeat(32),
+      gasLimit: 60_000n,
+      maxFeePerGas: 100_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+    });
+    const high = toHighS(low);
+    expect(readEvmTransaction(high)).toEqual({ ok: false, rule: 'signature-values' });
+    const hash = await node.rpc<string>('eth_sendRawTransaction', [high]);
+    await node.mine(1);
+    const receipt = await node.rpc<{ status: string; from: string } | null>('eth_getTransactionReceipt', [hash]);
+    expect(receipt).toMatchObject({ status: '0x1', from: sender.address.toLowerCase() });
+    expect((await node.rpc<string>('eth_getRawTransactionByHash', [hash])).toLowerCase()).toBe(high.toLowerCase());
   });
 
   it.each(KEY_KINDS)('a process killed right after broadcast restarts to finalize the same transaction, never a second (key: %s)', async (kind) => {

@@ -12,10 +12,15 @@
  *   - `PublicationTrust.offline`: every check of a publication row that needs
  *     no node: each attempt's hash, signature, sender, chain, nonce and
  *     calldata, the row's sender and mined hash, and the sender's window at
- *     the times the row can show offline. Sender recovery, the costly step,
- *     is memoized by the raw transaction's bytes; every comparison with the
- *     row's columns runs on every read, so a row rewritten after it was read
- *     fails the next read.
+ *     the times the row can show offline. Each attempt is read as
+ *     tzun-anchor/1 §10.4 item 2 reads a transaction (`readEvmTransaction`),
+ *     and one that breaks a rule of that item is not the scheduler's (§11
+ *     item 6): a more lenient reader would also accept its twin with n − s
+ *     and the recovery parity flipped, which anyone who can write the store
+ *     can make without the key and which every verifier refuses. The
+ *     reading, the costly step, is memoized by the raw transaction's bytes;
+ *     every comparison with the row's columns runs on every read, so a row
+ *     rewritten after it was read fails the next read.
  *   - `PublicationTrust.confirmed`: the node-confirmed checks of a row whose
  *     finality, or whose block, carries trust: `verifyEvmPublication` with
  *     the node as header source must say `valid === true` for a finalized
@@ -48,6 +53,7 @@ import {
   parseEvmBlockHeader,
   publisherValidAt,
   readEvmPublisherWindows,
+  readEvmTransaction,
   verifyEvmPublication,
   type EvmHeaderSource,
   type EvmPublisherWindow,
@@ -64,7 +70,7 @@ import {
   type LogRecord,
   type LogStore,
 } from '../storage/log-store';
-import { AnchoringConfigError, type AnchorAlarmCode } from './errors';
+import { AnchoringConfigError, itemTwoRefusal, type AnchorAlarmCode } from './errors';
 import type { EvmChainClient } from './evm-chain';
 
 /** The kinds of source log the scheduler anchors unless told otherwise: those whose leaves the store binds to stored rows. */
@@ -220,9 +226,9 @@ const UNSENT_COLUMNS = [
  * by those bytes.
  */
 export class PublicationTrust {
-  private readonly decoded = new Map<string, Decoded | null>();
+  private readonly readings = new Map<string, { ok: true; tx: Decoded } | { ok: false; why: string }>();
   private readonly confirmedMemo = new Map<string, Confirmation>();
-  /** How many sender recoveries were made: the memo's cost, for the scheduler's tests. */
+  /** How many raw transactions were read with `readEvmTransaction`: the memo's cost, for the scheduler's tests. */
   recoveries = 0;
 
   constructor(
@@ -241,30 +247,49 @@ export class PublicationTrust {
     return this.ctx.allowed;
   }
 
-  /** `rawTx` decoded, its sender recovered once per process; null when it is not a signed transaction. */
-  decode(rawTx: string): Decoded | null {
-    if (this.decoded.has(rawTx)) return this.decoded.get(rawTx)!;
-    let out: Decoded | null = null;
-    try {
-      const tx = Transaction.from(rawTx);
-      this.recoveries += 1;
-      if (tx.isSigned() && tx.from) {
+  /**
+   * `rawTx` read as tzun-anchor/1 §10.4 item 2 reads a transaction
+   * (`readEvmTransaction`), its sender recovered once per process: the
+   * transaction, or why item 2 refuses it. The sender, chain id and calldata
+   * are the reading's; ethers supplies only the nonce, value and fee caps of
+   * bytes item 2 has read, and a nonce it cannot hold refuses the transaction.
+   */
+  private read(rawTx: string): { ok: true; tx: Decoded } | { ok: false; why: string } {
+    const held = this.readings.get(rawTx);
+    if (held) return held;
+    let out: { ok: true; tx: Decoded } | { ok: false; why: string };
+    const reading = readEvmTransaction(rawTx);
+    this.recoveries += 1;
+    if (!reading.ok) {
+      out = { ok: false, why: itemTwoRefusal(reading.rule) };
+    } else {
+      try {
+        const tx = Transaction.from(rawTx);
         out = {
-          hash: keccak256(rawTx).toLowerCase(),
-          from: tx.from.toLowerCase(),
-          chainId: tx.chainId,
-          nonce: tx.nonce,
-          data: tx.data.toLowerCase(),
-          value: tx.value,
-          maxFeePerGas: tx.maxFeePerGas,
-          maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+          ok: true,
+          tx: {
+            hash: keccak256(rawTx).toLowerCase(),
+            from: reading.transaction.sender,
+            chainId: reading.transaction.chainId,
+            nonce: tx.nonce,
+            data: reading.transaction.data,
+            value: tx.value,
+            maxFeePerGas: tx.maxFeePerGas,
+            maxPriorityFeePerGas: tx.maxPriorityFeePerGas,
+          },
         };
+      } catch {
+        out = { ok: false, why: 'its nonce, value or fees cannot be read' };
       }
-    } catch {
-      out = null;
     }
-    this.decoded.set(rawTx, out);
+    this.readings.set(rawTx, out);
     return out;
+  }
+
+  /** `rawTx` decoded as {@link read} reads it; null when tzun-anchor/1 §10.4 item 2 refuses it. */
+  decode(rawTx: string): Decoded | null {
+    const reading = this.read(rawTx);
+    return reading.ok ? reading.tx : null;
   }
 
   /**
@@ -326,8 +351,9 @@ export class PublicationTrust {
   /** Why attempt `a` of `row` is not a publication of `row.p` the row's nonce carries, or null. */
   private attemptProblem(row: AnchorPublication, a: AnchorPublicationAttempt): string | null {
     if (typeof a.rawTx !== 'string' || !/^0x([0-9a-f]{2})+$/.test(a.rawTx)) return 'its raw transaction is not 0x lowercase hex';
-    const tx = this.decode(a.rawTx);
-    if (!tx) return 'its raw transaction is not a signed transaction';
+    const reading = this.read(a.rawTx);
+    if (!reading.ok) return `its raw transaction is not one the scheduler sends: ${reading.why}`;
+    const tx = reading.tx;
     if (tx.hash !== a.txHash) return 'its txHash is not keccak256 of its raw transaction';
     if (tx.chainId !== this.ctx.chainId) return `it is signed for chain ${tx.chainId}, not ${this.ctx.chainId}`;
     if (tx.nonce !== row.nonce) return `it is signed at nonce ${tx.nonce}, not the row's ${String(row.nonce)}`;

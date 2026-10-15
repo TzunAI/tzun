@@ -20,18 +20,22 @@
 #
 # The rules, each a pattern and the exceptions it allows:
 #   org-repo       a repository of the TzunAI organisation other than this
-#                  one (tzun), tzun-verify and tzun-spec, as owner/name, a
-#                  GitHub URL or an npm scope (the organisation's own scope
-#                  included). The
-#                  branch named by a GitHub merge commit's first line ("Merge
-#                  pull request #N from <owner>/<branch>") is not a repository.
+#                  one (tzun) and tzun-verify, as owner/name, a GitHub URL or
+#                  an npm scope (the organisation's own scope included). The
+#                  repository that builds spec.tzun.ai is refused like any
+#                  other: a reader outside Tzun cannot open it, so the
+#                  specification is cited at spec.tzun.ai or by document and
+#                  section (tzun-anchor/1 §10.4). The branch named by a
+#                  GitHub merge commit's first line ("Merge pull request #N
+#                  from <owner>/<branch>") is not a repository.
 #   prefixed-name  a tzun-<word> whose first word is not one of the protocol,
 #                  package and file names in PUBLIC_WORDS below. TZUN_<WORD>
 #                  environment variables and tzun_<word> identifiers are this
 #                  SDK's public API and are not checked.
 #   cross-ref      <name>#<number>, an issue or pull request of another
-#                  repository; tzun#, tzun-verify# and tzun-spec#<number> are
-#                  allowed.
+#                  repository; tzun# and tzun-verify#<number> are allowed.
+#                  The bare name tzun-spec passes prefixed-name;
+#                  tzun-spec#<number> is refused here.
 #   session        a link to a conversation with an assistant.
 #   local-path     an absolute path under a home, temporary, mount or root
 #                  directory, on any operating system.
@@ -81,8 +85,9 @@ import unicodedata
 # First words of tzun-<word> names that the public protocol, the packages and
 # this repository use: tzun-anchor/1, tzun-verify and its report, the
 # tzun-signoff-v1 and tzun-decision-v1 challenge domains, the
-# tzun-merkle-vector- leaf label of the tree vectors, the tzun-spec
-# repository that builds spec.tzun.ai, the tzun-recovery protocol string, the
+# tzun-merkle-vector- leaf label of the tree vectors, tzun-spec, the name of
+# the project that builds spec.tzun.ai (the name only: org-repo and cross-ref
+# refuse a link to its repository), the tzun-recovery protocol string, the
 # PyPI distribution tzun-sdk and its exporter id, the tzun-engine and
 # tzun-xsdk test labels, the @tzun-canonical-* and @tzun-hashed-fields
 # annotations, @tzun-omit-when-unset, the x-tzun-api-key and
@@ -127,7 +132,9 @@ PUBLIC_HOSTS = {"www", "demo", "spec", "log", "test", "xlog", "api"}
 DEPENDABOT_AUTHOR = ("dependabot[bot]", "49699333+dependabot[bot]@users.noreply.github.com")
 DEPENDABOT_SIGNOFF = "Signed-off-by: dependabot[bot] <support" + "@github.com>"
 
-PUBLIC_REPOS = {"tzun", "tzun-verify", "tzun-spec"}
+# The organisation's repositories a reader outside Tzun can open, by name, for
+# org-repo and cross-ref.
+PUBLIC_REPOS = {"tzun", "tzun-verify"}
 
 
 MERGE_LINE = re.compile(r"^Merge pull request #[0-9]+ from ")

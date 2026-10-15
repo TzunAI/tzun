@@ -14,7 +14,7 @@
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SigningKey, Transaction, Wallet, computeAddress } from 'ethers';
+import { SigningKey, Transaction, Wallet, computeAddress, keccak256 } from 'ethers';
 import type { AnchorTransactionRequest, AnchorTransactionSigner, CaptureInput, TzunConfig } from '@tzun/engine';
 import {
   Tzun,
@@ -27,8 +27,10 @@ import {
 } from '../../src/sdk/index';
 import { AttestationRetryScheduler } from '../../src/sdk/attestation-retry-scheduler';
 import { anchorStoreFor, logStoreFor } from '../../src/storage/log-store';
-import type { EvmHeaderSource } from '../../src/attestation/blockchain';
+import { readEvmTransaction, type EvmHeaderSource, type EvmItemTwoRule } from '../../src/attestation/blockchain';
 import { FakeEvmChain } from './helpers/anchoring-fake-chain';
+import { firstUnrecoverableR, signLegacy, signatureOf, withSignature } from './helpers/evm-fixtures';
+import { highSSigner, rewriteType2Field, signType2 } from './helpers/signer-faults';
 import { PG_TESTS_ENABLED, pgSuiteSchema } from './helpers/postgres-test-db';
 
 const CHAIN = 'eip155:31337';
@@ -131,6 +133,9 @@ function postgresBackend(): Backend | undefined {
 }
 
 const backends = [sqliteBackend(), postgresBackend()].filter((b): b is Backend => b !== undefined);
+
+/** A signed transaction with its yParity written as 2, its r and s kept. */
+const withYParity2 = (raw: string): string => withSignature(raw, { ...signatureOf(raw), v: 2n });
 
 type KeyKind = 'privateKey' | 'external signer';
 
@@ -320,6 +325,117 @@ describe.each(backends.map((b) => [b.name, b] as const))('Tzun with anchoring on
       expect(publication).toMatchObject({ state: 'prepared', attempts: [] });
       await tzun.close();
     }
+  });
+
+  it('a signer that returns a high s: what is stored and broadcast is its signature with n - s, which every rule of tzun-anchor/1 §10.4 item 2 reads, and it verifies', async () => {
+    const signer = highSSigner(wallet);
+    const tzun = await init(await backend.fresh(), { anchoring: { publishers: { evm: { rpcUrl: 'http://127.0.0.1:9', chain: CHAIN, signer } }, autoStart: false } });
+    const id = (await tzun.capture(decision(1))).envelope.payload.evidenceId;
+    const first = await tzun.anchorNow({ force: true });
+    expect(first.alarms.map((a) => a.code)).not.toContain('anchor_signer_mismatch');
+    expect(signer.returned).toHaveLength(1);
+    expect(chain.broadcasts).toHaveLength(1);
+    const [sent] = chain.broadcasts;
+    // What the wallet signed, before the signer made its high-s twin.
+    expect(sent).toBe(signer.signed[0].toLowerCase());
+    expect(sent).not.toBe(signer.returned[0]);
+    // The same key's signature over the same hash: the same sender, the same signing hash.
+    expect(Transaction.from(sent).unsignedHash).toBe(Transaction.from(signer.returned[0]).unsignedHash);
+    const reading = readEvmTransaction(sent);
+    expect(reading.ok && reading.transaction.sender).toBe(wallet.address.toLowerCase());
+    const [publication] = await anchorStoreFor(tzun.getStorage())!.listAnchorPublications({ kind: 'evm-calldata/1' });
+    expect(publication.attempts).toEqual([expect.objectContaining({ rawTx: sent, txHash: keccak256(sent) })]);
+
+    // Mined, finalized and filled without the signer being asked again, and no
+    // pass raises anchor_signer_mismatch.
+    for (let i = 0; i < 10; i++) {
+      chain.mine(3);
+      const report = await tzun.anchorNow();
+      expect(report.alarms.map((a) => a.code)).not.toContain('anchor_signer_mismatch');
+      const now = (await tzun.getAnchorState())!;
+      if (now.lastFinalized && now.inFlight.length === 0 && now.fillBacklog === 0) break;
+    }
+    expect(signer.returned).toHaveLength(1);
+    const state = (await tzun.getAnchorState())!;
+    expect(state.lastFinalized).not.toBeNull();
+    expect(state.alarms).toEqual([]);
+    expect(chain.broadcasts).toEqual([sent]);
+
+    // The record's artifact and the exported material name the transaction sent, not the one the signer returned.
+    expect(keccak256(sent)).not.toBe(keccak256(signer.returned[0]));
+    const record = (await tzun.get(id))!;
+    expect(record.envelope.nonRepudiation.anchor?.publications).toEqual([expect.objectContaining({ kind: 'evm-calldata/1', transactionId: keccak256(sent) })]);
+    const bundle = await tzun.exportBundle(id);
+    const material = Object.values(bundle.anchoring).flatMap((log) => log.checkpoints.flatMap((c) => c.publications ?? []));
+    expect(material).toEqual([expect.objectContaining({ kind: 'evm-calldata/1', transactionId: keccak256(sent), rawTransaction: sent })]);
+
+    const manifest = { publishers: { [state.anchorOrigin]: [{ address: wallet.address, chain: CHAIN, namespace: 'test' as const }] } };
+    expect(await tzun.verify(id, undefined, { anchor: { publisherManifest: manifest, evmHeaderSources: { [CHAIN]: headerSource(chain) } } })).toMatchObject({
+      verified: true,
+      anchorValid: true,
+    });
+    // The signer is deterministic: asked again for the same transaction, it returns the same high s.
+    expect(await signer.signTransaction(signer.requests[0])).toBe(signer.returned[0]);
+  });
+
+  it('a signer that returns a transaction that meets every rule: it is broadcast byte for byte', async () => {
+    const returned: string[] = [];
+    const signer: AnchorTransactionSigner = {
+      getAddress: async () => wallet.address,
+      signTransaction: async (request) => {
+        returned.push(await wallet.signTransaction(request));
+        return returned[returned.length - 1];
+      },
+    };
+    const tzun = await init(await backend.fresh(), { anchoring: { publishers: { evm: { rpcUrl: 'http://127.0.0.1:9', chain: CHAIN, signer } }, autoStart: false } });
+    await tzun.capture(decision(1));
+    await tzun.anchorNow({ force: true });
+    expect(chain.broadcasts).toEqual(returned);
+  });
+
+  it.each<[string, (w: Wallet, request: AnchorTransactionRequest) => Promise<string>, string, EvmItemTwoRule | null]>([
+    ['chain id 0', async (w, request) => signType2(w.signingKey, { ...request, chainId: 0n }), 'chain-id', 'chain-id'],
+    ['a tip above the fee cap', async (w, request) => signType2(w.signingKey, { ...request, maxPriorityFeePerGas: request.maxFeePerGas + 1n }), 'fees', 'fees'],
+    ['RLP that is not canonical', async (w, request) => rewriteType2Field(signType2(w.signingKey, request), 1, '0x0000'), 'encoding', 'encoding'],
+    ['yParity 2', async (w, request) => withYParity2(signType2(w.signingKey, request)), 'signature-values', 'signature-values'],
+    ['an r from which no key recovers', async (w, request) => withSignature(signType2(w.signingKey, request), { v: 0n, r: firstUnrecoverableR(), s: 1n }), 'recovery', 'recovery'],
+    [
+      'a legacy v of 35, signed for chain id 0',
+      async (w, request) => signLegacy(w.signingKey, { data: request.data, eip155: true, chainId: 0n, yParity: 0, nonce: request.nonce, to: request.to }),
+      'legacy-v',
+      'legacy-v',
+    ],
+    ['a gasLimit of 2^64', async (w, request) => signType2(w.signingKey, { ...request, gasLimit: 2n ** 64n }), 'field-sizes', 'field-sizes'],
+    ['type 4, which item 2 does not read', (w, request) => w.signTransaction({ ...request, type: 4, authorizationList: [] } as never), 'type', null],
+  ])('a signer that returns a transaction with %s: nothing is stored or sent, the error and the alarm name why, and the nonce is asked for again', async (_name, make, field, rule) => {
+    let faulty = true;
+    const requests: AnchorTransactionRequest[] = [];
+    const signer: AnchorTransactionSigner = {
+      getAddress: async () => wallet.address,
+      signTransaction: (request) => {
+        requests.push(request);
+        return faulty ? make(wallet, request) : wallet.signTransaction(request);
+      },
+    };
+    const tzun = await init(await backend.fresh(), { anchoring: { publishers: { evm: { rpcUrl: 'http://127.0.0.1:9', chain: CHAIN, signer } }, autoStart: false } });
+    await tzun.capture(decision(1));
+    const refused = tzun.anchorNow({ force: true });
+    await expect(refused).rejects.toMatchObject({ code: 'anchor_signer_mismatch', field });
+    if (rule !== null) await expect(refused).rejects.toMatchObject({ rule });
+    else await expect(refused).rejects.not.toHaveProperty('rule');
+    expect(chain.broadcasts).toEqual([]);
+    const state = (await tzun.getAnchorState())!;
+    expect(state.alarms).toEqual([expect.objectContaining({ code: 'anchor_signer_mismatch', severity: 'critical' })]);
+    expect(state.alarms[0].message).toContain(`(${field}: `);
+    const [publication] = await anchorStoreFor(tzun.getStorage())!.listAnchorPublications({ kind: 'evm-calldata/1' });
+    expect(publication).toMatchObject({ state: 'prepared', attempts: [], nonce: null, fromAddress: null });
+
+    // The next pass asks for the same nonce, and sends what a compliant signer returns.
+    faulty = false;
+    await tzun.anchorNow();
+    expect(requests.map((r) => r.nonce)).toEqual([0, 0]);
+    expect(chain.broadcasts).toHaveLength(1);
+    expect(Transaction.from(chain.broadcasts[0]).nonce).toBe(0);
   });
 
   it('a signer that never answers fails the pass within signTimeoutMs, with an alarm, and close() still returns', async () => {

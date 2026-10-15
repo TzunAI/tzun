@@ -1,11 +1,13 @@
 # HAND-MAINTAINED. NOT generated.
 #
-# The TypeScript verifier reads a raw transaction with ethers v6
-# `Transaction.from(raw)` and recovers its sender with `tx.from`. This module
-# accepts and refuses the same raw transactions and recovers the same sender, for
-# the three types the verifier reads (tzun-anchor/1 §10.4 item 2): each field
-# rule below is the one ethers applies. tests/cross-sdk/test_anchor_verify_parity.py
-# runs ethers-signed transactions and their mutations through both SDKs.
+# The TypeScript verifier reads a raw transaction with `readEvmTransaction`
+# (src/attestation/blockchain.ts): the rules of tzun-anchor/1 §10.4 item 2, on
+# the bytes and then on the fields read as integers of any size, then the
+# sender, recovered over a signing payload it builds from the fields. This
+# module applies the same rules in the same order, reports the same rule for a
+# refusal, and recovers the same sender. tests/cross-sdk/test_anchor_verify_parity.py
+# runs ethers-signed transactions, their mutations and transactions at the
+# edges of each rule through both SDKs.
 """Signed EVM transactions: keccak-256, decoding and sender recovery.
 
 Needs the ``anchor`` extra (``pip install 'tzun-sdk[anchor]'``):
@@ -27,20 +29,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
-from tzun_sdk.attestation.evm_rlp import RlpError, RlpItem, decode_rlp, encode_rlp
+from tzun_sdk.attestation.evm_rlp import RlpError, RlpItem, decode_rlp, encode_rlp, rlp_form
 from tzun_sdk.errors import MissingExtraError
 
 #: The order of the secp256k1 group.
 SECP256K1_N: Final = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+#: floor(n / 2), which is (n - 1) / 2 because n is odd: the largest ``s`` EIP-2 allows.
 _HALF_N: Final = SECP256K1_N // 2
 _MAX_UINT256: Final = 2**256 - 1
-_MAX_SAFE_INTEGER: Final = 2**53 - 1
 
 ANCHOR_EXTRA_HINT: Final = "pip install 'tzun-sdk[anchor]'"
 
 
 class EvmTransactionError(ValueError):
     """The bytes are not a signed transaction this verifier reads."""
+
+    def __init__(self, message: str, *, rule: str | None = None) -> None:
+        super().__init__(message)
+        #: The rule of tzun-anchor/1 §10.4 item 2 the transaction breaks, one of
+        #: :data:`ITEM_TWO_RULES`, or ``None`` when the bytes are not a signed
+        #: transaction of type 0, 1 or 2 at all.
+        self.rule = rule
 
 
 def _extra() -> tuple[Any, Any]:
@@ -80,7 +89,9 @@ class SignedEvmTransaction:
 
     #: 0 (legacy), 1 (EIP-2930) or 2 (EIP-1559).
     type: int
-    #: The chain id the sender signed; 0 for a pre-EIP-155 legacy transaction.
+    #: The chain id the sender signed; 0 for an unprotected legacy transaction (``v`` 27 or
+    #: 28), which signs none: no manifest entry is on chain 0, and its ``signedChainId`` fact
+    #: is ``None``.
     chain_id: int
     #: The calldata.
     data: bytes
@@ -88,248 +99,216 @@ class SignedEvmTransaction:
     sender: str
 
 
-# ---- Fields, read as ethers reads them --------------------------------------------
+# ---- The rules of item 2 -------------------------------------------------------------
+
+#: The rules of tzun-anchor/1 §10.4 item 2, by the names ``vectors/evm-anchor-vectors.json``
+#: gives them (the specification's **Chain id**, **Legacy v**, **Signature values**,
+#: **Fees**, **Recovery**, **Encoding** and **Field sizes**).
+ITEM_TWO_RULES: Final = (
+    "chain-id",
+    "legacy-v",
+    "signature-values",
+    "fees",
+    "recovery",
+    "encoding",
+    "field-sizes",
+)
+
+_MAX_UINT64: Final = 2**64 - 1
+#: The largest legacy ``v``: chainId * 2 + 36 for the largest chain id, 2^256 - 1.
+_MAX_LEGACY_V: Final = _MAX_UINT256 * 2 + 36
+
+#: Each type's signed fields, in order.
+_SIGNED_FIELDS: Final[dict[int, tuple[str, ...]]] = {
+    0: ("nonce", "gasPrice", "gasLimit", "to", "value", "data", "v", "r", "s"),
+    1: (
+        "chainId", "nonce", "gasPrice", "gasLimit", "to", "value", "data", "accessList",
+        "yParity", "r", "s",
+    ),
+    2: (
+        "chainId", "nonce", "maxPriorityFeePerGas", "maxFeePerGas", "gasLimit", "to",
+        "value", "data", "accessList", "yParity", "r", "s",
+    ),
+}  # fmt: skip
+
+#: The fields that are integers, which **Encoding** writes with no leading zero byte.
+_INTEGER_FIELDS: Final = frozenset(
+    {
+        "chainId", "nonce", "gasPrice", "maxPriorityFeePerGas", "maxFeePerGas", "gasLimit",
+        "value", "v", "yParity", "r", "s",
+    }
+)  # fmt: skip
+
+#: **Field sizes**: the largest value of each integer field it bounds (``r``, ``s``
+#: and ``yParity`` are bounded by **Signature values**).
+_FIELD_MAX: Final = (
+    ("chainId", _MAX_UINT256),
+    ("nonce", _MAX_UINT64),
+    ("gasPrice", _MAX_UINT256),
+    ("maxPriorityFeePerGas", _MAX_UINT256),
+    ("maxFeePerGas", _MAX_UINT256),
+    ("gasLimit", _MAX_UINT64),
+    ("value", _MAX_UINT256),
+    ("v", _MAX_LEGACY_V),
+)
 
 
-def _string(item: RlpItem) -> bytes:
-    if not isinstance(item, bytes):
-        raise EvmTransactionError("a field that must be a byte string is a list")
-    return item
-
-
-def _uint(item: RlpItem) -> int:
-    """ethers ``handleUint``: any byte length, leading zeros read by value, at most 2^256 - 1."""
-    value = int.from_bytes(_string(item), "big")
-    if value > _MAX_UINT256:
-        raise EvmTransactionError("value exceeds uint size")
-    return value
-
-
-def _number(item: RlpItem) -> int:
-    """ethers ``handleNumber``: at most 2^53 - 1."""
-    value = int.from_bytes(_string(item), "big")
-    if value > _MAX_SAFE_INTEGER:
-        raise EvmTransactionError("value exceeds a safe integer")
-    return value
-
-
-def _address(item: RlpItem) -> bytes:
-    """ethers ``handleAddress``: empty for contract creation, otherwise exactly 20 bytes."""
-    value = _string(item)
-    if len(value) not in (0, 20):
-        raise EvmTransactionError("invalid address")
-    return value
-
-
-def _padded_scalar(item: RlpItem) -> int:
-    """ethers ``zeroPadValue(field, 32)``: at most 32 bytes."""
-    value = _string(item)
-    if len(value) > 32:
-        raise EvmTransactionError("a signature scalar is longer than 32 bytes")
-    return int.from_bytes(value, "big")
-
-
-def _access_list(item: RlpItem) -> list[RlpItem]:
-    """ethers ``accessListify``: a list of ``[20-byte address, [32-byte keys]]``."""
-    if not isinstance(item, list):
-        raise EvmTransactionError("invalid access list")
-    out: list[RlpItem] = []
-    for entry in item:
-        if not isinstance(entry, list) or len(entry) != 2:
-            raise EvmTransactionError("invalid access-list entry")
-        address, keys = entry
-        if not isinstance(address, bytes) or len(address) != 20:
-            raise EvmTransactionError("invalid access-list address")
-        if not isinstance(keys, list) or not all(
-            isinstance(k, bytes) and len(k) == 32 for k in keys
-        ):
-            raise EvmTransactionError("invalid access-list storage key")
-        out.append([address, list(keys)])
-    return out
-
-
-def _y_parity(item: RlpItem) -> int:
-    try:
-        y = _number(item)
-    except EvmTransactionError as exc:
-        raise EvmTransactionError("invalid yParity") from exc
-    if y not in (0, 1):
-        raise EvmTransactionError("invalid yParity")
-    return y
+def _is_access_list(item: RlpItem) -> bool:
+    """A list of ``[20-byte address, [32-byte storage keys]]``."""
+    return isinstance(item, list) and all(
+        isinstance(entry, list)
+        and len(entry) == 2
+        and isinstance(entry[0], bytes)
+        and len(entry[0]) == 20
+        and isinstance(entry[1], list)
+        and all(isinstance(k, bytes) and len(k) == 32 for k in entry[1])
+        for entry in item
+    )
 
 
 def _int_bytes(value: int) -> bytes:
-    """ethers ``toBeArray``: big-endian with no leading zero, and 0 as no bytes."""
+    """An integer as RLP writes it: big-endian with no leading zero, and 0 as no bytes."""
     return b"" if value == 0 else value.to_bytes((value.bit_length() + 7) // 8, "big")
-
-
-# ---- Sender recovery ---------------------------------------------------------------
 
 
 def _recover_sender(unsigned: bytes, r: int, s: int, y_parity: int) -> str:
     keccak_mod, coincurve = _extra()
-    # ethers recovers from the signature's canonical form: a high s becomes
-    # n - s with the other parity, which names the same public key.
-    if s > _HALF_N:
-        s = SECP256K1_N - s
-        y_parity ^= 1
-    if not (1 <= r < SECP256K1_N and 1 <= s < SECP256K1_N):
-        raise EvmTransactionError("signature scalar out of range")
     digest = bytes(keccak_mod.new(digest_bits=256, data=unsigned).digest())
     signature = r.to_bytes(32, "big") + s.to_bytes(32, "big") + bytes([y_parity])
     try:
         public_key = coincurve.PublicKey.from_signature_and_message(signature, digest, hasher=None)
     except Exception as exc:
-        raise EvmTransactionError("no public key recovers from this signature") from exc
+        # r is no point's x-coordinate, or the point recovered is the point at infinity.
+        raise EvmTransactionError(
+            "no public key recovers from this signature", rule="recovery"
+        ) from exc
     point = public_key.format(compressed=False)[1:]
     return "0x" + bytes(keccak_mod.new(digest_bits=256, data=point).digest())[12:].hex()
 
 
-# ---- The three types ----------------------------------------------------------------
+def _read(tx_type: int, payload: bytes) -> SignedEvmTransaction:
+    """Item 2 on the payload of a transaction of type 0, 1 or 2 (see
+    :func:`decode_signed_transaction`)."""
+    form = rlp_form(payload)
+    if form == "malformed":
+        raise EvmTransactionError("not an RLP item")
+    if form == "non-canonical":
+        raise EvmTransactionError("not the canonical RLP encoding", rule="encoding")
 
+    names = _SIGNED_FIELDS[tx_type]
+    decoded = decode_rlp(payload)
+    if not isinstance(decoded, list) or len(decoded) != len(names):
+        raise EvmTransactionError(f"invalid field count for transaction type: {tx_type}")
+    fields = dict(zip(names, decoded, strict=True))
+    for name, item in fields.items():
+        if not (_is_access_list(item) if name == "accessList" else isinstance(item, bytes)):
+            raise EvmTransactionError(f"{name} is not of its shape")
+    if len(fields["to"]) not in (0, 20):  # type: ignore[arg-type]
+        raise EvmTransactionError("invalid address")
 
-def _legacy(raw: bytes) -> SignedEvmTransaction:
-    fields = decode_rlp(raw)
-    if not isinstance(fields, list) or len(fields) not in (6, 9):
-        raise EvmTransactionError("invalid field count for legacy transaction")
-    nonce = _number(fields[0])
-    gas_price = _uint(fields[1])
-    gas_limit = _uint(fields[2])
-    to = _address(fields[3])
-    value = _uint(fields[4])
-    data = _string(fields[5])
-    if len(fields) == 6:
-        raise EvmTransactionError("the transaction is not signed")
-    v = _uint(fields[6])
-    r = _uint(fields[7])
-    s = _uint(fields[8])
-    if r == 0 and s == 0:
-        raise EvmTransactionError("the transaction is not signed (EIP-155 unsigned form)")
-    chain_id = (v - 35) // 2 if v >= 35 else 0
-    if chain_id == 0 and v not in (27, 28):
-        raise EvmTransactionError("non-canonical legacy v")
-    r = _padded_scalar(fields[7])
-    s = _padded_scalar(fields[8])
-    # 27 and odd EIP-155 values are parity 0; 28 and even ones are parity 1.
-    y_parity = 0 if v == 27 or (v >= 35 and v % 2 == 1) else 1
-    unsigned_fields: list[RlpItem] = [
-        _int_bytes(nonce),
-        _int_bytes(gas_price),
-        _int_bytes(gas_limit),
-        to,
-        _int_bytes(value),
-        data,
+    n: dict[str, int] = {}
+    for name in names:
+        if name in _INTEGER_FIELDS:
+            item = fields[name]
+            assert isinstance(item, bytes)
+            if item[:1] == b"\x00":
+                raise EvmTransactionError(f"{name} has a leading zero byte", rule="encoding")
+            n[name] = int.from_bytes(item, "big")
+    for name, maximum in _FIELD_MAX:
+        if name in n and n[name] > maximum:
+            raise EvmTransactionError(f"{name} is above {maximum}", rule="field-sizes")
+    if tx_type != 0 and n["chainId"] < 1:
+        raise EvmTransactionError("a typed transaction signs chain id 0", rule="chain-id")
+    v = n["v"] if tx_type == 0 else None
+    if v is not None and v not in (27, 28) and v < 37:
+        raise EvmTransactionError(
+            "legacy v is not 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more",
+            rule="legacy-v",
+        )
+    r, s = n["r"], n["s"]
+    if not (1 <= r < SECP256K1_N and 1 <= s <= _HALF_N):
+        raise EvmTransactionError(
+            "r outside [1, n - 1], or s outside [1, n/2] (EIP-2)", rule="signature-values"
+        )
+    if tx_type != 0 and n["yParity"] not in (0, 1):
+        raise EvmTransactionError("invalid yParity", rule="signature-values")
+    if tx_type == 2 and n["maxPriorityFeePerGas"] > n["maxFeePerGas"]:
+        raise EvmTransactionError("priorityFee cannot be more than maxFee", rule="fees")
+
+    # The signing payload, from the fields read as integers.
+    unsigned: list[RlpItem] = [
+        _int_bytes(n[name]) if name in _INTEGER_FIELDS else fields[name] for name in names[:-3]
     ]
-    if chain_id != 0:
-        unsigned_fields += [_int_bytes(chain_id), b"", b""]
-    sender = _recover_sender(encode_rlp(unsigned_fields), r, s, y_parity)
-    return SignedEvmTransaction(type=0, chain_id=chain_id, data=data, sender=sender)
-
-
-def _eip2930(raw: bytes) -> SignedEvmTransaction:
-    fields = decode_rlp(raw[1:])
-    if not isinstance(fields, list) or len(fields) not in (8, 11):
-        raise EvmTransactionError("invalid field count for transaction type: 1")
-    chain_id = _uint(fields[0])
-    nonce = _number(fields[1])
-    gas_price = _uint(fields[2])
-    gas_limit = _uint(fields[3])
-    to = _address(fields[4])
-    value = _uint(fields[5])
-    data = _string(fields[6])
-    access_list = _access_list(fields[7])
-    if len(fields) == 8:
-        raise EvmTransactionError("the transaction is not signed")
-    y_parity = _y_parity(fields[8])
-    r = _padded_scalar(fields[9])
-    s = _padded_scalar(fields[10])
-    unsigned = b"\x01" + encode_rlp(
-        [
-            _int_bytes(chain_id),
-            _int_bytes(nonce),
-            _int_bytes(gas_price),
-            _int_bytes(gas_limit),
-            to,
-            _int_bytes(value),
-            data,
-            access_list,
-        ]
-    )
-    sender = _recover_sender(unsigned, r, s, y_parity)
-    return SignedEvmTransaction(type=1, chain_id=chain_id, data=data, sender=sender)
-
-
-def _eip1559(raw: bytes) -> SignedEvmTransaction:
-    fields = decode_rlp(raw[1:])
-    if not isinstance(fields, list) or len(fields) not in (9, 12):
-        raise EvmTransactionError("invalid field count for transaction type: 2")
-    chain_id = _uint(fields[0])
-    nonce = _number(fields[1])
-    max_priority_fee = _uint(fields[2])
-    max_fee = _uint(fields[3])
-    gas_limit = _uint(fields[4])
-    to = _address(fields[5])
-    value = _uint(fields[6])
-    data = _string(fields[7])
-    access_list = _access_list(fields[8])
-    if len(fields) == 9:
-        raise EvmTransactionError("the transaction is not signed")
-    y_parity = _y_parity(fields[9])
-    r = _padded_scalar(fields[10])
-    s = _padded_scalar(fields[11])
-    if max_fee < max_priority_fee:
-        raise EvmTransactionError("priorityFee cannot be more than maxFee")
-    unsigned = b"\x02" + encode_rlp(
-        [
-            _int_bytes(chain_id),
-            _int_bytes(nonce),
-            _int_bytes(max_priority_fee),
-            _int_bytes(max_fee),
-            _int_bytes(gas_limit),
-            to,
-            _int_bytes(value),
-            data,
-            access_list,
-        ]
-    )
-    sender = _recover_sender(unsigned, r, s, y_parity)
-    return SignedEvmTransaction(type=2, chain_id=chain_id, data=data, sender=sender)
+    if v is None:
+        chain_id, y_parity = n["chainId"], n["yParity"]
+    elif v in (27, 28):
+        chain_id, y_parity = 0, v - 27
+    else:
+        chain_id, y_parity = (v - 35) // 2, (v - 35) % 2
+        unsigned += [_int_bytes(chain_id), b"", b""]
+    body = encode_rlp(unsigned)
+    sender = _recover_sender(body if tx_type == 0 else bytes([tx_type]) + body, r, s, y_parity)
+    data = fields["data"]
+    assert isinstance(data, bytes)
+    return SignedEvmTransaction(type=tx_type, chain_id=chain_id, data=data, sender=sender)
 
 
 def decode_signed_transaction(raw: bytes) -> SignedEvmTransaction:
     """Decode a signed legacy, EIP-2930 or EIP-1559 transaction envelope and recover
-    its sender.
+    its sender, as tzun-anchor/1 §10.4 item 2 reads it.
 
-    ``raw`` is the envelope: ``type || rlp(payload)`` for a typed transaction, or
-    ``rlp(fields)`` for a legacy one (first byte ``0xc0`` or above). A field read
-    as a number is read by value, so a leading zero byte does not refuse it, and
-    the sender is recovered over the canonical encoding of the fields, as ethers
-    does.
+    ``raw`` is the envelope: ``type || rlp(fields)`` for a typed transaction, or
+    ``rlp(fields)`` for a legacy one (first byte ``0xc0`` or above). Item 2's rules
+    are applied in this order, on the bytes and then on the fields read as integers
+    of any size, before any signature is recovered:
 
-    :raises EvmTransactionError: for anything ethers v6 ``Transaction.from`` and
-        ``.from`` refuse: a wrong field count, an unsigned transaction, a field
-        of the wrong shape or out of range, a signature no public key recovers
-        from, and any type other than these three.
+    1. **Encoding** (``encoding``): the bytes after the type are the canonical RLP of
+       one list and nothing after it (:func:`~tzun_sdk.attestation.evm_rlp.rlp_form`),
+       and no integer field has a leading zero byte (0 is the empty string);
+    2. **Field sizes** (``field-sizes``): ``nonce`` and ``gasLimit`` at most
+       2^64 - 1; the chain id, ``value``, ``gasPrice``, ``maxPriorityFeePerGas`` and
+       ``maxFeePerGas`` at most 2^256 - 1; a legacy ``v`` at most 2 * (2^256 - 1) + 36;
+    3. **Chain id** (``chain-id``): a typed transaction's chain id is 1 or more;
+    4. **Legacy v** (``legacy-v``): 27 or 28 (unprotected: item 5 decides its
+       chain), or ``chainId * 2 + 35`` or ``+ 36`` for a chain id of 1 or more;
+    5. **Signature values** (``signature-values``): ``r`` in [1, n - 1], ``s`` in
+       [1, (n - 1) / 2] (EIP-2), and a typed ``yParity`` of 0 or 1;
+    6. **Fees** (``fees``): an EIP-1559 ``maxPriorityFeePerGas`` is at most its
+       ``maxFeePerGas``;
+    7. **Recovery** (``recovery``): a public key recovers from the signature over the
+       signing payload built from the fields (EIP-2718 type byte and the unsigned
+       fields; for legacy EIP-155, the chain id, 0 and 0).
+
+    The field shapes (the signed form's field count, a ``to`` of 0 or 20 bytes, an
+    access list of 20-byte addresses and 32-byte keys) are checked first among the
+    fields. The TypeScript SDK's ``readEvmTransaction`` reads and refuses the same
+    envelopes, for the same rule, and recovers the same sender.
+
+    :raises EvmTransactionError: for anything item 2 refuses, with ``rule`` the
+        name of the rule broken first, or ``None`` when the bytes are not a signed
+        transaction of type 0, 1 or 2 at all (not one RLP item, another type, the
+        wrong number of fields, or a field of the wrong shape).
     :raises MissingExtraError: without the ``anchor`` extra.
     """
     _extra()
     data = bytes(raw)
     if not data:
         raise EvmTransactionError("empty transaction")
+    if data[0] >= 0xC0:
+        tx_type, payload = 0, data
+    elif data[0] in (1, 2):
+        tx_type, payload = data[0], data[1:]
+    else:
+        raise EvmTransactionError("unsupported transaction type")
     try:
-        if data[0] >= 0xC0:
-            return _legacy(data)
-        if data[0] == 1:
-            return _eip2930(data)
-        if data[0] == 2:
-            return _eip1559(data)
+        return _read(tx_type, payload)
     except RlpError as exc:
         raise EvmTransactionError(f"not RLP: {exc}") from exc
-    raise EvmTransactionError("unsupported transaction type")
 
 
 __all__ = (
     "ANCHOR_EXTRA_HINT",
+    "ITEM_TWO_RULES",
     "SECP256K1_N",
     "EvmTransactionError",
     "SignedEvmTransaction",

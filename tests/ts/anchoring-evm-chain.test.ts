@@ -4,6 +4,10 @@
  * transactions are rebuilt from the node's JSON for
  * the transactions trie the scheduler stores a proof from (Anchor §7.2, §11).
  */
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { Transaction, Wallet, keccak256, toQuantity } from 'ethers';
 import { JsonRpcEvmChain, classifyBroadcastError, reassembleTransaction } from '../../src/anchoring/evm-chain';
 import { anvilAvailability } from '../anvil/harness';
@@ -71,6 +75,56 @@ function nodeJson(raw: string): Record<string, unknown> {
   }
   return out;
 }
+
+describe('the writer sends only bytes it signed and checked: no node signs for it (tzun-anchor/1 §7.2 rule 3)', () => {
+  it('broadcast() is one eth_sendRawTransaction of exactly the bytes it is given', async () => {
+    const calls: Array<{ method: string; params: unknown[] }> = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        const message = JSON.parse(body) as { id: number; method: string; params: unknown[] };
+        calls.push({ method: message.method, params: message.params });
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: keccak256(String(message.params[0])) }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const chain = new JsonRpcEvmChain(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, 31337n);
+    try {
+      const raw = await Wallet.createRandom().signTransaction({
+        type: 2,
+        chainId: 31337n,
+        nonce: 0,
+        to: '0x' + '11'.repeat(20),
+        value: 0n,
+        data: '0x' + 'ab'.repeat(32),
+        gasLimit: 30_000n,
+        maxFeePerGas: 2_000_000_000n,
+        maxPriorityFeePerGas: 1_000_000_000n,
+      });
+      expect(await chain.broadcast(raw)).toEqual({ outcome: 'accepted', reason: 'ok' });
+      expect(calls).toEqual([{ method: 'eth_sendRawTransaction', params: [raw] }]);
+    } finally {
+      chain.close();
+      server.close();
+    }
+  });
+
+  it('no source file asks a node to sign or to send a transaction it signs (eth_sendTransaction, eth_sign, personal_sign)', () => {
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(join(dir, e.name));
+        else if (e.name.endsWith('.ts')) files.push(join(dir, e.name));
+      }
+    };
+    walk(join(__dirname, '..', '..', 'src'));
+    expect(files.length).toBeGreaterThan(50);
+    const asking = files.filter((f) => /eth_sendTransaction|eth_sign|personal_sign|\.sendTransaction\(/.test(readFileSync(f, 'utf8')));
+    expect(asking).toEqual([]);
+  });
+});
 
 describe('JsonRpcEvmChain declares what it counts as final', () => {
   it("the node's finalized tag, so a scanner reading through it states the finality its anchor verdicts were judged under", () => {

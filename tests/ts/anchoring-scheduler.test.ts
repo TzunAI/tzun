@@ -916,9 +916,17 @@ describe.each(logBackends('anchoring_scheduler').map((b) => [b.name, b] as const
       await capture('alpha', 1);
       for (let i = 0; i < 3; i++) {
         advance(HOUR);
+        const sent = chain.broadcasts.length;
         const report = await rotated.runPass();
         expect(report.alarms.map((a) => a.code)).toContain('anchor_publication_other_wallet');
         expect(report.epoch).toBeNull();
+        // The bytes the old key signed are read again before each broadcast
+        // (tzun-anchor/1 §7.2 rule 3), as signed by the sender authenticated
+        // for the row, the old key, and are sent: never refused for not being
+        // the configured publisher's.
+        expect(report.alarms.map((a) => a.code)).not.toContain('anchor_publication_unexplained');
+        expect(report.halted).toBe(false);
+        expect(chain.broadcasts.slice(sent)).toEqual([pub.attempts[0].rawTx]);
       }
       const stuck = (await publications())[0];
       expect(stuck).toMatchObject({ state: 'submitted', fromAddress: w1 });
@@ -1346,6 +1354,36 @@ describe.each(logBackends('anchoring_scheduler').map((b) => [b.name, b] as const
       }
       expect(chain.broadcasts).toEqual([]);
       expect(await anchors.listAnchorWalletTxs(wallet.address.toLowerCase(), CHAIN)).toEqual([]);
+    });
+
+    it('a handover the node dropped, after the publisher key changes: only the key that signed it sends it again, unchanged', async () => {
+      await capture('alpha', 1);
+      const old = wallet;
+      const first = await scheduler({ holderId: 'old-key' });
+      const handed = await first.handover(`${NS}/${'f'.repeat(32)}/anchors`);
+      expect(handed.broadcast).toMatchObject({ outcome: 'accepted' });
+      chain.evict(handed.tx.txHash);
+      await first.stop();
+
+      // A new key: its scheduler sends only its own wallet's accounted
+      // transactions, and that wallet is not enrolled, so nothing is sent.
+      wallet = Wallet.createRandom() as unknown as Wallet;
+      chain.fund(wallet.address, ETH);
+      const rotated = await scheduler({ holderId: 'new-key' });
+      const sent = chain.broadcasts.length;
+      await expect(rotated.rebroadcastAccountedTransaction()).rejects.toThrow(`The wallet ${wallet.address.toLowerCase()} is not enrolled.`);
+      expect(chain.broadcasts.slice(sent)).toEqual([]);
+      await rotated.stop();
+
+      // The old key configured again sends its stored bytes, which pass the
+      // check before every broadcast with the old wallet as sender.
+      wallet = old;
+      const seen: string[] = [];
+      const again = await scheduler({ holderId: 'old-key-again', onAlarm: (a) => seen.push(a.code) });
+      const resent = await again.rebroadcastAccountedTransaction();
+      expect(resent).toMatchObject({ tx: { kind: 'handover', txHash: handed.tx.txHash }, broadcast: { outcome: 'accepted' } });
+      expect(chain.broadcasts.slice(sent)).toEqual([handed.tx.rawTx]);
+      expect(seen).not.toContain('anchor_wallet_tx_unexplained');
     });
 
     it('a handover is stored before it is sent, names the new anchor origin, and retires the wallet', async () => {

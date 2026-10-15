@@ -8,39 +8,71 @@
  * bundle says, so only the sender check and the verifier's own header source
  * can tell a real publication from a manufactured one.
  */
-import { Wallet, Transaction, decodeRlp, encodeRlp, keccak256, type RlpStructuredData } from 'ethers';
+import {
+  Wallet,
+  Transaction,
+  computeAddress,
+  decodeRlp,
+  encodeRlp,
+  getBytes,
+  keccak256,
+  toBeHex,
+  toUtf8Bytes,
+  type BaseWallet,
+  type RlpStructuredData,
+} from 'ethers';
 import {
   verifyEvmPublication,
   verifyEvmTransactionProof,
   parseEvmBlockHeader,
   decodeEvmRlp,
+  decodeEvmTransaction,
+  evmRlpForm,
+  readEvmTransaction,
   RpcEvmHeaderSource,
   EVM_MIN_FINAL_CONFIRMATIONS,
   MAX_RLP_DEPTH,
   type AnchorTransactionProvider,
   type EvmFinality,
   type EvmHeaderSource,
+  type EvmItemTwoRule,
   type EvmPublicationInput,
+  type EvmSignedTransaction,
   type EvmSourceTransaction,
   type PublisherManifest,
   type PublisherManifestEntry,
 } from '../../src/attestation/blockchain';
 import {
+  HALF_N,
   MAINNET,
+  SECP256K1_N,
   SEPOLIA,
   buildTxTrie,
+  encodeEnvelope,
+  envelopeFields,
   fabricateBlock,
+  firstRecoverableR,
+  firstUnrecoverableR,
+  highS,
+  infinitySignature,
   publicationFrom,
   randomP,
   signAnchorTx,
+  signLegacy,
+  signTypedFields,
+  signatureOf,
+  withSignature,
   type FabricatedBlock,
 } from './helpers/evm-fixtures';
 import sepoliaVector from './fixtures/evm-sepolia-block.json';
 import sepoliaSelfTx from './fixtures/evm-sepolia-self-tx.json';
+import anvilVectors from '../../vectors/anchor-e2e-vectors.json';
 
 const ORIGIN = 'local.invalid/3f2a9c0e5b7d4e1f8a6c2b9d0e4f7a1c/anchors';
 
 const decodeRlpList = (hex: string) => decodeRlp(hex) as RlpStructuredData[];
+/** An integer as RLP writes it: no leading zero byte, and 0 as the empty string. */
+const q = (n: bigint): string => (n === 0n ? '0x' : toBeHex(n));
 const SEPOLIA_CHAIN = 'eip155:11155111';
 
 /** A header source the test controls: the auditor's own view of the chain. */
@@ -450,7 +482,7 @@ describe('the chain the sender signed', () => {
     expect(v.facts.signedChainId).toBe('1');
   });
 
-  it('a pre-EIP-155 legacy transaction binds no chain → evm_chain_mismatch', async () => {
+  it('a pre-EIP-155 legacy transaction binds no chain → evm_chain_mismatch, and signedChainId null', async () => {
     const s = await honest();
     const unsigned = Transaction.from({
       type: 0,
@@ -471,7 +503,24 @@ describe('the chain the sender signed', () => {
       headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) },
     });
     expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
-    expect(v.facts.signedChainId).toBe('0');
+    // tzun-anchor/1 §10.7: a legacy transaction whose v is 27 or 28 signs no chain id.
+    expect(v.facts).toHaveProperty('signedChainId', null);
+  });
+
+  it.each([0, 1] as const)('a legacy publication whose v is 27 or 28 (27 + %i) is never true: no manifest names chain id 0, and one that lists it is unreadable', async (yParity) => {
+    const s = await honest();
+    const raw = signLegacy(s.publisher.signingKey, { data: s.p, eip155: false, yParity });
+    const block = fabricateBlock([raw]);
+    const input = { ...s.input, publication: publicationFrom(block, 0), headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) } };
+    expect(await verifyEvmPublication(input)).toMatchObject({ valid: false, reason: 'evm_chain_mismatch', facts: { signedChainId: null } });
+    // The CAIP-2 grammar of a manifest entry names chain ids from 1: an entry on
+    // eip155:0 makes the manifest unreadable, and the publication undecided,
+    // even with a header source on chain 0 at hand.
+    const zero = manifestOf(entry(s.publisher), { address: s.publisher.address, chain: 'eip155:0', namespace: 'test' });
+    const onZero = Object.assign(new FakeHeaderSource(block), { chain: 0n });
+    const v = await verifyEvmPublication({ ...input, manifest: zero, headerSources: { ...input.headerSources, 'eip155:0': onZero } });
+    expect(v).toMatchObject({ valid: null, reason: 'publication_not_checked' });
+    expect(v.checks.tx.reason).toBe('input_not_supplied:publisher_manifest');
   });
 
   it('the header source is chosen by the manifest entry\'s chain, and must itself be on that chain', async () => {
@@ -935,6 +984,572 @@ describe('transaction types', () => {
   });
 });
 
+describe('tzun-anchor/1 §10.4 item 2: the rules item 2 states', () => {
+  const MALFORMED = { valid: false, reason: 'malformed_publication' } as const;
+
+  /**
+   * `raw` alone in a fabricated block, its trie proof carried, the manifest
+   * naming `publisher` on chain `chainId`, and a header source on that chain
+   * with no lookup (the proof places the transaction).
+   */
+  function alone(raw: string, publisher: string, p: string, chainId: bigint = SEPOLIA): EvmPublicationInput {
+    const block = fabricateBlock([raw]);
+    const source = new FakeHeaderSource(block, { lookups: false });
+    source.chain = chainId;
+    return {
+      publication: publicationFrom(block, 0),
+      p,
+      anchorOrigin: ORIGIN,
+      manifest: manifestOf(entry({ address: publisher }, { chain: `eip155:${chainId}` })),
+      headerSources: { [`eip155:${chainId}`]: source },
+    };
+  }
+
+  /** The digest the signature of a typed `raw` signs. */
+  const unsignedHash = (raw: string) => Transaction.from(raw).unsignedHash;
+
+  /**
+   * The rule `readEvmTransaction` reports for `raw`, `null` for bytes that are
+   * no signed transaction at all, or 'read' when it reads it. Each check below
+   * is held to the rule it states, so deleting one fails its test even where
+   * ethers or the secp256k1 code would refuse the transaction anyway.
+   */
+  const ruleOf = (raw: string): EvmItemTwoRule | null | 'read' => {
+    const reading = readEvmTransaction(raw);
+    return reading.ok ? 'read' : reading.rule;
+  };
+  const ethersRefuses = (raw: string) => expect(() => Transaction.from(raw).from).toThrow();
+
+  /** The EIP-1559 `fields` (signed form) with field `i` set to `value`, signature unchanged. */
+  const withField = (raw: string, i: number, value: RlpStructuredData): string => {
+    const { type, fields } = envelopeFields(raw);
+    return encodeEnvelope(type, fields.map((f, j) => (j === i ? value : f)));
+  };
+
+  /** An EIP-1559 transaction `publisher` signs over these unsigned fields, which ethers need not be able to sign. */
+  function signedType2(publisher: BaseWallet, p: string, over: Partial<Record<'chainId' | 'nonce' | 'tip' | 'cap' | 'gasLimit' | 'value', bigint>> = {}): string {
+    return signTypedFields(publisher.signingKey, 2, [
+      q(over.chainId ?? SEPOLIA), q(over.nonce ?? 0n), q(over.tip ?? 1_000_000_000n), q(over.cap ?? 3_000_000_000n),
+      q(over.gasLimit ?? 30_000n), publisher.address.toLowerCase(), q(over.value ?? 0n), p, [],
+    ]);
+  }
+
+  describe('Chain id: a typed transaction signs a chain id of 1 or more', () => {
+    it.each([1, 2] as const)('type %i signed for chain id 0 → false, malformed_publication, though ethers recovers the publisher', async (type) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = await signAnchorTx(publisher, { data: p, type, chainId: 0n });
+      // ethers reads it, and names the publisher on chain 0.
+      expect(Transaction.from(raw).chainId).toBe(0n);
+      expect(Transaction.from(raw).from).toBe(publisher.address);
+      expect(ruleOf(raw)).toBe('chain-id');
+      expect(decodeEvmTransaction(raw)).toBeNull();
+      expect(await verifyEvmPublication(alone(raw, publisher.address, p))).toMatchObject(MALFORMED);
+    });
+
+    it.each([1, 2] as const)('type %i signed for chain id 1 → true', async (type) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = await signAnchorTx(publisher, { data: p, type, chainId: MAINNET });
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p, MAINNET));
+      expect(v.valid).toBe(true);
+      expect(v.facts.signedChainId).toBe('1');
+    });
+  });
+
+  describe('Legacy v: 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more', () => {
+    it.each([0, 1] as const)('v %i + 35, an EIP-155 signature for chain id 0 → false, malformed_publication', async (yParity) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signLegacy(publisher.signingKey, { data: p, eip155: true, chainId: 0n, yParity });
+      expect(signatureOf(raw).v).toBe(35n + BigInt(yParity));
+      expect(ruleOf(raw)).toBe('legacy-v');
+      expect(await verifyEvmPublication(alone(raw, publisher.address, p))).toMatchObject(MALFORMED);
+    });
+
+    it.each([0, 1] as const)('v %i + 37, an EIP-155 signature for chain id 1 → true', async (yParity) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signLegacy(publisher.signingKey, { data: p, eip155: true, chainId: MAINNET, yParity });
+      expect(signatureOf(raw).v).toBe(37n + BigInt(yParity));
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p, MAINNET));
+      expect(v.valid).toBe(true);
+      expect(v.facts).toMatchObject({ txType: 0, signedChainId: '1', sender: publisher.address.toLowerCase() });
+    });
+
+    it.each([0, 1] as const)('v %i + 27, unprotected, is read: item 5 decides its chain → evm_chain_mismatch', async (yParity) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signLegacy(publisher.signingKey, { data: p, eip155: false, yParity });
+      expect(signatureOf(raw).v).toBe(27n + BigInt(yParity));
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p));
+      expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
+      expect(v.facts).toMatchObject({ sender: publisher.address.toLowerCase(), signedChainId: null });
+      expect(v.facts).toHaveProperty('signedChainId', null);
+    });
+
+    it.each([0n, 1n, 26n, 29n, 30n, 34n])('v %i → false, malformed_publication (ethers refuses it too)', async (badV) => {
+      const s = await honest({ type: 0 });
+      const raw = withSignature(s.block.raws[2], { ...signatureOf(s.block.raws[2]), v: badV });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('legacy-v');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+  });
+
+  describe('Signature values: r in [1, n - 1], s in [1, n/2] (EIP-2), a typed yParity of 0 or 1', () => {
+    it.each([0, 1, 2] as const)('type %i with a high s → false, malformed_publication, though ethers recovers the publisher', async (type) => {
+      const s = await honest({ type });
+      const raw = highS(s.block.raws[2]);
+      expect(signatureOf(raw).s).toBeGreaterThan(HALF_N);
+      expect(Transaction.from(raw).from).toBe(s.publisher.address);
+      expect(ruleOf(raw)).toBe('signature-values');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+
+    it('s exactly n/2 → true, from the address the signature recovers; n/2 + 1, naming the same key, → malformed_publication', async () => {
+      const s = await honest();
+      const unsigned = s.block.raws[2];
+      const { r, sender } = firstRecoverableR(unsignedHash(unsigned), HALF_N, 0);
+      const atHalf = withSignature(unsigned, { v: 0n, r, s: HALF_N });
+      expect(decodeEvmTransaction(atHalf)?.sender).toBe(sender);
+      const v = await verifyEvmPublication(alone(atHalf, sender, s.p));
+      expect(v.valid).toBe(true);
+      expect(v.facts.sender).toBe(sender);
+
+      // n - (n/2 + 1) = n/2: with the other parity, ethers recovers the same key.
+      const above = withSignature(unsigned, { v: 1n, r, s: HALF_N + 1n });
+      expect(Transaction.from(above).from!.toLowerCase()).toBe(sender);
+      expect(ruleOf(above)).toBe('signature-values');
+      expect(await verifyEvmPublication(alone(above, sender, s.p))).toMatchObject(MALFORMED);
+    });
+
+    it('s of 1 → true, from the address the signature recovers', async () => {
+      const s = await honest();
+      const { r, sender } = firstRecoverableR(unsignedHash(s.block.raws[2]), 1n, 1);
+      const raw = withSignature(s.block.raws[2], { v: 1n, r, s: 1n });
+      expect((await verifyEvmPublication(alone(raw, sender, s.p))).valid).toBe(true);
+    });
+
+    it.each([
+      ['r = 0', 0n, 1n],
+      ['s = 0', 1n, 0n],
+      ['r = n', SECP256K1_N, 1n],
+      ['s = n', 1n, SECP256K1_N],
+      ['r = n - 1 and s = n - 1', SECP256K1_N - 1n, SECP256K1_N - 1n],
+      ['r = 2^256 - 1', 2n ** 256n - 1n, 1n],
+    ])('%s → false, malformed_publication (ethers refuses it too)', async (_label, r, sValue) => {
+      const s = await honest();
+      const raw = withSignature(s.block.raws[2], { v: 0n, r, s: sValue });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('signature-values');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+
+    it.each([2n, 27n, 28n])('a typed yParity of %i → false, malformed_publication (ethers refuses it too)', async (yParity) => {
+      const s = await honest();
+      const raw = withSignature(s.block.raws[2], { ...signatureOf(s.block.raws[2]), v: yParity });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('signature-values');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+
+    it('the order is secp256k1\'s', () => {
+      expect(SECP256K1_N).toBe(0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n);
+      expect(HALF_N).toBe((SECP256K1_N - 1n) / 2n);
+    });
+  });
+
+  describe('Fees: an EIP-1559 tip is at most its fee cap', () => {
+    it('a tip equal to the fee cap → true', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signedType2(publisher, p, { tip: 7n, cap: 7n });
+      expect(ruleOf(raw)).toBe('read');
+      expect((await verifyEvmPublication(alone(raw, publisher.address, p))).valid).toBe(true);
+    });
+
+    it('a tip one wei above the fee cap, the signature over it valid → false, malformed_publication (ethers refuses it too)', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      // ethers will not sign it: the publisher's key signs the fields.
+      const raw = signedType2(publisher, p, { tip: 8n, cap: 7n });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('fees');
+      expect(await verifyEvmPublication(alone(raw, publisher.address, p))).toMatchObject(MALFORMED);
+    });
+  });
+
+  describe('Recovery: a public key recovers from the signature', () => {
+    it('an r that is no point\'s x-coordinate → false, malformed_publication (ethers refuses it too)', async () => {
+      const s = await honest();
+      const raw = withSignature(s.block.raws[2], { v: 0n, r: firstUnrecoverableR(), s: 1n });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('recovery');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+
+    it('a signature whose recovery gives the point at infinity → false, malformed_publication (ethers refuses it too)', async () => {
+      const s = await honest();
+      const sig = infinitySignature(unsignedHash(s.block.raws[2]));
+      expect(sig.r).toBeLessThan(SECP256K1_N);
+      const raw = withSignature(s.block.raws[2], { v: BigInt(sig.yParity), r: sig.r, s: sig.s });
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('recovery');
+      expect(await verifyEvmPublication(alone(raw, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+    });
+  });
+
+  describe('Encoding: rawTransaction is the canonical RLP of its fields', () => {
+    describe('evmRlpForm reads the bytes alone', () => {
+      const form = (hex: string) => evmRlpForm(getBytes(hex));
+      const str56 = 'ab'.repeat(56);
+
+      it.each([
+        ['a byte below 0x80 as itself', '0x05'],
+        ['the empty string', '0x80'],
+        ['a byte of 0x80 or more as a one-byte string', '0x8180'],
+        ['55 bytes in the short form', '0xb7' + 'ab'.repeat(55)],
+        ['56 bytes in the long form', '0xb838' + str56],
+        ['an empty list', '0xc0'],
+        ['nested lists', '0xc3c1c0c0'],
+        ['a list of 56 bytes in the long form', '0xf838' + 'c0'.repeat(56)],
+      ])('canonical: %s', (_label, hex) => {
+        expect(form(hex)).toBe('canonical');
+      });
+
+      it.each([
+        ['a byte below 0x80 as a one-byte string', '0x8105'],
+        ['zero as a one-byte string', '0x8100'],
+        ['a short length in the long form (string)', '0xb80105'],
+        ['a short length in the long form (list)', '0xf800'],
+        ['a long length with a leading zero byte (string)', '0xb90038' + str56],
+        ['a long length with a leading zero byte (list)', '0xf90038' + 'c0'.repeat(56)],
+        ['55 bytes in the long form (string)', '0xb837' + 'ab'.repeat(55)],
+        ['a list of 55 bytes in the long form', '0xf837' + 'c0'.repeat(55)],
+        ['a byte after the item (ethers refuses it too)', '0x0500'],
+        ['a byte after a list (ethers refuses it too)', '0xc000'],
+        ['a non-canonical item inside a list', '0xc3c28105'],
+      ])('non-canonical: %s', (_label, hex) => {
+        expect(form(hex)).toBe('non-canonical');
+      });
+
+      it.each([
+        ['nothing', '0x'],
+        ['a string that runs past the data', '0x8105'.slice(0, 4)],
+        ['a long length that runs past the data', '0xb9'],
+        ['a list that runs past the data', '0xc280'],
+        ['an item that runs past its list', '0xc18105'],
+      ])('malformed: %s', (_label, hex) => {
+        expect(form(hex)).toBe('malformed');
+      });
+    });
+
+    it('the publisher\'s EIP-1559 transaction with its fields written another way → false, malformed_publication, though ethers recovers the publisher', async () => {
+      const s = await honest();
+      const raw = s.block.raws[2];
+      const { fields } = envelopeFields(raw);
+      const enc = (x: RlpStructuredData) => encodeRlp(x).slice(2);
+      const listOf = (items: string[]) => {
+        const payload = items.join('');
+        return '0x02f8' + (payload.length / 2).toString(16).padStart(2, '0') + payload;
+      };
+      const rewrite = (i: number, bytes: string) => listOf(fields.map((f, j) => (j === i ? bytes : enc(f))));
+      const variants: Array<[string, string]> = [
+        ['the nonce 0 written 0x00', withField(raw, 1, '0x00')],
+        ['the chain id with a leading zero byte', withField(raw, 0, '0x00' + (fields[0] as string).slice(2))],
+        ['the gas limit with a leading zero byte', withField(raw, 4, '0x00' + (fields[4] as string).slice(2))],
+        ['r zero-padded to 33 bytes (ethers refuses it too)', withField(raw, 10, '0x00' + (fields[10] as string).slice(2).padStart(64, '0'))],
+        ['yParity as a one-byte string', rewrite(9, fields[9] === '0x' ? '8100' : '8101')],
+        ['the calldata in the long form', rewrite(7, 'b820' + (fields[7] as string).slice(2))],
+        ['the list length with a leading zero byte', '0x02f900' + raw.slice(6)],
+        ['a byte after the list (ethers refuses it too)', raw + '00'],
+      ];
+      for (const [label, variant] of variants) {
+        expect([label, ruleOf(variant)]).toEqual([label, 'encoding']);
+        expect(await verifyEvmPublication(alone(variant, s.publisher.address, s.p))).toMatchObject(MALFORMED);
+      }
+      // ethers reads the values and recovers the publisher from most of them.
+      expect(Transaction.from(variants[0][1]).from).toBe(s.publisher.address);
+      expect(Transaction.from(variants[5][1]).from).toBe(s.publisher.address);
+    });
+
+    it('a legacy transaction with a leading zero byte in its gas price → false, malformed_publication', async () => {
+      const s = await honest({ type: 0 });
+      const raw = withField(s.block.raws[2], 1, '0x00' + (envelopeFields(s.block.raws[2]).fields[1] as string).slice(2));
+      expect(Transaction.from(raw).from).toBe(s.publisher.address);
+      expect(ruleOf(raw)).toBe('encoding');
+    });
+
+    it('an access-list entry of exactly 55 bytes is read in the short form, and in the long form → false, malformed_publication', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      // An address and one storage key: 21 + 34 = 55 bytes, the longest item the short form holds.
+      const entry = [publisher.address.toLowerCase(), ['0x' + '01'.repeat(32)]];
+      const short = encodeRlp(entry).slice(2);
+      expect(short.slice(0, 2)).toBe('f7');
+      const raw = signTypedFields(publisher.signingKey, 2, [
+        q(SEPOLIA), q(0n), q(1_000_000_000n), q(3_000_000_000n), q(30_000n), publisher.address.toLowerCase(), q(0n), p, [entry],
+      ]);
+      expect(decodeEvmTransaction(raw)?.sender).toBe(publisher.address.toLowerCase());
+      const long = 'f837' + short.slice(2);
+      const accessList = 'f8' + (long.length / 2).toString(16) + long;
+      const { fields } = envelopeFields(raw);
+      const payload = fields.map((f, j) => (j === 8 ? accessList : encodeRlp(f).slice(2))).join('');
+      const variant = '0x02f8' + (payload.length / 2).toString(16).padStart(2, '0') + payload;
+      // ethers reads the values and recovers the publisher.
+      expect(Transaction.from(variant).from).toBe(publisher.address);
+      expect(ruleOf(variant)).toBe('encoding');
+      expect(await verifyEvmPublication(alone(variant, publisher.address, p))).toMatchObject(MALFORMED);
+    });
+  });
+
+  describe('Field sizes: nonce and gasLimit fit 64 bits, the chain id, value, gasPrice and fees 256, a legacy v 2 * (2^256 - 1) + 36', () => {
+    it.each([
+      ['a nonce of 2^53 + 1', 2n ** 53n + 1n],
+      ['a nonce of 2^64 - 1', 2n ** 64n - 1n],
+    ])('%s → read, the sender recovered, though ethers refuses it', async (_label, nonce) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signedType2(publisher, p, { nonce });
+      ethersRefuses(raw);
+      expect(decodeEvmTransaction(raw)).toEqual({ type: 2, chainId: SEPOLIA, data: p.toLowerCase(), sender: publisher.address.toLowerCase() });
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p));
+      expect(v.valid).toBe(true);
+      expect(v.facts.sender).toBe(publisher.address.toLowerCase());
+    });
+
+    it('a gasLimit of 2^64 - 1 → read', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signedType2(publisher, p, { gasLimit: 2n ** 64n - 1n });
+      expect(decodeEvmTransaction(raw)?.sender).toBe(publisher.address.toLowerCase());
+    });
+
+    it.each([
+      ['a nonce of 2^64 (ethers refuses it too)', { nonce: 2n ** 64n }, true],
+      ['a gasLimit of 2^64, which ethers reads', { gasLimit: 2n ** 64n }, false],
+      ['a value of 2^256 (ethers refuses it too)', { value: 2n ** 256n }, true],
+      ['a maxFeePerGas of 2^256 (ethers refuses it too)', { cap: 2n ** 256n }, true],
+      ['a maxPriorityFeePerGas of 2^256, above a fee cap of 7 (ethers refuses it too)', { tip: 2n ** 256n, cap: 7n }, true],
+      ['a chain id of 2^256 (ethers refuses it too)', { chainId: 2n ** 256n }, true],
+    ] as const)('%s → false, malformed_publication', async (_label, over, ethersToo) => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signedType2(publisher, p, over);
+      if (ethersToo) ethersRefuses(raw);
+      else expect(Transaction.from(raw).from).toBe(publisher.address);
+      expect(ruleOf(raw)).toBe('field-sizes');
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p));
+      expect(v).toMatchObject(MALFORMED);
+      expect(Object.keys(v.facts).sort()).toEqual(['blockHash', 'blockNumber']);
+    });
+
+    it('a chain id of 2^256 - 1 → read, and item 5 refuses its chain', async () => {
+      const publisher = Wallet.createRandom();
+      const p = randomP();
+      const raw = signedType2(publisher, p, { chainId: 2n ** 256n - 1n });
+      const v = await verifyEvmPublication(alone(raw, publisher.address, p));
+      expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
+      expect(v.facts.signedChainId).toBe((2n ** 256n - 1n).toString());
+    });
+
+    it.each([
+      ['a type 1 gasPrice of 2^256', 1],
+      ['a legacy gasPrice of 2^256', 0],
+    ] as const)('%s (ethers refuses it too) → false, malformed_publication', async (_label, type) => {
+      const s = await honest({ type });
+      const raw = withField(s.block.raws[2], type === 0 ? 1 : 2, q(2n ** 256n));
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBe('field-sizes');
+    });
+
+    it('a legacy v of 2 * (2^256 - 1) + 36 is read, for chain id 2^256 - 1; one more is refused (ethers refuses both)', () => {
+      const key = Wallet.createRandom().signingKey;
+      const p = randomP();
+      const atMax = signLegacy(key, { data: p, eip155: true, chainId: 2n ** 256n - 1n, yParity: 1 });
+      expect(signatureOf(atMax).v).toBe(2n * (2n ** 256n - 1n) + 36n);
+      ethersRefuses(atMax);
+      expect(decodeEvmTransaction(atMax)).toMatchObject({ chainId: 2n ** 256n - 1n, sender: computeAddress(key.publicKey).toLowerCase() });
+      const above = signLegacy(key, { data: p, eip155: true, chainId: 2n ** 256n, yParity: 0 });
+      expect(signatureOf(above).v).toBe(2n * 2n ** 256n + 35n);
+      ethersRefuses(above);
+      expect(ruleOf(above)).toBe('field-sizes');
+    });
+  });
+
+  describe('a field of the wrong shape is no transaction at all (rule null)', () => {
+    it.each([
+      ['a recipient of 19 bytes', 5, '0x' + '35'.repeat(19)],
+      ['calldata as a list', 7, []],
+      ['an access list that is a string', 8, '0x78'],
+      ['an access-list entry of three items', 8, [['0x' + '35'.repeat(20), [], '0x']]],
+      ['an access-list address of 19 bytes', 8, [['0x' + '35'.repeat(19), []]]],
+      ['an access-list key of 31 bytes', 8, [['0x' + '35'.repeat(20), ['0x' + '01'.repeat(31)]]]],
+      ['access-list keys as a string', 8, [['0x' + '35'.repeat(20), '0x' + '01'.repeat(32)]]],
+      ['a nonce as a list', 1, []],
+      ['yParity as a list', 9, []],
+    ] as Array<[string, number, RlpStructuredData]>)('%s (ethers refuses it too)', async (_label, i, value) => {
+      const s = await honest();
+      const raw = withField(s.block.raws[2], i, value);
+      ethersRefuses(raw);
+      expect(ruleOf(raw)).toBeNull();
+    });
+
+    it('the unsigned forms and a field count of neither', async () => {
+      const s = await honest();
+      const { fields } = envelopeFields(s.block.raws[2]);
+      for (const n of [9, 10, 11, 13]) {
+        const items = n <= 12 ? fields.slice(0, n) : [...fields, '0x'];
+        expect(ruleOf(encodeEnvelope(2, items))).toBeNull();
+      }
+    });
+  });
+
+  it('a refused transaction reports only the block it claims, no sender', async () => {
+    const s = await honest();
+    const v = await verifyEvmPublication(alone(highS(s.block.raws[2]), s.publisher.address, s.p));
+    expect(Object.keys(v.facts).sort()).toEqual(['blockHash', 'blockNumber']);
+    expect(v.checks).toEqual({
+      tx: { id: 'anchor.evm.tx', outcome: 'checked-wrong', value: false, reason: 'malformed_publication' },
+      canonical: { id: 'anchor.evm.canonical', outcome: 'not-checked', value: null, reason: 'blocked_by:anchor.evm.tx' },
+    });
+  });
+
+  it('decodeEvmTransaction reads the three types and refuses anything else, never throwing', async () => {
+    const s = await honest();
+    expect(decodeEvmTransaction(s.block.raws[2])).toEqual({
+      type: 2,
+      chainId: SEPOLIA,
+      data: s.p.toLowerCase(),
+      sender: s.publisher.address.toLowerCase(),
+    });
+    for (const junk of ['', '0x', 'zz', '0x03c0', '0x7f', '0x80', '0x02', '0xc0', 7, null] as unknown as string[]) {
+      expect(decodeEvmTransaction(junk)).toBeNull();
+      expect(readEvmTransaction(junk)).toEqual({ ok: false, rule: null });
+    }
+  });
+
+  describe('the signing payload built from the fields recovers what ethers recovers', () => {
+    /** A deterministic generator, so a failure names its input. */
+    function rng(seed: number) {
+      let x = seed >>> 0;
+      return () => {
+        x = (x * 1664525 + 1013904223) >>> 0;
+        return x;
+      };
+    }
+
+    /** What ethers' `Transaction.from` reads, or null when it refuses. */
+    function ethersReads(raw: string): EvmSignedTransaction | null {
+      try {
+        const t = Transaction.from(raw);
+        if (!t.isSigned() || !t.from) return null;
+        return { type: t.type as 0 | 1 | 2, chainId: t.chainId, data: t.data.toLowerCase(), sender: t.from.toLowerCase() };
+      } catch {
+        return null;
+      }
+    }
+
+    it('on transactions ethers signs: every type, chain ids up to 2^256 - 1, nonces up to 2^53 - 1, access lists, contract creation', async () => {
+      const next = rng(20261014);
+      const nonces = [0n, 1n, 127n, 128n, 255n, 256n, 2n ** 32n, 2n ** 53n - 1n];
+      const chains = [1n, 11155111n, 31337n, 2n ** 64n, 2n ** 255n, 2n ** 256n - 1n];
+      const datas = ['0x', '0x00', '0x7f', '0x80', randomP(), '0x' + 'ee'.repeat(100)];
+      let count = 0;
+      for (let i = 0; i < 48; i++) {
+        const wallet = new Wallet(keccak256(toUtf8Bytes(`item 2 corpus ${i}`)));
+        const pick = <T,>(xs: readonly T[]): T => xs[next() % xs.length];
+        const type = i % 4 === 3 ? 0 : ((i % 4) as 0 | 1 | 2);
+        const base = {
+          nonce: Number(pick(nonces)),
+          to: next() % 5 === 0 ? null : wallet.address,
+          value: pick([0n, 1n, 2n ** 256n - 1n]),
+          data: pick(datas),
+          gasLimit: pick([21_000n, 2n ** 64n - 1n]),
+        };
+        const chainId = pick(chains);
+        const accessList = next() % 2 === 0 ? [] : [{ address: wallet.address, storageKeys: ['0x' + '01'.repeat(32), randomP()] }];
+        const raws: string[] = [];
+        if (type === 2) {
+          raws.push(await wallet.signTransaction({ ...base, type, chainId, accessList, maxFeePerGas: pick([7n, 2n ** 256n - 1n]), maxPriorityFeePerGas: 7n }));
+        } else if (type === 1) {
+          raws.push(await wallet.signTransaction({ ...base, type, chainId, accessList, gasPrice: pick([0n, 2n ** 256n - 1n]) }));
+        } else {
+          if (chainId < 2n ** 255n) raws.push(await wallet.signTransaction({ ...base, type, chainId, gasPrice: 2_000_000_000n }));
+          const pre = Transaction.from({ ...base, type: 0, gasPrice: 2_000_000_000n });
+          pre.signature = wallet.signingKey.sign(pre.unsignedHash);
+          raws.push(pre.serialized);
+        }
+        for (const raw of raws) {
+          const ours = decodeEvmTransaction(raw);
+          expect(ours).not.toBeNull();
+          expect(ours).toEqual(ethersReads(raw));
+          expect(ours!.sender).toBe(wallet.address.toLowerCase());
+          count++;
+        }
+      }
+      // The real ones: two Sepolia blocks and the anvil run.
+      const real = [
+        ...sepoliaVector.transactions.map((t) => t.raw),
+        ...sepoliaSelfTx.transactions.map((t) => t.raw),
+        ...anvilVectors.epochs.map((e) => e.publication.rawTransaction),
+      ];
+      for (const raw of real) {
+        expect(decodeEvmTransaction(raw)).toEqual(ethersReads(raw));
+        count++;
+      }
+      expect(count).toBeGreaterThan(60);
+    });
+
+    it('on mutations of signed transactions: where the two differ, one of the rules decides', async () => {
+      const next = rng(7);
+      const wallet = new Wallet(keccak256(toUtf8Bytes('item 2 mutations')));
+      const p = randomP();
+      const bases = [
+        await signAnchorTx(wallet, { data: p, type: 2 }),
+        await signAnchorTx(wallet, { data: p, type: 1 }),
+        await signAnchorTx(wallet, { data: p, type: 0 }),
+        signLegacy(wallet.signingKey, { data: p, eip155: false, yParity: 0 }),
+      ];
+      const pool: RlpStructuredData[] = [
+        '0x', '0x00', '0x01', '0x7f', '0x80', '0x0001', '0x1b', '0x1c', '0x23', '0x24', '0x25', '0x26',
+        q(2n ** 53n - 1n), q(2n ** 53n), q(2n ** 64n - 1n), q(2n ** 64n), q(2n ** 256n - 1n), q(2n ** 256n),
+        q(2n * (2n ** 256n - 1n) + 36n), q(SECP256K1_N), q(HALF_N), q(HALF_N + 1n), q(SECP256K1_N - 1n),
+        '0x' + '35'.repeat(20), '0x' + '35'.repeat(19), '0x' + '01'.repeat(32), [], ['0x'],
+      ];
+      const tally = { both: 0, oursOnly: 0, ethersOnly: 0, neither: 0 };
+      for (let i = 0; i < 600; i++) {
+        const base = bases[i % bases.length];
+        const { type, fields } = envelopeFields(base);
+        const mutated = [...fields];
+        for (let k = 0; k <= next() % 2; k++) mutated[next() % mutated.length] = pool[next() % pool.length];
+        const raw = encodeEnvelope(type, mutated);
+        const reading = readEvmTransaction(raw);
+        const theirs = ethersReads(raw);
+        if (reading.ok && theirs) {
+          expect(reading.transaction).toEqual(theirs);
+          tally.both++;
+        } else if (reading.ok) {
+          // ethers reads a nonce as a safe integer and a legacy v as a uint256; item 2 does not.
+          const n = (item: RlpStructuredData) => (item === '0x' ? 0n : BigInt(item as string));
+          const nonce = n(mutated[type === 0 ? 0 : 1]);
+          const v = type === 0 ? n(mutated[6]) : 0n;
+          expect(nonce > BigInt(Number.MAX_SAFE_INTEGER) || v > 2n ** 256n - 1n).toBe(true);
+          tally.oursOnly++;
+        } else if (theirs) {
+          // Each transaction ethers reads and item 2 refuses breaks a stated rule.
+          expect(reading.rule).not.toBeNull();
+          tally.ethersOnly++;
+        } else {
+          tally.neither++;
+        }
+      }
+      expect(Math.min(tally.both, tally.oursOnly, tally.ethersOnly, tally.neither)).toBeGreaterThan(0);
+    });
+  });
+});
+
 describe('never throws on malformed input', () => {
   const MALFORMED = [false, 'malformed_publication'] as const;
   const garbage: Array<[string, (s: Scenario) => unknown, boolean | null, string]> = [
@@ -1012,6 +1627,7 @@ describe('never throws on malformed input', () => {
     ['an entry with a bad namespace', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: SEPOLIA_CHAIN, namespace: 'prod' }] } }],
     ['an entry with a bad date', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: SEPOLIA_CHAIN, namespace: 'test', validUntil: 'soon' }] } }],
     ['an entry with a leading-zero chain id', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: 'eip155:011155111', namespace: 'test' }] } }],
+    ['an entry on chain id 0', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: 'eip155:0', namespace: 'test' }] } }],
   ])('%s → null, never true, never a throw', async (_label, manifest) => {
     const s = await honest();
     const v = await verifyEvmPublication({ ...s.input, manifest: manifest as never });

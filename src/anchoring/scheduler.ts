@@ -47,10 +47,12 @@
  * before it is stored (§7.2 rule 3). Every broadcast, a stored transaction sent
  * again included, reads the bytes about to be sent the same way first, and
  * sends a publication's only at the nonce and over the P it was signed or
- * authenticated with this pass (`unsendableAs`, §7.2 rule 3). A first signature
- * is given only to an epoch this process planned, or to a prepared one the
- * anchor log re-derives above the published size B, when the cadence calls it
- * due (the sign gate). An epoch is planned only on the anchor log explained
+ * authenticated with this pass, with no value (`unsendableAs`, §7.2 rule 3).
+ * An accounted transaction a publisher returns is stored only when it is the
+ * transfer asked for (`notTransferAsked`). A first signature is given only to
+ * an epoch this process planned, or to a prepared one the anchor log
+ * re-derives above the published size B, when the cadence calls it due (the
+ * sign gate). An epoch is planned only on the anchor log explained
  * above B, each leaf the digest of a source checkpoint of a kind the scheduler
  * anchors (`sourceLogKinds`) that its log's leaves rebuild. Finality and the
  * published size's block count only when the node confirms them; until it does,
@@ -71,6 +73,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { AttestationExpectation } from '@tzun/engine';
+import { Transaction } from 'ethers';
 import { anchorLogOrigin, checkpointDigest, parseOrigin } from '../attestation/checkpoint';
 import { readEvmTransaction, verifyEvmTransactionProof, type EvmItemTwoRule, type PublisherManifest } from '../attestation/blockchain';
 import {
@@ -466,6 +469,14 @@ interface Unsendable {
   field: string;
   why: string;
   rule?: EvmItemTwoRule;
+}
+
+/** What the scheduler asks a publisher to sign as an accounted transaction (`signTransfer`). */
+interface TransferAsked {
+  to: string;
+  value: bigint;
+  data: string;
+  gasLimit: bigint;
 }
 
 /** A publication as the scheduler signed it, or authenticated it at the start of the pass. */
@@ -958,8 +969,16 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
   const unsendable = (raw: string, sender: string | null): Unsendable | null => {
     const reading = readEvmTransaction(raw);
     if (!reading.ok) {
-      const why = itemTwoRefusal(reading.rule);
-      return reading.rule === null ? { field: 'encoding', why } : { field: reading.rule, why, rule: reading.rule };
+      if (reading.rule === null) {
+        // An EIP-2718 envelope of a type item 2 does not read (3, 4 and so
+        // on) is named by its type, as `checkSignedTransaction` names it.
+        const type = typeof raw === 'string' && /^0x[0-9a-fA-F]{2}/.test(raw) ? parseInt(raw.slice(2, 4), 16) : null;
+        if (type !== null && type >= 3 && type <= 0x7f) {
+          return { field: 'type', why: `it is a transaction of type ${type}, which tzun-anchor/1 §10.4 item 2 does not read` };
+        }
+        return { field: 'encoding', why: itemTwoRefusal(null) };
+      }
+      return { field: reading.rule, why: itemTwoRefusal(reading.rule), rule: reading.rule };
     }
     const { chainId, sender: signer } = reading.transaction;
     if (chainId !== publisher.chainId) return { field: 'chainId', why: `it is signed for chain id ${chainId}, not ${publisher.chainId}` };
@@ -971,12 +990,13 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
   /**
    * Why `raw` must not be sent as a transaction of the publication `held`
    * describes, or null when it may be: it passes `unsendable` with `held`'s
-   * sender, and the same bytes carry `held`'s nonce and the calldata
-   * 0x ‖ P. `held` is the publication as the scheduler signed it this pass or
-   * authenticated it at the start of the pass, never the columns of a row
+   * sender, and the same bytes carry `held`'s nonce, the calldata 0x ‖ P and
+   * no value. `held` is the publication as the scheduler signed it this pass
+   * or authenticated it at the start of the pass, never the columns of a row
    * read since: the write that replaces a stored attempt can rewrite those
-   * too. A transaction the same key signed at another nonce, or over other
-   * calldata, is not this publication's.
+   * too. A transaction the same key signed at another nonce, over other
+   * calldata or with a value, is not this publication's. Its recipient, gas
+   * and fees are not compared: item 2 reads none of them.
    */
   const unsendableAs = (raw: string, held: HeldPublication | undefined): Unsendable | null => {
     const refused = unsendable(raw, held?.fromAddress ?? null);
@@ -985,6 +1005,27 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
     if (tx === null) return { field: 'nonce', why: 'its nonce, value or fees cannot be read' };
     if (tx.nonce !== held.nonce) return { field: 'nonce', why: `it is signed at nonce ${tx.nonce}, not ${String(held.nonce)}` };
     if (tx.data !== `0x${held.p}`) return { field: 'data', why: 'its calldata is not 0x ‖ P' };
+    if (tx.value !== 0n) return { field: 'value', why: 'it carries value' };
+    return null;
+  };
+
+  /**
+   * Why `raw`, which `unsendable` has read, is not the accounted transaction
+   * the scheduler asked the publisher for, or null when it is: it must be
+   * sent to `asked.to`, with `asked.value` and the calldata `asked.data`.
+   * Its gas and fees are not compared.
+   */
+  const notTransferAsked = (raw: string, asked: TransferAsked): Unsendable | null => {
+    let tx: Transaction;
+    try {
+      tx = Transaction.from(raw);
+    } catch {
+      return { field: 'encoding', why: 'its recipient, value or calldata cannot be read' };
+    }
+    const to = tx.to === null ? null : tx.to.toLowerCase();
+    if (to !== asked.to.toLowerCase()) return { field: 'to', why: `it is sent to ${String(to)}, not ${asked.to.toLowerCase()}` };
+    if (tx.value !== asked.value) return { field: 'value', why: `it carries ${tx.value} wei, not ${asked.value}` };
+    if (tx.data.toLowerCase() !== asked.data.toLowerCase()) return { field: 'data', why: 'its calldata is not the one asked for' };
     return null;
   };
 
@@ -993,7 +1034,8 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
    * enrols the wallet: for a publication, it must pass `unsendableAs` as the
    * publication asked for, and make a row the publication checks accept at
    * the start of every later pass; for an accounted transaction, it must pass
-   * `unsendable` with the wallet as sender, and be the row it is stored as
+   * `unsendable` with the wallet as sender, be the transfer asked for
+   * (`notTransferAsked`), and be the row it is stored as
    * (`assertWalletTx`). One that fails is refused as a signer's answer is,
    * with this `AnchorSignerError`: nothing is stored or sent, and the
    * operation can be retried. The SDK's own publishers have read it already
@@ -1031,8 +1073,8 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
 
   /**
    * Whether the configured publisher's window contains now: outside it,
-   * verifiers refuse what it sends, so nothing is signed and the pass defers
-   * (`anchor_publisher_outside_window`).
+   * verifiers refuse what it sends, so nothing is signed, or stored, and the
+   * pass defers (`anchor_publisher_outside_window`).
    */
   const publisherInWindow = (report: AnchorPassReport, what: string): boolean => {
     if (senderAllowed(trust.allowed, publisher.address, Math.floor(clock() / 1000))) {
@@ -1119,8 +1161,13 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
       const why = trust.offline({ ...publication, ...next }, Math.floor(clock() / 1000));
       return why === null ? null : { field: 'transaction', why: `the publication checks refuse the row it makes (${why})` };
     };
-    const refused = answerRefusal(unsendableAs(signed.raw, asked) ?? rowRefusal());
+    const notAsked = unsendableAs(signed.raw, asked);
+    const refused = answerRefusal(notAsked ?? rowRefusal());
     if (refused !== null) {
+      // The publisher's window can close while its signer answers: the row
+      // then fails the publication checks for that alone, and the pass defers
+      // as it does before signing, with no alarm against the signer.
+      if (notAsked === null && !publisherInWindow(report, `publication ${publication.id} is not stored or sent`)) return publication;
       raise(report, 'anchor_signer_mismatch', refused.message, publisher.address);
       throw refused;
     }
@@ -2111,25 +2158,24 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
 
     async sweep(to) {
       refuseClosed('sweep()');
-      return accountedTransaction('sweep', async (w, fees, nonce) => {
+      return accountedTransaction('sweep', async (w, fees) => {
         const gasLimit = 21_000n;
         const balance = await chain.balance(w.address);
         const value = balance - gasLimit * fees.maxFeePerGas;
         if (value <= 0n) throw new Error(`The wallet's balance (${balance} wei) does not cover a sweep's fee.`);
-        return publisher.signTransfer(to, value, '0x', { nonce, ...fees, gasLimit });
+        return { to, value, data: '0x', gasLimit };
       });
     },
 
     async handover(newAnchorOrigin) {
       refuseClosed('handover()');
       assertHandoverOrigin(newAnchorOrigin);
-      return accountedTransaction('handover', async (w, fees, nonce) =>
-        publisher.signTransfer(w.address, 0n, `0x${Buffer.from(newAnchorOrigin, 'utf8').toString('hex')}`, {
-          nonce,
-          ...fees,
-          gasLimit: 60_000n,
-        }),
-      );
+      return accountedTransaction('handover', (w) => ({
+        to: w.address,
+        value: 0n,
+        data: `0x${Buffer.from(newAnchorOrigin, 'utf8').toString('hex')}`,
+        gasLimit: 60_000n,
+      }));
     },
 
     async rebroadcastAccountedTransaction() {
@@ -2243,11 +2289,13 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
    * for this domain once the node takes it. It runs between passes, under the
    * lease, and only when nothing needs the wallet again: every publication is
    * superseded, or finalized and filled, and no accounted transaction is
-   * waiting to be mined.
+   * waiting to be mined. `transfer` says what the publisher is asked to sign;
+   * what it returns is stored and sent only when it is that transfer, from
+   * the wallet, at the nonce asked for (`answerRefusal`).
    */
   const accountedTransaction = (
     kind: 'sweep' | 'handover',
-    sign: (w: AnchorWallet, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }, nonce: number) => Promise<{ raw: string; hash: string }>,
+    transfer: (w: AnchorWallet, fees: { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }) => Promise<TransferAsked> | TransferAsked,
   ): Promise<AccountedTransactionResult> =>
     exclusive(async () => {
       await walletLease();
@@ -2276,7 +2324,8 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
       const nonce = await nextNonce(report, w);
       if (nonce === null) throw new Error(`The ${kind} cannot take a nonce now (${report.deferred ?? report.alarms[0]?.code ?? 'unknown'}).`);
       await walletLease();
-      const signed = await sign(w, fees, nonce);
+      const asked = await transfer(w, fees);
+      const signed = await publisher.signTransfer(asked.to, asked.value, asked.data, { nonce, ...fees, gasLimit: asked.gasLimit });
       const row = { address: w.address, chain: w.chain, nonce, txHash: signed.hash, kind, rawTx: signed.raw };
       const rowRefusal = (): Unsendable | null => {
         try {
@@ -2286,7 +2335,7 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
           return { field: 'transaction', why: (err as Error).message };
         }
       };
-      const refused = answerRefusal(unsendable(signed.raw, w.address) ?? rowRefusal());
+      const refused = answerRefusal(unsendable(signed.raw, w.address) ?? notTransferAsked(signed.raw, asked) ?? rowRefusal());
       if (refused !== null) throw refused;
       await enrolSigned();
       const tx = await anchors.insertAnchorWalletTx(row);

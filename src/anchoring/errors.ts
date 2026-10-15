@@ -88,7 +88,8 @@ export function itemTwoRefusal(rule: EvmItemTwoRule | null): string {
  * tzun-anchor/1 §10.4 item 2 other than a high `s`, which every verifier
  * refuses (§7.2 rule 3, §11 item 6): `rule` names it. A publisher passed as
  * `AnchorSchedulerOptions.publisher` returns the bytes that are sent, so a
- * high `s` from it is refused too. Nothing it returned is stored or sent,
+ * high `s` from it is refused too, and the fields the scheduler compares are
+ * the ones `EvmPublisher` names. Nothing it returned is stored or sent,
  * because the outbox and the nonce accounting depend on those exact bytes.
  * `field` names what differs, or the rule; nothing here carries key
  * material.
@@ -206,8 +207,9 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    skipped it. A store written before 0.8.0, the demo-tamper hooks or
  *                                    a writer the triggers do not hold.
  *   anchor_publisher_outside_window  the publisher manifest lists the configured publisher, and none of
- *                                    its windows contains now: nothing is signed, since verifiers would
- *                                    refuse it. The pass defers until a window opens or the key changes.
+ *                                    its windows contains now: nothing is signed, nor stored if a window
+ *                                    closed while the signer answered, since verifiers would refuse it.
+ *                                    The pass defers until a window opens or the key changes.
  *   anchor_block_material_unreadable a mined publication's block cannot be stored: its header does not
  *                                    rebuild to its hash (a field a later fork added) or its transactions
  *                                    are not the ones the header commits to. The publication cannot

@@ -17,7 +17,7 @@
  * the custody log was anchored.
  */
 import { createHash } from 'node:crypto';
-import { Transaction, Wallet, decodeRlp, keccak256, type TransactionLike } from 'ethers';
+import { Transaction, Wallet, decodeRlp, keccak256, type TransactionLike, type TransactionRequest } from 'ethers';
 import type { EvidenceEnvelope } from '@tzun/engine';
 import {
   AnchoringConfigError,
@@ -644,6 +644,7 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
       // The row's nonce column rewritten with it: the nonce sent is the one authenticated, not the row's.
       ['a transaction of the publisher key at another nonce, the row\'s nonce with it', (pub) => resigned(pub, wallet, { nonce: 7 }), /is not sent: it is signed at nonce 7, not 0\./, 7],
       ['a transaction of the publisher key over other calldata', (pub) => resigned(pub, wallet, { data: `0x${hex('another P')}` }), /is not sent: its calldata is not 0x ‖ P\./, null],
+      ['a transaction of the publisher key at its nonce, over its P, with a value of 1 wei', (pub) => resigned(pub, wallet, { value: 1n }), /is not sent: it carries value\./, null],
     ])('a stored attempt rewritten during the pass to %s, which item 2 reads, is not sent', async (_what, make, why, nonce) => {
       const { report, sent, substitute } = await rewrittenDuringPass(make, nonce);
       const reading = readEvmTransaction(substitute);
@@ -756,6 +757,18 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
       return { publisher, faulty };
     }
     const answer = (raw: string): SignedTransaction => ({ raw: raw.toLowerCase(), hash: keccak256(raw.toLowerCase()) });
+    /** An EIP-1559 transfer on the test chain, of what `signTransfer` was asked. */
+    const transferOf = ({ to, value, data, nonce, maxFeePerGas, maxPriorityFeePerGas, gasLimit }: { to: string; value: bigint; data: string } & EvmTransactionFields): TransactionRequest => ({
+      type: 2,
+      chainId: 31337,
+      nonce,
+      maxFeePerGas,
+      maxPriorityFeePerGas,
+      gasLimit,
+      to,
+      value,
+      data,
+    });
 
     it.each<[string, Change<[p: string, fields: EvmTransactionFields]>, string, RegExp]>([
       ['a high s', (signed) => answer(toHighS(signed.raw)), 'signature-values', /breaks the Signature values rule of tzun-anchor\/1 §10\.4 item 2 \(signature-values: /],
@@ -797,8 +810,18 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
           const tx = Transaction.from(signed.raw);
           return answer(await wallet.signTransaction({ type: 2, chainId: 31337, nonce: fields.nonce, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas, gasLimit: fields.gasLimit, to: wallet.address, value: 1, data: `0x${p}` }));
         },
-        'transaction',
-        /it carries value/,
+        'value',
+        /\(value: it carries value\)/,
+      ],
+      [
+        'a type 4 envelope, which item 2 does not read',
+        async (signed, p, fields) => {
+          const tx = Transaction.from(signed.raw);
+          const request = { type: 4, chainId: 31337, nonce: fields.nonce, maxFeePerGas: tx.maxFeePerGas, maxPriorityFeePerGas: tx.maxPriorityFeePerGas, gasLimit: fields.gasLimit, to: wallet.address, value: 0, data: `0x${p}`, authorizationList: [] };
+          return answer(await wallet.signTransaction(request as TransactionRequest));
+        },
+        'type',
+        /\(type: it is a transaction of type 4, which tzun-anchor\/1 §10\.4 item 2 does not read\)/,
       ],
       ['its hex in capitals', (signed) => ({ raw: `0x${signed.raw.slice(2).toUpperCase()}`, hash: signed.hash }), 'transaction', /its raw transaction is not 0x lowercase hex/],
     ])('a publication it returns with %s is neither stored nor sent, enrols no wallet, and the next pass sends a compliant one at the same nonce', async (_what, change, field, why) => {
@@ -830,6 +853,14 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
         /\(sender: it is signed by 0x[0-9a-f]{40}, not 0x[0-9a-f]{40}\)/,
       ],
       ['a hash that is not keccak-256 of its bytes', (signed) => ({ raw: signed.raw, hash: `0x${hex('another hash')}` }), 'transaction', /txHash is not keccak256\(rawTx\)/],
+      [
+        'another recipient',
+        async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, to: Wallet.createRandom().address }))),
+        'to',
+        /\(to: it is sent to 0x[0-9a-f]{40}, not 0x[0-9a-f]{40}\)/,
+      ],
+      ['another value', async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, value: 12_345n }))), 'value', /\(value: it carries 12345 wei, not [0-9]+\)/],
+      ['other calldata', async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, data: '0x01' }))), 'data', /\(data: its calldata is not the one asked for\)/],
     ])('a sweep it returns with %s is neither stored nor sent, and enrols no wallet', async (_what, change, field, why) => {
       const { publisher, faulty } = returning({ transfer: change });
       const s = await scheduler({ publisher });
@@ -842,6 +873,61 @@ describe.each(logBackends('anchoring_trust').map((b) => [b.name, b] as const))('
       faulty.on = false;
       expect((await s.sweep(to)).broadcast).toMatchObject({ outcome: 'accepted' });
       expect(chain.broadcasts).toHaveLength(1);
+    });
+
+    it.each<[string, Change<[request: { to: string; value: bigint; data: string } & EvmTransactionFields]>, string, RegExp]>([
+      ['to another recipient', async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, to: Wallet.createRandom().address }))), 'to', /\(to: it is sent to 0x[0-9a-f]{40}, not 0x[0-9a-f]{40}\)/],
+      ['with a value', async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, value: 1n }))), 'value', /\(value: it carries 1 wei, not 0\)/],
+      [
+        'naming another origin',
+        async (_signed, request) => answer(await wallet.signTransaction(transferOf({ ...request, data: `0x${Buffer.from(`${NS}/${'e'.repeat(32)}/anchors`, 'utf8').toString('hex')}` }))),
+        'data',
+        /\(data: its calldata is not the one asked for\)/,
+      ],
+    ])('a handover it returns %s is neither stored nor sent, and enrols no wallet', async (_what, change, field, why) => {
+      const { publisher, faulty } = returning({ transfer: change });
+      const s = await scheduler({ publisher });
+      const origin = `${NS}/${'f'.repeat(32)}/anchors`;
+      await expect(s.handover(origin)).rejects.toMatchObject({ code: 'anchor_signer_mismatch', field, message: expect.stringMatching(why) });
+      expect(chain.broadcasts).toEqual([]);
+      expect(await anchors.listAnchorWalletTxs(wallet.address.toLowerCase(), CHAIN)).toEqual([]);
+      expect(await anchors.getAnchorWallet(wallet.address.toLowerCase(), CHAIN)).toBeNull();
+
+      faulty.on = false;
+      expect((await s.handover(origin)).broadcast).toMatchObject({ outcome: 'accepted' });
+      expect(chain.broadcasts).toHaveLength(1);
+      expect(Transaction.from(chain.broadcasts[0]).data).toBe(`0x${Buffer.from(origin, 'utf8').toString('hex')}`);
+    });
+
+    it("a publication signed as the publisher's window closes is neither stored nor sent: the pass defers, with no alarm against the signer", async () => {
+      const identity = await logs.getStoreIdentity();
+      const publisherManifest = {
+        publishers: {
+          [`${identity.ns}/${identity.storeId}/anchors`]: [{ address: wallet.address.toLowerCase(), chain: CHAIN, namespace: 'test' as const, validUntil: new Date(clock() + 2 * HOUR).toISOString() }],
+        },
+      };
+      await capture('alpha', 2);
+      // The signer answers once the window has closed.
+      const { publisher } = returning({
+        publication: (signed) => {
+          offset += 2 * HOUR;
+          return signed;
+        },
+      });
+      const s = await scheduler({ publisher, publisherManifest });
+      offset += HOUR;
+      const report = await pass(s);
+      expect(report).toMatchObject({ halted: false, deferred: 'publisher_outside_window' });
+      expect(codes(report)).toEqual(['anchor_publisher_outside_window']);
+      expect(report.alarms[0].message).toMatch(/is outside its validity window in the publisher manifest now, so publication [0-9]+ is not stored or sent/);
+      expect(chain.broadcasts).toEqual([]);
+      expect(await publications()).toEqual([expect.objectContaining({ state: 'prepared', attempts: [], nonce: null, fromAddress: null })]);
+      expect(await anchors.getAnchorWallet(wallet.address.toLowerCase(), CHAIN)).toBeNull();
+      expect((await s.getAnchorState()).alarms.map((a) => a.code)).toEqual(['anchor_publisher_outside_window']);
+
+      expect(await pass(s)).toMatchObject({ halted: false, deferred: 'publisher_outside_window' });
+      expect(chain.broadcasts).toEqual([]);
+      expect((await s.getAnchorState()).alarms.map((a) => a.code)).toEqual(['anchor_publisher_outside_window']);
     });
   });
 

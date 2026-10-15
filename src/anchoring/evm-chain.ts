@@ -498,9 +498,14 @@ export interface EvmTransactionFields {
  *
  * What it returns is what the scheduler stores and sends, and the scheduler
  * reads it first. A transaction that breaks a rule of §10.4 item 2, a high
- * `s` included, that is signed for another chain or by another address, or
- * that is not the transaction asked for, is refused with an
- * `AnchorSignerError`, and nothing is stored or sent. `createEvmPublisher`
+ * `s` included, that is signed for another chain or by another address, that
+ * is at another nonce than the one asked for, or whose hash is not keccak-256
+ * of its bytes, is refused with an `AnchorSignerError`, and nothing is stored
+ * or sent. So is a publication over other calldata than 0x ‖ P or with a
+ * value, and an accounted transaction to another recipient, with another
+ * value or over other calldata than the ones asked for. The scheduler does
+ * not compare a publication's recipient, or the gas and fees of either.
+ * `createEvmPublisher` compares every field it asked its signer for, and
  * lowers a high `s` its signer returns before it returns the transaction.
  */
 export interface EvmPublisher {
@@ -515,7 +520,7 @@ export interface EvmPublisher {
    * whose calldata is exactly `0x ‖ hex(P)` (EIP-1559, chain id signed).
    */
   signPublication(p: string, fields: EvmTransactionFields): Promise<SignedTransaction>;
-  /** An accounted transaction (`sweep`, `handover`): any recipient, value and calldata. */
+  /** An accounted transaction (`sweep`, `handover`): to `to`, with `value` and the calldata `data`. */
   signTransfer(to: string, value: bigint, data: string, fields: EvmTransactionFields): Promise<SignedTransaction>;
 }
 

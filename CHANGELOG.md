@@ -24,6 +24,34 @@ rewritten to the engine's exact version at publish time.
 
 ## [0.8.3] — 2026-10-14
 
+### Added
+
+- `readEvmTransaction` and `evmRlpForm` (`src/attestation/blockchain.ts`,
+  exported from that module, not from the package entry) read a signed
+  transaction as tzun-anchor/1 §10.4 item 2 does and report the rule it breaks;
+  ethers supplies RLP decoding, keccak-256 and secp256k1 recovery, and no
+  longer reads the transaction (`Transaction.from`). `decodeEvmTransaction`
+  returns the transaction or `null`. In Python, `decode_signed_transaction`
+  (`tzun_sdk.attestation.evm_transaction`) raises `EvmTransactionError` with
+  the same rule as `.rule`, and `rlp_form` (`tzun_sdk.attestation.evm_rlp`) is
+  `evmRlpForm`.
+- `withLowS` and `transactionToBroadcast` (`src/anchoring/evm-chain.ts`,
+  exported from that module, not from the package entry). `withLowS` is the
+  high-`s` replacement, for a typed transaction or an EIP-155 legacy `v`, and
+  `null` for a legacy `v` of 27 or 28. `transactionToBroadcast` is a signed
+  transaction as it meets item 2: unchanged, with its `s` lowered, or the rule
+  of item 2 it breaks. The checks of §7.2 rule 3, of the type, the chain id and
+  the sender, are made in `checkSignedTransaction`.
+- `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
+  transactions at each edge of each rule of item 2, those it refuses and those
+  just inside, each refused case with the one rule it breaks (`chain-id`,
+  `legacy-v`, `signature-values`, `fees`, `recovery`, `encoding`,
+  `field-sizes`), and the verdict for each. Each case states the `sender` and
+  `signedChainId` that `anchor.evm.tx` reports once item 2 reads the
+  transaction: `signedChainId` is the chain id in decimal, `null` for the two
+  cases with `v` 27 and 28, and `null` for a refused case, which reports no
+  facts. Its existing cases are unchanged.
+
 ### Changed
 
 - The `evm-calldata/1` publication verifier (`verifyEvmPublication`,
@@ -120,11 +148,13 @@ rewritten to the engine's exact version at publish time.
     sent again as it was stored.
   - It accepts an earlier publication as its own only when item 2 reads each
     of its transactions: the publication checks read them with
-    `readEvmTransaction`, not with ethers, which recovers the same sender from
-    either twin. `assertAnchorWalletTx`, which the SQLite and Postgres stores
-    run on every accounted transaction they insert and the scheduler on every
-    one it reads, refuses one that item 2 does not read, naming the rule, and
-    takes its sender and chain id from item 2's reading.
+    `readEvmTransaction`, which supplies the sender, chain id and calldata;
+    ethers, which recovers the same sender from either twin, reads only the
+    nonce, value and fee caps of bytes item 2 has already read.
+    `assertAnchorWalletTx`, which the SQLite and Postgres stores run on every
+    accounted transaction they insert and the scheduler on every one it reads,
+    refuses one that item 2 does not read, naming the rule, and takes its
+    sender and chain id from item 2's reading.
 
 ### Removed
 
@@ -159,34 +189,6 @@ rewritten to the engine's exact version at publish time.
   tarballs, one with nothing else installed and one with the oldest version
   of each `@types` package the ranges accept
   (`scripts/check-packed-types.sh`) (TzunAI/tzun#9).
-
-### Added
-
-- `readEvmTransaction` and `evmRlpForm` (`src/attestation/blockchain.ts`,
-  exported from that module, not from the package entry) read a signed
-  transaction as item 2 does and report the rule it breaks; ethers supplies
-  RLP decoding, keccak-256 and secp256k1 recovery, and no longer reads the
-  transaction (`Transaction.from`). `decodeEvmTransaction` returns the
-  transaction or `null`. In Python, `decode_signed_transaction`
-  (`tzun_sdk.attestation.evm_transaction`) raises `EvmTransactionError` with
-  the same rule as `.rule`, and `rlp_form` (`tzun_sdk.attestation.evm_rlp`)
-  is `evmRlpForm`.
-- `withLowS` and `transactionToBroadcast` (`src/anchoring/evm-chain.ts`,
-  exported from that module, not from the package entry). `withLowS` is the
-  high-`s` replacement, for a typed transaction or an EIP-155 legacy `v`, and
-  `null` for a legacy `v` of 27 or 28. `transactionToBroadcast` is a signed
-  transaction as it meets item 2: unchanged, with its `s` lowered, or the
-  rule of item 2 it breaks. Rule 3's checks of the type, the chain id and the
-  sender are made in `checkSignedTransaction`.
-- `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
-  transactions at each edge of each rule of item 2, those it refuses and those
-  just inside, each refused case with the one rule it breaks (`chain-id`,
-  `legacy-v`, `signature-values`, `fees`, `recovery`, `encoding`,
-  `field-sizes`), and the verdict for each. Each case states the `sender` and
-  `signedChainId` that `anchor.evm.tx` reports once item 2 reads the
-  transaction: `signedChainId` is the chain id in decimal, `null` for the two
-  cases with `v` 27 and 28, and `null` for a refused case, which reports no
-  facts. Its existing cases are unchanged.
 
 ## [0.8.2] — 2026-10-06
 

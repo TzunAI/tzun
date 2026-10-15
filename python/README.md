@@ -68,11 +68,24 @@ asyncio.run(main())
 
 - `Tzun` / `TzunSync` — async and sync clients (Tzun.init / TzunSync.init).
 - `hook(vendor, request, response, *, tzun=None)` — extract an AI-BOM
-  from any of 5 supported vendors (openai, anthropic, bedrock, vertex,
-  azure_ai). Pure function; no client wrapping.
+  from any of 6 supported vendors (openai, anthropic, bedrock, vertex,
+  azure_ai, openrouter). Pure function; no client wrapping.
+  `openrouter` covers every model the OpenRouter gateway serves: the record
+  names OpenRouter as the vendor that served the call, the id it served
+  (`response.model`, variant suffix included), the maker as the id's author
+  prefix (`trainedBy`), the upstream provider OpenRouter reports
+  (`infrastructure.provider`), and, when the request carries an
+  `openrouter_endpoint` hint, the gateway URL called
+  (`infrastructure.endpoint`). The integrity tier is `vendor-asserted`, the
+  gateway being the asserting vendor.
 - `attach(client, *, tzun)` — optional sugar wrapping a vendor client so
   per-call `tzun_capture=DecisionInput(...)` triggers `hook() + capture()`
-  automatically. Kwarg-absent calls pass through with zero overhead.
+  automatically. Kwarg-absent calls pass through with zero overhead. An
+  OpenAI client whose `base_url` host is `openrouter.ai` is detected as
+  `openrouter`, and its base URL is recorded as the endpoint; pass
+  `vendor="openai"` to keep the openai classification, or
+  `vendor="openrouter"` for a client that reaches OpenRouter through another
+  host.
 - `tzun.agents`, `tzun.links`, `tzun.deciders`, `tzun.decision_graph`,
   `tzun.mandates` — the agent catalog, links between records and link
   records, decider commitment openings, the bounded walk over a record's

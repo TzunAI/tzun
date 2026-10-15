@@ -1,6 +1,6 @@
 """Vendor connectors for tzun-sdk AI-BOM.
 
-Five connectors: openai, anthropic, bedrock, vertex, azure_ai.
+Six connectors: openai, anthropic, bedrock, vertex, azure_ai, openrouter.
 Registry maps the vendor string → connector instance. NIM and HF-Inference
 connectors exist in the TypeScript SDK and are not implemented in Python.
 """
@@ -12,6 +12,7 @@ from tzun_sdk.ai_bom.connectors.anthropic import anthropic_connector
 from tzun_sdk.ai_bom.connectors.azure_ai import azure_ai_connector
 from tzun_sdk.ai_bom.connectors.bedrock import bedrock_connector
 from tzun_sdk.ai_bom.connectors.openai import openai_connector
+from tzun_sdk.ai_bom.connectors.openrouter import openrouter_connector
 from tzun_sdk.ai_bom.connectors.vertex import vertex_connector
 
 #: Registry of supported vendor connectors.
@@ -21,9 +22,10 @@ CONNECTORS: dict[str, Connector] = {
     "bedrock": bedrock_connector,
     "vertex": vertex_connector,
     "azure_ai": azure_ai_connector,
+    "openrouter": openrouter_connector,
 }
 
-#: The five supported vendors enumerated.
+#: The supported vendors enumerated, in registry order.
 SUPPORTED_VENDORS: tuple[str, ...] = tuple(CONNECTORS.keys())
 
 
@@ -40,5 +42,6 @@ __all__ = (
     "bedrock_connector",
     "get_connector",
     "openai_connector",
+    "openrouter_connector",
     "vertex_connector",
 )

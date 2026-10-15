@@ -32,6 +32,18 @@ fixtures/
     happy.json
     optional_fields_populated.json
     optional_fields_absent.json
+  openrouter/               # synthetic, on the shape of OpenRouter's chat-completions response
+    happy.json
+    optional_fields_populated.json
+    optional_fields_absent.json
+    zero_valued.json
+    stop_string.json
+    stop_over_limits.json   # a stop list the AI-BOM cannot carry
+    alias_id.json           # a ~author alias id
+    router_id.json          # an openrouter/* router
+    endpoint_normalized.json
+    overlong_strings.json
+    non_integer_tokens.json
 ```
 
 ## Fixture JSON schema

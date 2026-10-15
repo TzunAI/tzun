@@ -1,9 +1,9 @@
 """Cross-SDK connector parity.
 
-For each of the five Python connectors (openai, anthropic, bedrock, vertex,
-azure_ai), runs the shared fixture files through both the Python connector and
-the TS connector via the ts-harness, then compares the extracted model identity
-(vendor, modelName, modelVersion) and inference parameters.
+For each of the six Python connectors (openai, anthropic, bedrock, vertex,
+azure_ai, openrouter), runs the shared fixture files through both the Python
+connector and the TS connector via the ts-harness, then compares the extracted
+model identity (vendor, modelName, modelVersion) and inference parameters.
 
 The full ModelDescriptor is compared for equality, not only the identity
 triple. The AiBom must be byte-identical from either language, and the
@@ -15,6 +15,10 @@ asserts it field by field.
 
 Azure hit/miss cases are included to verify that the Azure connector's
 decision tree agrees across languages.
+
+For openrouter the whole ``infrastructure`` block is compared too, null members
+included: it is the one connector that always writes it, and its ``provider``
+and ``endpoint`` are what say the gateway served the call.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ VENDOR_MAP = {
     "bedrock": "bedrock",
     "vertex": "vertex",
     "azure_ai": "azure-ai",
+    "openrouter": "openrouter",
 }
 
 # Three-case fixtures that exist for every vendor
@@ -47,11 +52,21 @@ BASE_CASES = ["happy", "optional_fields_populated", "optional_fields_absent"]
 EXTRA_CASES = {
     "openai": ["zero_valued", "stop_sequences"],
     "anthropic": ["zero_valued"],
+    "openrouter": [
+        "zero_valued",
+        "stop_string",
+        "stop_over_limits",
+        "alias_id",
+        "router_id",
+        "endpoint_normalized",
+        "overlong_strings",
+        "non_integer_tokens",
+    ],
 }
 
 ALL_CASES = [
     (v, c)
-    for v in ["openai", "anthropic", "bedrock", "vertex", "azure_ai"]
+    for v in ["openai", "anthropic", "bedrock", "vertex", "azure_ai", "openrouter"]
     for c in BASE_CASES + EXTRA_CASES.get(v, [])
 ]
 
@@ -72,6 +87,9 @@ def _load_py_connector(vendor_module: str):
     elif vendor_module == "azure_ai":
         from tzun_sdk.ai_bom.connectors.azure_ai import azure_ai_connector
         return azure_ai_connector
+    elif vendor_module == "openrouter":
+        from tzun_sdk.ai_bom.connectors.openrouter import openrouter_connector
+        return openrouter_connector
     raise ValueError(f"Unknown vendor module: {vendor_module}")
 
 
@@ -222,6 +240,19 @@ def test_identity_parity(vendor_module: str, case: str, ts_invoke) -> None:
         f"  Python: {py_fp!r}\n"
         f"  TS:     {ts_fp!r}"
     )
+
+    if vendor_module == "openrouter":
+        # The gateway's facts live here: the upstream provider OpenRouter
+        # reported and the base URL the client called. Compared whole, null
+        # members included, since this connector always writes the block.
+        assert py_skeleton.infrastructure is not None
+        py_infra = py_skeleton.infrastructure.model_dump(mode="json", exclude_none=False)
+        ts_infra = ts_skeleton.get("infrastructure")
+        assert py_infra == ts_infra, (
+            f"{vendor_module}/{case} infrastructure mismatch:\n"
+            f"  Python: {py_infra}\n"
+            f"  TS:     {ts_infra}"
+        )
 
 
 @pytest.mark.parametrize("case", ["azure_hit", "azure_miss"])

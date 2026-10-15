@@ -1,0 +1,45 @@
+{
+  "recordedAgainst": "OpenRouter /api/v1/chat/completions, OpenAI-compatible (synthetic)",
+  "recordedAt": "2026-10-15",
+  "note": "Synthetic fixture on the shape of an OpenRouter chat-completions response; the generation id, content and usage are placeholders. A :free Nemotron call through the gateway: the variant id enriches from its base model's entry and keeps the variant in modelName; the upstream provider and the gateway base URL land in infrastructure.",
+  "request": {
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Approve?"
+      }
+    ],
+    "temperature": 0.2,
+    "max_tokens": 1200,
+    "openrouter_endpoint": "https://openrouter.ai/api/v1"
+  },
+  "response": {
+    "id": "gen-0000000000-scrubbed000000000000",
+    "object": "chat.completion",
+    "created": 1790000000,
+    "model": "nvidia/nemotron-3-super-120b-a12b:free",
+    "system_fingerprint": null,
+    "service_tier": null,
+    "choices": [
+      {
+        "index": 0,
+        "finish_reason": "stop",
+        "native_finish_reason": "stop",
+        "logprobs": null,
+        "message": {
+          "role": "assistant",
+          "content": "approve",
+          "refusal": null,
+          "reasoning": null
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 1,
+      "total_tokens": 11
+    },
+    "provider": "Nvidia"
+  }
+}

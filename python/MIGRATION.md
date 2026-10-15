@@ -204,9 +204,22 @@ concurrent init from a mixed-language deployment serialises correctly.
 
 ## AI-BOM
 
-- The five vendor connectors (openai, anthropic, bedrock, vertex,
-  azure_ai) extract identical AI-BOM shapes in both SDKs for the same
-  `(request, response)` pair.
+- The six vendor connectors (openai, anthropic, bedrock, vertex,
+  azure_ai, openrouter) extract identical AI-BOM shapes in both SDKs for the
+  same `(request, response)` pair. The openrouter descriptor and `aiBom` are
+  byte-identical too, down to their digests
+  (`tests/cross-sdk/test_openrouter_parity.py`).
+- `attach()` detects an OpenAI client pointed at `openrouter.ai` as
+  `openrouter` in both SDKs (TS by `baseURL`, Python by `base_url`). Both
+  record the same endpoint whether or not the base URL ends in `/`, and
+  whatever the case of its host's ASCII letters or an explicit default port
+  (`:443`, `:80`): openai-python keeps the base URL as an `httpx.URL`, which
+  normalises those, and the connector applies the same normalisation to the
+  raw string openai-node keeps. httpx also IDNA-encodes a non-ASCII host,
+  percent-encodes some path characters and reads a port written with leading
+  zeros (`:0443`) as a number; for such a base URL the two `attach()` paths
+  may record different endpoints, so write it in its encoded, normalised
+  form.
 - `tzun_sdk.hook(...)` (Python) and `tzun.hook(...)` (TS) accept the same
   arguments; Python uses snake_case for kwargs (`ai_output` vs.
   TS `aiOutput`).

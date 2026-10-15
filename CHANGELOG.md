@@ -63,13 +63,14 @@ rewritten to the engine's exact version at publish time.
   more, which ethers refuses. An unprotected legacy transaction (`v` 27 or 28)
   is read as before, and §10.4 item 5 refuses its chain. Types other than 0, 1
   and 2 abstain as before. See TzunAI/tzun-verify#37.
-- The `signedChainId` fact of a legacy transaction signed before EIP-155 (`v`
-  27 or 28) is `null` in both SDKs, as tzun-anchor/1 §10.7 states and
-  tzun-verify reports. It was `"0"`. The type is `string | null`
-  (`EvmPublicationFacts.signedChainId`) and `str | None` in Python, and the
-  `anchor.evm.tx` check of `verifyAnchor` and `verify_anchor` carries the
-  `null`. The verdict is unchanged: such a transaction signs no chain id, so
-  §10.4 item 5 matches it to no manifest entry (`evm_chain_mismatch`).
+- The `signedChainId` fact of a legacy transaction whose `v` is 27 or 28,
+  which signs no chain id (§10.4 item 2), is `null` in both SDKs, as
+  tzun-anchor/1 §10.7 states and tzun-verify reports. It was `"0"`. The type
+  is `string | null` (`EvmPublicationFacts.signedChainId`) and `str | None` in
+  Python, and the `anchor.evm.tx` check of `verifyAnchor` and `verify_anchor`
+  carries the `null`. The verdict is unchanged: such a transaction signs no
+  chain id, so §10.4 item 5 matches it to no manifest entry
+  (`evm_chain_mismatch`).
 - The anchor scheduler sends only transactions that meet the seven rules of
   §10.4 item 2, read with the verifier's own reader, as tzun-anchor/1 §7.2
   rule 3 and §11 item 6 require of a writer. The Python SDK has no anchor

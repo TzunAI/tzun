@@ -146,8 +146,8 @@ class EvmPublicationFacts(TypedDict, total=False):
     txType: int
     #: Recovered from the signature. Reported whatever the verdict.
     sender: str
-    #: The chain id the sender signed, in decimal; ``None`` for a legacy transaction signed
-    #: before EIP-155 (``v`` 27 or 28), which signs none (tzun-anchor/1 §10.7).
+    #: The chain id the sender signed, in decimal; ``None`` for a legacy transaction whose
+    #: ``v`` is 27 or 28, which signs no chain id (tzun-anchor/1 §10.7).
     signedChainId: str | None
     #: As the publication claims it. Confirmed only when ``valid`` is true.
     blockNumber: int
@@ -794,7 +794,8 @@ async def verify_evm_publication(
         by_sender = [e for e in entries if e.address == sender]
         if not by_sender:
             return tx_failed("evm_sender_mismatch")
-        # A pre-EIP-155 transaction signs chain id 0, which matches no entry.
+        # A legacy transaction whose v is 27 or 28 signs no chain id and reads as
+        # chain id 0, which matches no entry.
         by_chain = [e for e in by_sender if e.chain_id == tx.chain_id]
         if not by_chain:
             return tx_failed("evm_chain_mismatch")

@@ -199,7 +199,7 @@ export interface AnchorCheckResult {
    *   supplied;
    * - `anchor.evm.tx[i]`, on every outcome once the transaction parses:
    *   `transactionId`, `txType`, `sender` and `signedChainId` (`null` for
-   *   a legacy transaction signed before EIP-155);
+   *   a legacy transaction whose `v` is 27 or 28, which signs no chain id);
    * - `anchor.evm.canonical[i]`: `finality` on every outcome once the header
    *   source's chain id matched (absent when the source declares none), and,
    *   when it is checked-correct, `chain`, `namespace`, `network`, `blockTime`

@@ -247,7 +247,7 @@ export interface EvmPublicationFacts {
   sender?: string;
   /**
    * The chain id the sender signed, in decimal; `null` for a legacy
-   * transaction signed before EIP-155 (`v` 27 or 28), which signs none
+   * transaction whose `v` is 27 or 28, which signs no chain id
    * (tzun-anchor/1 §10.7).
    */
   signedChainId?: string | null;
@@ -1090,7 +1090,8 @@ export async function verifyEvmPublication(input: EvmPublicationInput): Promise<
     if (entries.length === 0) return txNotChecked('no_expectation:publisher');
     const bySender = entries.filter((e) => e.address === sender);
     if (bySender.length === 0) return txFailed('evm_sender_mismatch');
-    // A pre-EIP-155 transaction signs chain id 0, which matches no entry.
+    // A legacy transaction whose v is 27 or 28 signs no chain id and reads as
+    // chain id 0, which matches no entry.
     const byChain = bySender.filter((e) => e.chainId === tx.chainId);
     if (byChain.length === 0) return txFailed('evm_chain_mismatch');
 

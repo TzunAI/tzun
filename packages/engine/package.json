@@ -1,6 +1,6 @@
 {
   "name": "@tzun/engine",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "Dependency-light canonical/digest/chain/verify core for Tzun DEOs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

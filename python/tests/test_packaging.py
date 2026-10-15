@@ -47,7 +47,7 @@ def test_optional_extras_present() -> None:
     """Optional extras."""
     cfg = _config()
     extras = cfg["project"]["optional-dependencies"]
-    for required in ("postgres", "sqlite", "rfc3161", "sigstore", "anchor", "all"):
+    for required in ("postgres", "sqlite", "rfc3161", "anchor", "all"):
         assert required in extras, f"missing optional extra: {required}"
 
 

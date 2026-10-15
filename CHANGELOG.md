@@ -133,8 +133,9 @@ rewritten to the engine's exact version at publish time.
     recipient, and the gas and fees of either, are not compared. Otherwise
     it is refused with an `AnchorSignerError` and nothing is stored,
     enrolled or sent; a publication's pass fails with the
-    `anchor_signer_mismatch` alarm and is retried, unless the publisher's
-    window in the manifest closed while it signed: then the pass defers
+    `anchor_signer_mismatch` alarm and is retried, unless what it returned
+    is the publication asked for and the publisher's window in the
+    manifest closed while it signed: then the pass defers
     (`anchor_publisher_outside_window`). Before, what such a publisher
     returned was stored and broadcast as it was.
   - It checks the bytes it is about to send on every broadcast, a stored

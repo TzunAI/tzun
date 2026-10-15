@@ -505,8 +505,9 @@ export interface EvmTransactionFields {
  * value, and an accounted transaction to another recipient, with another
  * value or over other calldata than the ones asked for. The scheduler does
  * not compare a publication's recipient, or the gas and fees of either.
- * `createEvmPublisher` compares every field it asked its signer for, and
- * lowers a high `s` its signer returns before it returns the transaction.
+ * `createEvmPublisher` and `createSignerPublisher` compare every field they
+ * asked their signer for, and lower a high `s` it returns, before they return
+ * the transaction.
  */
 export interface EvmPublisher {
   /** `0x` and 40 lowercase hex. */

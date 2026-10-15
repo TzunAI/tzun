@@ -320,7 +320,7 @@ class TestItemTwo:
         self, eip155: bool, y_parity: int
     ) -> None:
         """tzun-anchor/1 §10.7: ``signedChainId`` is the decimal chain id the sender
-        signed, or None for a legacy transaction signed before EIP-155, which signs
+        signed, or None for a legacy transaction whose ``v`` is 27 or 28, which signs
         none (and item 5 then matches no manifest entry)."""
         raw = legacy_with_parity(y_parity, chain_id=1 if eip155 else 0)
         publication = {

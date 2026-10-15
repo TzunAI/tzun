@@ -1087,7 +1087,7 @@ describe('the check catalogue (tzun-anchor/1 §10.7)', () => {
     expect(v.checks[0].reason).toBe(v.anchorReason);
   });
 
-  it.each([0, 1] as const)('a legacy publication signed before EIP-155 (v 27 + %i) reports signedChainId null', async (yParity) => {
+  it.each([0, 1] as const)('a legacy publication whose v is 27 or 28 (27 + %i) reports signedChainId null', async (yParity) => {
     const record = anchoredRecord();
     const publisher = Wallet.createRandom();
     const raw = signLegacy(publisher.signingKey, { data: '0x' + record.p, eip155: false, yParity });

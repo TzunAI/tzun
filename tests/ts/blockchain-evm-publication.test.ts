@@ -503,8 +503,21 @@ describe('the chain the sender signed', () => {
       headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) },
     });
     expect(v).toMatchObject({ valid: false, reason: 'evm_chain_mismatch' });
-    // tzun-anchor/1 §10.7: a legacy transaction signed before EIP-155 signs no chain id.
+    // tzun-anchor/1 §10.7: a legacy transaction whose v is 27 or 28 signs no chain id.
     expect(v.facts).toHaveProperty('signedChainId', null);
+  });
+
+  it.each([0, 1] as const)('a legacy publication whose v is 27 or 28 (27 + %i) is never true: no manifest names chain id 0, and one that lists it is unreadable', async (yParity) => {
+    const s = await honest();
+    const raw = signLegacy(s.publisher.signingKey, { data: s.p, eip155: false, yParity });
+    const block = fabricateBlock([raw]);
+    const input = { ...s.input, publication: publicationFrom(block, 0), headerSources: { [SEPOLIA_CHAIN]: new FakeHeaderSource(block) } };
+    expect(await verifyEvmPublication(input)).toMatchObject({ valid: false, reason: 'evm_chain_mismatch', facts: { signedChainId: null } });
+    // The CAIP-2 grammar of a manifest entry names chain ids from 1: an entry on
+    // eip155:0 makes the manifest unreadable, and the publication undecided.
+    const zero = manifestOf(entry(s.publisher), { address: s.publisher.address, chain: 'eip155:0', namespace: 'test' });
+    const v = await verifyEvmPublication({ ...input, manifest: zero });
+    expect(v.valid).toBeNull();
   });
 
   it('the header source is chosen by the manifest entry\'s chain, and must itself be on that chain', async () => {
@@ -1611,6 +1624,7 @@ describe('never throws on malformed input', () => {
     ['an entry with a bad namespace', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: SEPOLIA_CHAIN, namespace: 'prod' }] } }],
     ['an entry with a bad date', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: SEPOLIA_CHAIN, namespace: 'test', validUntil: 'soon' }] } }],
     ['an entry with a leading-zero chain id', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: 'eip155:011155111', namespace: 'test' }] } }],
+    ['an entry on chain id 0', { publishers: { [ORIGIN]: [{ address: '0x' + '11'.repeat(20), chain: 'eip155:0', namespace: 'test' }] } }],
   ])('%s → null, never true, never a throw', async (_label, manifest) => {
     const s = await honest();
     const v = await verifyEvmPublication({ ...s.input, manifest: manifest as never });

@@ -23,6 +23,7 @@ import asyncio
 import json
 import os
 import pathlib
+import re
 from typing import Any
 
 import pytest
@@ -189,7 +190,7 @@ def test_the_transaction_cases_state_the_signed_chain_id() -> None:
         "legacy-v-28",
     ]
     assert all(
-        c["signedChainId"] is None or str(int(c["signedChainId"])) == c["signedChainId"]
+        c["signedChainId"] is None or re.fullmatch(r"[1-9][0-9]*", c["signedChainId"])
         for c in read
     )
 

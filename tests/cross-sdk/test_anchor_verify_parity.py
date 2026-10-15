@@ -26,7 +26,10 @@ every check, reason and fact:
   over every validity case of ``evm-anchor-vectors.json`` in each of its modes,
   and its transaction cases;
 - ``verifyAnchor``, over anchored records with EVM and RFC 3161 publications,
-  the checkpoint and anvil vectors whole, and hostile artifacts.
+  the checkpoint and anvil vectors whole, and hostile artifacts;
+- the transactions the TypeScript anchor writer sends when a signer returns a
+  high ``s`` (``withLowS``, tzun-anchor/1 §7.2 rule 3): the Python decoder reads
+  each with the same sender.
 
 Two differences are designed, and those cases are held to them, not to equality:
 
@@ -1103,13 +1106,13 @@ def test_every_anchor_scenario_gets_the_same_verdict(
     assert len(readable) >= 5 and len(tsa) - len(readable) >= 20
 
 
-def test_a_legacy_publication_signed_before_eip155_reports_no_signed_chain_id(
+def test_a_legacy_publication_whose_v_is_27_or_28_reports_no_signed_chain_id(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:
     """tzun-anchor/1 §10.7: a legacy transaction with ``v`` 27 or 28 signs no chain id, so
     both SDKs report its ``signedChainId`` as null, beside the sender item 2 recovers."""
     case = next(
-        c for c in anchor_scenarios if c["name"] == "EVM: a legacy publication signed before EIP-155"
+        c for c in anchor_scenarios if c["name"] == "EVM: a legacy publication whose v is 27 or 28"
     )
     ts = case["verdict"]
     assert py_verify_anchor(case) == ts
@@ -1117,6 +1120,21 @@ def test_a_legacy_publication_signed_before_eip155_reports_no_signed_chain_id(
     assert (tx["outcome"], tx["reason"]) == ("checked-wrong", "evm_chain_mismatch")
     assert tx["facts"]["txType"] == 0
     assert "signedChainId" in tx["facts"] and tx["facts"]["signedChainId"] is None
+
+
+def test_python_reads_what_the_typescript_anchor_writer_lowers() -> None:
+    """tzun-anchor/1 §7.2 rule 3: when a signer returns a high ``s``, the TypeScript anchor
+    writer sends the signature with n - s and the other parity (``withLowS``). The Python
+    decoder reads each such transaction, with the sender the key has and the TypeScript
+    reader recovers, and refuses the high-``s`` original for Signature values."""
+    cases = harness({"action": "lowered"})["cases"]
+    assert len(cases) == 7
+    for case in cases:
+        with pytest.raises(EvmTransactionError) as refused:
+            decode_signed_transaction(bytes.fromhex(case["high"][2:]))
+        assert refused.value.rule == "signature-values", case["name"]
+        tx = decode_signed_transaction(bytes.fromhex(case["lowered"][2:]))
+        assert tx.sender == case["sender"] == case["tsSender"], case["name"]
 
 
 def test_the_evm_transaction_cases_report_the_signed_chain_id_the_file_states() -> None:

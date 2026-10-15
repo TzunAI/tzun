@@ -19,6 +19,14 @@
  *     reads each with `readEvmTransaction`: the transaction and its sender, or
  *     `{ refused: <rule> }` (null when no rule applies: not a transaction).
  *
+ *   { action: "lowered" }
+ *     → { cases: [{ name, high, lowered, sender, tsSender }] }: transactions
+ *     ethers signs, each as a signer returning a high `s` gives it (`high`)
+ *     and as the anchor writer sends it (`lowered`, `withLowS` of
+ *     src/anchoring/evm-chain.ts, tzun-anchor/1 §7.2 rule 3); `sender` is the
+ *     key's address and `tsSender` the one `readEvmTransaction` recovers from
+ *     `lowered`.
+ *
  *   { action: "evm-scenarios" }
  *     → { cases: [{ name, input, sources, verdict }] }: publications, blocks
  *     and header sources built with ethers and the fabricated-block helpers,
@@ -87,6 +95,7 @@ import {
   type FabricatedBlock,
 } from '../../ts/helpers/evm-fixtures';
 import { PLATFORM_PREFIX, TEST_PREFIX, anchoredRecord, sha256 } from '../../ts/helpers/anchor-fixtures';
+import { withLowS } from '../../../src/anchoring/evm-chain';
 import { makeTsaFixture } from '../../ts/rfc3161-fixture';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -252,6 +261,36 @@ function listOfEncoded(items: string[]): string {
   let l = len.toString(16);
   if (l.length % 2) l = '0' + l;
   return (0xf7 + l.length / 2).toString(16) + l + payload;
+}
+
+/** The `lowered` command: a signer's high-`s` signatures as the anchor writer sends them. */
+async function lowered(): Promise<Array<{ name: string; high: string; lowered: string; sender: string; tsSender: string }>> {
+  const wallet = Wallet.createRandom();
+  const p = randomP();
+  const sender = wallet.address.toLowerCase();
+  const out: Array<{ name: string; high: string; lowered: string; sender: string; tsSender: string }> = [];
+  const add = (name: string, low: string) => {
+    const high = highS(low);
+    const sent = withLowS(high);
+    if (sent === null) throw new Error(`withLowS does not lower ${name}`);
+    const reading = readEvmTransaction(sent);
+    out.push({ name, high, lowered: sent, sender, tsSender: reading.ok ? reading.transaction.sender : '' });
+  };
+  /** The first EIP-1559 transaction from nonce 0 whose signature `accept` takes. */
+  const firstType2 = async (accept: (sig: { v: bigint; s: bigint }) => boolean): Promise<string> => {
+    for (let nonce = 0; ; nonce++) {
+      const raw = await signAnchorTx(wallet, { data: p, type: 2, nonce });
+      if (accept(signatureOf(raw))) return raw;
+    }
+  };
+  add('EIP-1559, the high s with yParity 1', await firstType2((sig) => sig.v === 0n));
+  add('EIP-1559, the high s with yParity 0', await firstType2((sig) => sig.v === 1n));
+  add('EIP-1559, n - s below 2^248', await firstType2((sig) => sig.s < 2n ** 248n));
+  add('EIP-2930', await signAnchorTx(wallet, { data: p, type: 1 }));
+  add('legacy EIP-155 on Sepolia, lowered to v = 2c + 35', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: SEPOLIA, yParity: 0 }));
+  add('legacy EIP-155 on Sepolia, lowered to v = 2c + 36', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: SEPOLIA, yParity: 1 }));
+  add('legacy EIP-155 on mainnet', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: MAINNET, yParity: 0 }));
+  return out;
 }
 
 async function transactions(): Promise<Array<{ name: string; raw: string }>> {
@@ -682,6 +721,8 @@ async function evmScenarios(): Promise<EvmCase[]> {
     ['a bad namespace', { publishers: { [ORIGIN]: [{ address: good, chain: SEPOLIA_CHAIN, namespace: 'prod' }] } }],
     ['a bad date', { publishers: { [ORIGIN]: [{ address: good, chain: SEPOLIA_CHAIN, namespace: 'test', validUntil: 'soon' }] } }],
     ['a leading-zero chain id', { publishers: { [ORIGIN]: [{ address: good, chain: 'eip155:011155111', namespace: 'test' }] } }],
+    ['chain id 0', { publishers: { [ORIGIN]: [{ address: good, chain: 'eip155:0', namespace: 'test' }] } }],
+    ['the publisher on its chain and on chain id 0', manifestOf(entry(s.publisher.address), { address: s.publisher.address, chain: 'eip155:0', namespace: 'test' })],
     ['a chain that is not a string', { publishers: { [ORIGIN]: [{ address: good, chain: 11155111, namespace: 'test' }] } }],
     ['a non-EVM entry beside the publisher', manifestOf({ address: 'x', chain: 'bip122:000000000019d6689c085ae165831e93', namespace: 'test' }, entry(s.publisher.address))],
     ['only non-EVM entries', manifestOf({ address: 'x', chain: 'bip122:000000000019d6689c085ae165831e93', namespace: 'test' })],
@@ -833,13 +874,13 @@ async function anchorScenarios(): Promise<AnchorCase[]> {
     add('EVM: one true, one false', withPubs(r, [e.envelope, e2.envelope]), r.digest, { ...base, publicationMaterial: [e.full, e2.full], evmHeaderSources: S({ ...sources, finalized: e.block.number + 64 }) });
   }
   {
-    // A legacy publication signed before EIP-155 (v 27): it signs no chain id, so item 5
+    // A legacy publication whose v is 27 or 28 (here 27): it signs no chain id, so item 5
     // refuses it, and anchor.evm.tx reports signedChainId null (tzun-anchor/1 §10.7).
     const legacy = signLegacy(e.publisher.signingKey, { data: '0x' + r.p, eip155: false, yParity: 0 });
     const block = fabricateBlock([...(await fillers(2)), legacy], e.block.number + 1, e.block.timestamp + 12);
     const full = publicationFrom(block, 2);
     const envelope = { kind: 'evm-calldata/1', chain: SEPOLIA_CHAIN, transactionId: full.transactionId, blockNumber: full.blockNumber, blockHash: full.blockHash, publisher: e.publisher.address };
-    add('EVM: a legacy publication signed before EIP-155', withPubs(r, [envelope]), r.digest, { ...base, publicationMaterial: [full], evmHeaderSources: S(sourceOf(block)) });
+    add('EVM: a legacy publication whose v is 27 or 28', withPubs(r, [envelope]), r.digest, { ...base, publicationMaterial: [full], evmHeaderSources: S(sourceOf(block)) });
   }
   add('EVM: [null, true]', withPubs(r, [null, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
   add('EVM: [no kind, true]', withPubs(r, [{ token: 'x' }, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
@@ -916,6 +957,9 @@ async function main(): Promise<void> {
       break;
     case 'transactions':
       out = { cases: await transactions() };
+      break;
+    case 'lowered':
+      out = { cases: await lowered() };
       break;
     // One case at a time: some cases time header sources out.
     case 'evm-scenarios': {

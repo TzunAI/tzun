@@ -996,7 +996,10 @@ export async function createAnchorScheduler(options: AnchorSchedulerOptions): Pr
    * read since: the write that replaces a stored attempt can rewrite those
    * too. A transaction the same key signed at another nonce, over other
    * calldata or with a value, is not this publication's. Its recipient, gas
-   * and fees are not compared: item 2 reads none of them.
+   * and fees are not compared with what was asked: §10.4 never reads the
+   * recipient (§7.2 rule 3), and item 2 reads the gas and fees only to bound
+   * them and to keep the tip at or below the cap, which `unsendable` has
+   * already checked.
    */
   const unsendableAs = (raw: string, held: HeldPublication | undefined): Unsendable | null => {
     const refused = unsendable(raw, held?.fromAddress ?? null);

@@ -56,9 +56,10 @@ rewritten to the engine's exact version at publish time.
   works, with the endpoint passed as `request["openrouter_endpoint"]`.
   `attach()` detects an OpenAI client whose `base_url` host is
   `openrouter.ai` as `openrouter` and records its base URL; `vendor=
-  "openrouter"` pins the vendor for any base URL. `parse_model_id` gains the
-  `openrouter` rule, and `openrouter_author` and `openrouter_variant_base` are
-  the id helpers.
+  "openrouter"` pins the vendor for any base URL. It intercepts the same two
+  methods as for `openai`, `chat.completions.create` and `responses.create`.
+  `parse_model_id` gains the `openrouter` rule, and `openrouter_author` and
+  `openrouter_variant_base` are the id helpers.
 - 39 `openrouter` entries in the bundled known-models reference
   (`data/known-models.json`, version `2026-10-15`), for selected current
   models of OpenAI, Anthropic, Google, Meta, Mistral AI, xAI, DeepSeek, Qwen,

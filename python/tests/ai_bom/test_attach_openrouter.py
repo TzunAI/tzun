@@ -14,6 +14,7 @@ The fake clients and responses are synthetic.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -108,6 +109,23 @@ class _FakeSyncOpenAI:
         self.chat = self._Chat(response)
 
 
+class _FakeOpenAIWithResponses(_FakeOpenAI):
+    """Adds ``responses.create``, with no ``**kwargs``: like openai-python's, it refuses an unknown kwarg."""
+
+    class _Responses:
+        def __init__(self, response: dict[str, Any]) -> None:
+            self.response = response
+            self.calls: list[dict[str, Any]] = []
+
+        async def create(self, *, model: str, input: Any, temperature: float | None = None) -> dict[str, Any]:
+            self.calls.append({"model": model, "input": input, "temperature": temperature})
+            return self.response
+
+    def __init__(self, base_url: str, response: dict[str, Any]) -> None:
+        super().__init__(base_url, response)
+        self.responses = self._Responses(response)
+
+
 def capture_input() -> DecisionInput:
     return DecisionInput(action="approved", decider=DECIDER, reason="ok")
 
@@ -139,8 +157,79 @@ async def _stored_ai_bom(tzun: Tzun) -> tuple[dict[str, Any], dict[str, Any]]:
     return ai_bom, ai_output
 
 
-def test_openrouter_intercepts_chat_completions_only() -> None:
-    assert INTERCEPTED_PATHS["openrouter"] == [("chat", "completions", "create")]
+def test_openrouter_intercepts_the_methods_openai_does() -> None:
+    """An OpenAI client on openrouter.ai was the openai vendor before: every call it intercepted stays intercepted."""
+    assert INTERCEPTED_PATHS["openrouter"] == INTERCEPTED_PATHS["openai"]
+
+
+async def test_responses_create_on_openrouter_is_intercepted_and_recorded() -> None:
+    """``responses.create`` is intercepted too: ``tzun_capture`` never reaches the client, which would refuse it."""
+    response = {"id": "resp_0000", "object": "response", "model": "openai/gpt-oss-120b", "provider": "OpenAI", "output": []}
+    inner = _FakeOpenAIWithResponses("https://openrouter.ai/api/v1/", response)
+    tzun, registered = await _init()
+    try:
+        wrapped = attach(inner, tzun=tzun)
+        out = await wrapped.responses.create(
+            model="openai/gpt-oss-120b", input="Approve?", temperature=0.2, tzun_capture=capture_input()
+        )
+        assert out is response
+        assert inner.responses.calls == [{"model": "openai/gpt-oss-120b", "input": "Approve?", "temperature": 0.2}]
+        assert len(registered) == 1
+        assert (registered[0].vendor, registered[0].modelName) == ("openrouter", "openai/gpt-oss-120b")
+        ai_bom, _ = await _stored_ai_bom(tzun)
+        assert ai_bom["infrastructure"] == {
+            "provider": "OpenAI",
+            "region": None,
+            "apiVersion": None,
+            "endpoint": "https://openrouter.ai/api/v1",
+        }
+        assert ai_bom["inferenceParameters"]["temperature"] == 0.2
+    finally:
+        await tzun.close()
+
+
+async def test_responses_create_through_a_real_openai_client() -> None:
+    """openai-python itself, on an httpx mock transport: the request it sends carries no ``tzun_capture``."""
+    openai = pytest.importorskip("openai")
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_0000",
+                "object": "response",
+                "created_at": 1790000000,
+                "model": "openai/gpt-oss-120b",
+                "provider": "OpenAI",
+                "status": "completed",
+                "output": [],
+                "parallel_tool_calls": False,
+                "tool_choice": "auto",
+                "tools": [],
+            },
+        )
+
+    client = openai.OpenAI(
+        api_key="sk-or-placeholder",
+        base_url="https://openrouter.ai/api/v1",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tzun, registered = await _init()
+    try:
+        wrapped = attach(client, tzun=tzun)
+        wrapped.responses.create(model="openai/gpt-oss-120b", input="Approve?", tzun_capture=capture_input())
+        assert [r.url.path for r in requests] == ["/api/v1/responses"]
+        body = json.loads(requests[0].content)
+        assert "tzun_capture" not in body and "openrouter_endpoint" not in body
+        assert len(registered) == 1 and registered[0].vendor == "openrouter"
+        ai_bom, _ = await _stored_ai_bom(tzun)
+        assert ai_bom["infrastructure"]["endpoint"] == "https://openrouter.ai/api/v1"
+        assert ai_bom["infrastructure"]["provider"] == "OpenAI"
+    finally:
+        client.close()
+        await tzun.close()
 
 
 async def test_detects_a_client_on_openrouter_and_records_the_gateway_truthfully() -> None:

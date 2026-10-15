@@ -58,8 +58,10 @@ INTERCEPTED_PATHS: dict[str, list[tuple[str, ...]]] = {
     "vertex": [("generate_content",), ("predict",)],
     "azure_ai": [("complete",), ("chat",)],
     # An OpenAI SDK client pointed at OpenRouter: OpenAI's call surface, the
-    # gateway's records.
-    "openrouter": [("chat", "completions", "create")],
+    # gateway's records. The same two methods as openai, since OpenRouter
+    # serves both APIs and a call through either must not reach openai-python
+    # with the tzun_capture kwarg.
+    "openrouter": [("chat", "completions", "create"), ("responses", "create")],
 }
 
 

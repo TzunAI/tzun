@@ -47,6 +47,11 @@ Field mapping::
 ``route``, ``transforms``, ``reasoning`` and ``usage`` are request options, not
 AI-BOM members, and are not read.
 
+``attach()`` hands this connector OpenRouter's Responses API calls
+(``responses.create``) too, as it hands the ``openai`` connector OpenAI's. They
+are read by the same mapping, so a Responses parameter with another name
+(``max_output_tokens``) is not recorded.
+
 The URL helpers use string operations only: ``urllib.parse`` and JavaScript's
 ``URL`` disagree on host case, default ports and IDNA, which would make the two
 SDKs record different strings for one client. They follow the TS helpers step
@@ -220,7 +225,7 @@ class _OpenRouterConnector:
         response: dict[str, Any] | Any,
         known_models: dict[str, Any] | None = None,
     ) -> AiBomSkeleton | None:
-        """Build an AiBomSkeleton from an OpenRouter chat-completions call.
+        """Build an AiBomSkeleton from an OpenRouter chat-completions or Responses call.
 
         Args:
             params: Request kwargs, plus the ``openrouter_endpoint`` hint when

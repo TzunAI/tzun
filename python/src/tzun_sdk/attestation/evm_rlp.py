@@ -22,12 +22,14 @@ decoder meets them, so neither SDK's answer depends on how deep a host's stack
 is. The decoder itself does not recurse.
 
 A decoded item is ``bytes`` or a ``list`` of items. The encoder writes the one
-canonical encoding of such a value.
+canonical encoding of such a value, and :func:`rlp_form` tells that encoding from
+the others the decoder reads: a raw transaction must be in it (tzun-anchor/1
+§10.4 item 2, Encoding), a header or a trie node need not.
 """
 
 from __future__ import annotations
 
-from typing import Final, TypeAlias
+from typing import Final, Literal, TypeAlias
 
 RlpItem: TypeAlias = "bytes | list[RlpItem]"
 
@@ -111,6 +113,75 @@ def decode_rlp(data: bytes) -> RlpItem:
             return item
 
 
+def rlp_form(data: bytes) -> Literal["canonical", "non-canonical", "malformed"]:
+    """How ``data`` is written as RLP, read from its bytes alone, without recursion.
+
+    - ``"malformed"``: it is not an RLP item: it is empty, or a string, list or
+      length runs past the data or past the list that holds it;
+    - ``"non-canonical"``: it is an RLP item, but not in the one encoding RLP gives
+      its value: a single byte below ``0x80`` written as a one-byte string, a length
+      in the long form when the short form holds it, a long-form length with a
+      leading zero byte, or bytes after the item;
+    - ``"canonical"``: anything else.
+
+    This is the RLP half of tzun-anchor/1 §10.4 item 2's **Encoding** rule, which
+    :mod:`tzun_sdk.attestation.evm_transaction` applies to a raw transaction.
+    ``evmRlpForm`` in src/attestation/blockchain.ts is the same function.
+    :func:`decode_rlp` reads every form, as headers and trie nodes need.
+    """
+    canonical = True
+
+    def item(pos: int, bound: int) -> tuple[int, int, bool] | None:
+        """The (start, end, is_list) of the item whose prefix is at ``pos``, inside a
+        list or the data that ends at ``bound``; None when it runs past."""
+        nonlocal canonical
+        prefix = data[pos]
+        if prefix < 0x80:
+            return pos, pos + 1, False
+        is_list = prefix >= 0xC0
+        short = prefix - (0xC0 if is_list else 0x80)
+        start = pos + 1
+        length = short
+        if short > 55:
+            start += short - 55
+            if start > bound:
+                return None
+            length = int.from_bytes(data[pos + 1 : start], "big")
+            if data[pos + 1] == 0 or length <= 55:
+                canonical = False
+        end = start + length
+        if end > bound:
+            return None
+        if not is_list and length == 1 and data[start] < 0x80:
+            canonical = False
+        return start, end, is_list
+
+    if not data:
+        return "malformed"
+    outer = item(0, len(data))
+    if outer is None:
+        return "malformed"
+    start, end, is_list = outer
+    if end != len(data):
+        canonical = False
+    # The ends of the lists open at ``pos``, innermost last.
+    ends = [end] if is_list else []
+    pos = start
+    while ends:
+        if pos == ends[-1]:
+            ends.pop()
+            continue
+        nxt = item(pos, ends[-1])
+        if nxt is None:
+            return "malformed"
+        if nxt[2]:
+            ends.append(nxt[1])
+            pos = nxt[0]
+        else:
+            pos = nxt[1]
+    return "canonical" if canonical else "non-canonical"
+
+
 def _length_prefix(offset: int, length: int) -> bytes:
     if length <= 55:
         return bytes([offset + length])
@@ -134,4 +205,4 @@ def encode_rlp(value: RlpItem) -> bytes:
     raise TypeError(f"cannot RLP-encode a {type(value).__name__}")
 
 
-__all__ = ("MAX_RLP_DEPTH", "RlpError", "RlpItem", "decode_rlp", "encode_rlp")
+__all__ = ("MAX_RLP_DEPTH", "RlpError", "RlpItem", "decode_rlp", "encode_rlp", "rlp_form")

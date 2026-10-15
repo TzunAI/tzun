@@ -24,16 +24,18 @@
  *
  * The transaction cases are signed here, deterministically (RFC 6979), by a
  * well-known throwaway key, or carry a signature built so that it recovers a
- * chosen way; ethers supplies keccak-256, RLP, signing and public-key
- * recovery. Whether item 2 refuses each one is read by a transcription of its
- * rules written for this script, checked against what the case was built to
- * be, and the verdict is stated from §10.4.
+ * chosen way; ethers supplies keccak-256, RLP encoding, signing and public-key
+ * recovery. An Encoding case writes the same signed values in other bytes. The
+ * rules of item 2 each case breaks are read by a transcription of them written
+ * for this script (its own strict RLP reader for Encoding), which must find
+ * exactly the rule the case was built to break, and the verdict is stated
+ * from §10.4.
  * `pnpm run regenerate:vectors -- --anvil` rewrites it right after
  * anchor-e2e-vectors.json, whose epoch 0 it copies.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { N, Signature, SigningKey, computeAddress, encodeRlp, keccak256, toBeHex, type RlpStructuredData } from 'ethers';
+import { N, Signature, SigningKey, computeAddress, encodeRlp, getBytes, keccak256, toBeHex, type RlpStructuredData } from 'ethers';
 
 const E2E = JSON.parse(readFileSync(join(__dirname, '..', 'vectors', 'anchor-e2e-vectors.json'), 'utf8')) as {
   chain: string;
@@ -269,6 +271,8 @@ for (const w of ['admits', 'excludes', 'malformed'] as const) {
 const HALF_N = N / 2n;
 /** The field prime of secp256k1. */
 const FIELD_P = 2n ** 256n - 2n ** 32n - 977n;
+const MAX_UINT64 = 2n ** 64n - 1n;
+const MAX_UINT256 = 2n ** 256n - 1n;
 
 function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
   let result = 1n;
@@ -297,10 +301,20 @@ interface Built {
   v: bigint;
   r: bigint;
   s: bigint;
+  /**
+   * How the envelope departs from the canonical encoding of these values, if
+   * it does: one signed field (by index) written as other bytes, the outer
+   * list's length written with a leading zero byte, or bytes after the list.
+   */
+  rewrite?: { field?: [number, string]; paddedListLength?: true; trailing?: string };
 }
 
-/** Which rule of item 2 a transaction breaks, or null when item 2 reads it and a key recovers. */
-type Rule = 'typed-chain-id' | 'legacy-v' | 'signature-scalars' | 'fee-cap' | 'public-key-recovery';
+/**
+ * The rules of §10.4 item 2, by the specification's bold labels: Chain id,
+ * Legacy v, Signature values, Fees, Recovery, Encoding, Field sizes.
+ */
+type Rule = 'chain-id' | 'legacy-v' | 'signature-values' | 'fees' | 'recovery' | 'encoding' | 'field-sizes';
+const RULES: readonly Rule[] = ['chain-id', 'legacy-v', 'signature-values', 'fees', 'recovery', 'encoding', 'field-sizes'];
 
 /** The digest a signature over these fields signs; a legacy v at or above 35 signs EIP-155's chain fields. */
 function signingDigest(type: TxType, body: RlpStructuredData[], v: bigint): string {
@@ -309,20 +323,98 @@ function signingDigest(type: TxType, body: RlpStructuredData[], v: bigint): stri
   return keccak256(encodeRlp([...body, scalar((v - 35n) / 2n), '0x', '0x']));
 }
 
+/** Each type's signed fields, by name, in order. */
+const FIELDS: Record<TxType, string[]> = {
+  0: ['nonce', 'gasPrice', 'gasLimit', 'to', 'value', 'data', 'v', 'r', 's'],
+  1: ['chainId', 'nonce', 'gasPrice', 'gasLimit', 'to', 'value', 'data', 'accessList', 'yParity', 'r', 's'],
+  2: ['chainId', 'nonce', 'maxPriorityFeePerGas', 'maxFeePerGas', 'gasLimit', 'to', 'value', 'data', 'accessList', 'yParity', 'r', 's'],
+};
+const BYTE_FIELDS = new Set(['to', 'data', 'accessList']);
+
 /**
- * The rules of §10.4 item 2 a signed transaction can break, read from its
- * fields: a typed chain id of 0; a legacy v other than 27, 28 or 37 and above
- * (chainId * 2 + 35 or + 36 for a chain id of 1 or more); r outside [1, n - 1],
- * s outside [1, n/2] or a typed yParity other than 0 or 1; an EIP-1559 tip above
- * its fee cap; and a signature from which no public key recovers.
+ * Whether `raw` is the canonical RLP of its fields (Encoding): read strictly
+ * here, each prefix in its one canonical form, nothing after the outer list,
+ * and each integer field with no leading zero byte.
  */
-function breaks(t: Built): Rule | null {
-  if (t.type !== 0 && num(t.body[0]) < 1n) return 'typed-chain-id';
-  if (t.type === 0 && t.v !== 27n && t.v !== 28n && t.v < 37n) return 'legacy-v';
-  if (t.r < 1n || t.r >= N || t.s < 1n || t.s > HALF_N) return 'signature-scalars';
-  if (t.type !== 0 && t.v !== 0n && t.v !== 1n) return 'signature-scalars';
-  if (t.type === 2 && num(t.body[2]) > num(t.body[3])) return 'fee-cap';
-  return recovered(t) === null ? 'public-key-recovery' : null;
+function canonicalEncoding(type: TxType, raw: string): boolean {
+  const bytes = getBytes(raw).slice(type === 0 ? 0 : 1);
+  /** The item at `pos`: its value (bytes or a list) and where it ends, or null when its prefix is not canonical. */
+  function read(pos: number): { value: Uint8Array | unknown[]; end: number } | null {
+    const prefix = bytes[pos];
+    if (prefix < 0x80) return { value: bytes.slice(pos, pos + 1), end: pos + 1 };
+    const isList = prefix >= 0xc0;
+    const short = prefix - (isList ? 0xc0 : 0x80);
+    let start = pos + 1;
+    let length = short;
+    if (short > 55) {
+      const lengthBytes = bytes.slice(pos + 1, pos + 1 + (short - 55));
+      if (lengthBytes[0] === 0) return null;
+      length = Number(BigInt('0x' + Buffer.from(lengthBytes).toString('hex')));
+      if (length <= 55) return null;
+      start += short - 55;
+    }
+    const end = start + length;
+    if (end > bytes.length) throw new Error('an envelope this script built runs past its bytes');
+    if (!isList) {
+      if (length === 1 && bytes[start] < 0x80) return null;
+      return { value: bytes.slice(start, end), end };
+    }
+    const items: unknown[] = [];
+    for (let p = start; p < end; ) {
+      const child = read(p);
+      if (child === null) return null;
+      items.push(child.value);
+      p = child.end;
+    }
+    return { value: items, end };
+  }
+  const outer = read(0);
+  if (outer === null || outer.end !== bytes.length || !Array.isArray(outer.value)) return false;
+  return FIELDS[type].every((name, i) => {
+    if (BYTE_FIELDS.has(name)) return true;
+    const field = outer.value[i] as Uint8Array;
+    return field.length === 0 || field[0] !== 0;
+  });
+}
+
+/** Field sizes: the fields over their bound, by name. */
+function oversized(t: Built): string[] {
+  const values = new Map(FIELDS[t.type].slice(0, -3).map((name, i) => [name, t.body[i]]));
+  const bounds: Array<[string, bigint]> = [
+    ['nonce', MAX_UINT64],
+    ['gasLimit', MAX_UINT64],
+    ['chainId', MAX_UINT256],
+    ['value', MAX_UINT256],
+    ['gasPrice', MAX_UINT256],
+    ['maxPriorityFeePerGas', MAX_UINT256],
+    ['maxFeePerGas', MAX_UINT256],
+  ];
+  const over = bounds.filter(([name, max]) => values.has(name) && num(values.get(name)!) > max).map(([name]) => name);
+  if (t.type === 0 && t.v > 2n * MAX_UINT256 + 36n) over.push('v');
+  return over;
+}
+
+/**
+ * Every rule of §10.4 item 2 the envelope `raw` of `t` breaks: Encoding (the
+ * canonical RLP of its fields, integers minimal); Field sizes (nonce and
+ * gasLimit at most 2^64 - 1, chain id, value, gasPrice and the fees at most
+ * 2^256 - 1, a legacy v at most 2 * (2^256 - 1) + 36); Chain id (a typed
+ * chain id of 1 or more); Legacy v (27, 28, or 37 and above, which is
+ * chainId * 2 + 35 or + 36 for a chain id of 1 or more); Signature values (r
+ * in [1, n - 1], s in [1, n/2], a typed yParity of 0 or 1); Fees (an EIP-1559
+ * tip at most its fee cap). Recovery (a public key recovers) is read only when
+ * every other rule holds.
+ */
+function broken(t: Built, raw: string): Rule[] {
+  const out: Rule[] = [];
+  if (!canonicalEncoding(t.type, raw)) out.push('encoding');
+  if (oversized(t).length > 0) out.push('field-sizes');
+  if (t.type !== 0 && num(t.body[0]) < 1n) out.push('chain-id');
+  if (t.type === 0 && t.v !== 27n && t.v !== 28n && t.v < 37n) out.push('legacy-v');
+  if (t.r < 1n || t.r >= N || t.s < 1n || t.s > HALF_N || (t.type !== 0 && t.v !== 0n && t.v !== 1n)) out.push('signature-values');
+  if (t.type === 2 && num(t.body[2]) > num(t.body[3])) out.push('fees');
+  if (out.length === 0 && recovered(t) === null) out.push('recovery');
+  return out;
 }
 
 /** The address the signature recovers over the transaction's digest, or null when no public key recovers. */
@@ -338,10 +430,20 @@ function recovered(t: Built): string | null {
   }
 }
 
-/** The signed envelope: `type ‖ rlp(fields)`, or `rlp(fields)` for legacy. */
+/** The signed envelope: `type ‖ rlp(fields)`, or `rlp(fields)` for legacy, with `t.rewrite` applied. */
 function envelope(t: Built): string {
-  const fields = encodeRlp([...t.body, scalar(t.v), scalar(t.r), scalar(t.s)]);
-  return t.type === 0 ? fields : `0x0${t.type}${fields.slice(2)}`;
+  const items = [...t.body, scalar(t.v), scalar(t.r), scalar(t.s)].map((x) => encodeRlp(x).slice(2));
+  const w = t.rewrite ?? {};
+  if (w.field) items[w.field[0]] = w.field[1].replace(/^0x/, '');
+  const payload = items.join('');
+  const length = payload.length / 2;
+  if (length <= 55) throw new Error('every transaction case is a long list');
+  const lengthHex = toBeHex(length).slice(2);
+  const header = w.paddedListLength
+    ? (0xf7 + lengthHex.length / 2 + 1).toString(16) + '00' + lengthHex
+    : (0xf7 + lengthHex.length / 2).toString(16) + lengthHex;
+  const list = header + payload + (w.trailing ?? '');
+  return t.type === 0 ? `0x${list}` : `0x0${t.type}${list}`;
 }
 
 /** The chain id the fields sign: a typed transaction's first field, a legacy EIP-155 v's, 0 for v 27 or 28. */
@@ -358,16 +460,35 @@ const KEY_ADDRESS = computeAddress(KEY.publicKey).toLowerCase();
 const TX_CHAIN = 1n;
 const TX_P = '0x' + epoch.p;
 
-function typedBody(type: 1 | 2, opts: { chainId?: bigint; nonce?: number; tip?: bigint; cap?: bigint } = {}): RlpStructuredData[] {
-  const head = [scalar(opts.chainId ?? TX_CHAIN), scalar(opts.nonce ?? 0)];
-  const fees = type === 2 ? [scalar(opts.tip ?? 1_000_000_000n), scalar(opts.cap ?? 3_000_000_000n)] : [scalar(2_000_000_000n)];
-  return [...head, ...fees, scalar(30_000), KEY_ADDRESS, '0x', TX_P, []];
+interface BodyOptions {
+  chainId?: bigint;
+  nonce?: bigint;
+  tip?: bigint;
+  cap?: bigint;
+  gasPrice?: bigint;
+  gasLimit?: bigint;
+  value?: bigint;
+}
+
+function typedBody(type: 1 | 2, opts: BodyOptions = {}): RlpStructuredData[] {
+  const head = [scalar(opts.chainId ?? TX_CHAIN), scalar(opts.nonce ?? 0n)];
+  const fees = type === 2 ? [scalar(opts.tip ?? 1_000_000_000n), scalar(opts.cap ?? 3_000_000_000n)] : [scalar(opts.gasPrice ?? 2_000_000_000n)];
+  return [...head, ...fees, scalar(opts.gasLimit ?? 30_000n), KEY_ADDRESS, scalar(opts.value ?? 0n), TX_P, []];
 }
 
 /** The key's signature over a typed body. */
 function signedTyped(type: 1 | 2, body: RlpStructuredData[]): Built {
   const sig = KEY.sign(signingDigest(type, body, 0n));
   return { type, body, v: BigInt(sig.yParity), r: BigInt(sig.r), s: BigInt(sig.s) };
+}
+
+/** The key's signature over the first typed body, from nonce `opts.nonce` up, whose signature has this parity (or this property). */
+function signedTypedWhere(type: 1 | 2, opts: BodyOptions, want: (t: Built) => boolean): Built {
+  for (let nonce = opts.nonce ?? 0n; nonce < (opts.nonce ?? 0n) + 4096n; nonce++) {
+    const t = signedTyped(type, typedBody(type, { ...opts, nonce }));
+    if (want(t)) return t;
+  }
+  throw new Error('no nonce in 4096 gives a signature of this kind');
 }
 
 /** The key's legacy signature: EIP-155 for chainId when it is not null, else unprotected; at the first nonce with this parity. */
@@ -407,50 +528,92 @@ const atInfinity: Built = {
   s: 1n,
 };
 
+// Encoding: the same values, other bytes. Field indexes are of the signed EIP-1559 list.
+const nonce1 = signedTyped(2, typedBody(2, { nonce: 1n }));
+const nonce5 = signedTyped(2, typedBody(2, { nonce: 5n }));
+const parity0 = signedTypedWhere(2, {}, (t) => t.v === 0n);
+const parity1 = signedTypedWhere(2, {}, (t) => t.v === 1n);
+const shortR = signedTypedWhere(2, {}, (t) => t.r < 2n ** 248n);
+const legacy37 = signedLegacy(TX_CHAIN, 0);
+const MAX_LEGACY_CHAIN = MAX_UINT256;
+
 const transactionSpecs: Array<{ id: string; name: string; built: Built; rule: Rule | null; signer: 'key' | 'recovered' }> = [
-  // A typed transaction signs a chain id of 1 or more.
-  { id: 'type2-chain-id-0', name: 'EIP-1559 signed by the publisher for chain id 0', built: signedTyped(2, typedBody(2, { chainId: 0n })), rule: 'typed-chain-id', signer: 'key' },
-  { id: 'type1-chain-id-0', name: 'EIP-2930 signed by the publisher for chain id 0', built: signedTyped(1, typedBody(1, { chainId: 0n })), rule: 'typed-chain-id', signer: 'key' },
+  // Chain id: a typed transaction signs a chain id of 1 or more.
+  { id: 'type2-chain-id-0', name: 'EIP-1559 signed by the publisher for chain id 0', built: signedTyped(2, typedBody(2, { chainId: 0n })), rule: 'chain-id', signer: 'key' },
+  { id: 'type1-chain-id-0', name: 'EIP-2930 signed by the publisher for chain id 0', built: signedTyped(1, typedBody(1, { chainId: 0n })), rule: 'chain-id', signer: 'key' },
   { id: 'type2-chain-id-1', name: 'EIP-1559 signed by the publisher for chain id 1', built: base2, rule: null, signer: 'key' },
   { id: 'type1-chain-id-1', name: 'EIP-2930 signed by the publisher for chain id 1', built: signedTyped(1, typedBody(1)), rule: null, signer: 'key' },
 
-  // A legacy v is 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more.
+  // Legacy v: 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more.
   { id: 'legacy-v-35', name: 'legacy v 35: an EIP-155 signature by the publisher for chain id 0', built: signedLegacy(0n, 0), rule: 'legacy-v', signer: 'key' },
   { id: 'legacy-v-36', name: 'legacy v 36: an EIP-155 signature by the publisher for chain id 0', built: signedLegacy(0n, 1), rule: 'legacy-v', signer: 'key' },
   { id: 'legacy-v-34', name: 'legacy v 34: the publisher\'s v-27 signature with v one below 35', built: { ...signedLegacy(null, 0), v: 34n }, rule: 'legacy-v', signer: 'key' },
-  { id: 'legacy-v-37', name: 'legacy v 37: an EIP-155 signature by the publisher for chain id 1', built: signedLegacy(TX_CHAIN, 0), rule: null, signer: 'key' },
+  { id: 'legacy-v-37', name: 'legacy v 37: an EIP-155 signature by the publisher for chain id 1', built: legacy37, rule: null, signer: 'key' },
   { id: 'legacy-v-38', name: 'legacy v 38: an EIP-155 signature by the publisher for chain id 1', built: signedLegacy(TX_CHAIN, 1), rule: null, signer: 'key' },
   { id: 'legacy-v-27', name: 'legacy v 27: unprotected, signed by the publisher, so it names no chain (item 5)', built: signedLegacy(null, 0), rule: null, signer: 'key' },
   { id: 'legacy-v-28', name: 'legacy v 28: unprotected, signed by the publisher, so it names no chain (item 5)', built: signedLegacy(null, 1), rule: null, signer: 'key' },
 
-  // r in [1, n - 1], s in [1, n/2] (EIP-2), a typed yParity of 0 or 1.
-  { id: 'type2-high-s', name: 'EIP-1559 with the publisher\'s signature as n - s and the other parity, which recovers the same key', built: highS(base2), rule: 'signature-scalars', signer: 'key' },
-  { id: 'legacy-high-s', name: 'legacy v 37 with the publisher\'s signature as n - s and v 38, which recovers the same key', built: highS(signedLegacy(TX_CHAIN, 0)), rule: 'signature-scalars', signer: 'key' },
+  // Signature values: r in [1, n - 1], s in [1, n/2] (EIP-2), a typed yParity of 0 or 1.
+  { id: 'type2-high-s', name: 'EIP-1559 with the publisher\'s signature as n - s and the other parity, which recovers the same key', built: highS(base2), rule: 'signature-values', signer: 'key' },
+  { id: 'legacy-high-s', name: 'legacy v 37 with the publisher\'s signature as n - s and v 38, which recovers the same key', built: highS(legacy37), rule: 'signature-values', signer: 'key' },
   { id: 'type2-s-half-n', name: 'EIP-1559 with s exactly n/2 (floor), the smallest r that recovers, yParity 0', built: atHalf, rule: null, signer: 'recovered' },
-  { id: 'type2-s-half-n-plus-1', name: 'EIP-1559 with s = n/2 + 1, the same r and yParity 1, which recovers the same key as the n/2 case', built: { ...atHalf, v: 1n, s: HALF_N + 1n }, rule: 'signature-scalars', signer: 'recovered' },
+  { id: 'type2-s-half-n-plus-1', name: 'EIP-1559 with s = n/2 + 1, the same r and yParity 1, which recovers the same key as the n/2 case', built: { ...atHalf, v: 1n, s: HALF_N + 1n }, rule: 'signature-values', signer: 'recovered' },
   { id: 'type2-s-1', name: 'EIP-1559 with s = 1, the smallest r that recovers, yParity 0', built: { ...base2, v: 0n, r: firstR(true), s: 1n }, rule: null, signer: 'recovered' },
-  { id: 'type2-r-0', name: 'EIP-1559 with r = 0', built: { ...base2, r: 0n }, rule: 'signature-scalars', signer: 'key' },
-  { id: 'type2-s-0', name: 'EIP-1559 with s = 0', built: { ...base2, s: 0n }, rule: 'signature-scalars', signer: 'key' },
-  { id: 'type2-r-n', name: 'EIP-1559 with r = n', built: { ...base2, r: N }, rule: 'signature-scalars', signer: 'key' },
-  { id: 'type2-s-n', name: 'EIP-1559 with s = n', built: { ...base2, s: N }, rule: 'signature-scalars', signer: 'key' },
-  { id: 'type2-y-parity-2', name: 'EIP-1559 with the publisher\'s r and s and yParity 2', built: { ...base2, v: 2n }, rule: 'signature-scalars', signer: 'key' },
+  { id: 'type2-r-0', name: 'EIP-1559 with r = 0', built: { ...base2, r: 0n }, rule: 'signature-values', signer: 'key' },
+  { id: 'type2-s-0', name: 'EIP-1559 with s = 0', built: { ...base2, s: 0n }, rule: 'signature-values', signer: 'key' },
+  { id: 'type2-r-n', name: 'EIP-1559 with r = n', built: { ...base2, r: N }, rule: 'signature-values', signer: 'key' },
+  { id: 'type2-s-n', name: 'EIP-1559 with s = n', built: { ...base2, s: N }, rule: 'signature-values', signer: 'key' },
+  { id: 'type2-y-parity-2', name: 'EIP-1559 with the publisher\'s r and s and yParity 2', built: { ...base2, v: 2n }, rule: 'signature-values', signer: 'key' },
 
-  // An EIP-1559 tip is at most its fee cap.
+  // Fees: an EIP-1559 tip is at most its fee cap.
   { id: 'type2-tip-equals-cap', name: 'EIP-1559 signed by the publisher with maxPriorityFeePerGas equal to maxFeePerGas', built: signedTyped(2, typedBody(2, { tip: 3_000_000_000n, cap: 3_000_000_000n })), rule: null, signer: 'key' },
-  { id: 'type2-tip-above-cap', name: 'EIP-1559 signed by the publisher with maxPriorityFeePerGas one wei above maxFeePerGas', built: aboveCap, rule: 'fee-cap', signer: 'key' },
+  { id: 'type2-tip-above-cap', name: 'EIP-1559 signed by the publisher with maxPriorityFeePerGas one wei above maxFeePerGas', built: aboveCap, rule: 'fees', signer: 'key' },
 
-  // A public key recovers from the signature.
-  { id: 'type2-r-not-x-coordinate', name: 'EIP-1559 with an r that is no point\'s x-coordinate', built: { ...base2, v: 0n, r: firstR(false), s: 1n }, rule: 'public-key-recovery', signer: 'key' },
-  { id: 'type2-recovers-infinity', name: 'EIP-1559 with a signature from which recovery gives the point at infinity', built: atInfinity, rule: 'public-key-recovery', signer: 'key' },
+  // Recovery: a public key recovers from the signature.
+  { id: 'type2-r-not-x-coordinate', name: 'EIP-1559 with an r that is no point\'s x-coordinate', built: { ...base2, v: 0n, r: firstR(false), s: 1n }, rule: 'recovery', signer: 'key' },
+  { id: 'type2-recovers-infinity', name: 'EIP-1559 with a signature from which recovery gives the point at infinity', built: atInfinity, rule: 'recovery', signer: 'key' },
+
+  // Encoding: the canonical RLP of the fields. Each is the publisher's signature over the
+  // canonical encoding of the same values, so a reader that takes the values recovers the key.
+  { id: 'type2-nonce-leading-zero', name: 'EIP-1559 signed by the publisher with nonce 1 written 0x820001, an integer with a leading zero byte', built: { ...nonce1, rewrite: { field: [1, '0x820001'] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-nonce-byte-as-string', name: 'EIP-1559 signed by the publisher with nonce 5 written 0x8105, a single byte below 0x80 as a one-byte string', built: { ...nonce5, rewrite: { field: [1, '0x8105'] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-chain-id-leading-zero', name: 'EIP-1559 signed by the publisher for chain id 1, written 0x820001', built: { ...base2, rewrite: { field: [0, '0x820001'] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-y-parity-0-as-zero-byte', name: 'EIP-1559 signed by the publisher with yParity 0 written 0x00, not the empty string', built: { ...parity0, rewrite: { field: [9, '0x00'] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-y-parity-1-as-string', name: 'EIP-1559 signed by the publisher with yParity 1 written 0x8101', built: { ...parity1, rewrite: { field: [9, '0x8101'] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-r-leading-zero', name: 'EIP-1559 signed by the publisher, its r (below 2^248) written as 32 bytes with a leading zero byte', built: { ...shortR, rewrite: { field: [10, '0xa0' + toBeHex(shortR.r, 32).slice(2)] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-data-long-form', name: 'EIP-1559 signed by the publisher with its 32 bytes of calldata in the long string form (0xb820)', built: { ...base2, rewrite: { field: [7, '0xb820' + TX_P.slice(2)] } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-list-length-padded', name: 'EIP-1559 signed by the publisher, the list\'s length written with a leading zero byte', built: { ...base2, rewrite: { paddedListLength: true } }, rule: 'encoding', signer: 'key' },
+  { id: 'type2-trailing-byte', name: 'EIP-1559 signed by the publisher, one byte after the list', built: { ...base2, rewrite: { trailing: '00' } }, rule: 'encoding', signer: 'key' },
+  { id: 'legacy-gas-price-leading-zero', name: 'legacy v 37 signed by the publisher with gasPrice written with a leading zero byte', built: { ...legacy37, rewrite: { field: [1, '0x85' + '00' + scalar(2_000_000_000n).slice(2)] } }, rule: 'encoding', signer: 'key' },
+
+  // Field sizes: nonce and gasLimit at most 2^64 - 1, chain id, value, gasPrice and the fees
+  // at most 2^256 - 1, a legacy v at most 2 * (2^256 - 1) + 36.
+  { id: 'type2-nonce-2^53+1', name: 'EIP-1559 signed by the publisher with nonce 2^53 + 1, above a JavaScript safe integer', built: signedTyped(2, typedBody(2, { nonce: 2n ** 53n + 1n })), rule: null, signer: 'key' },
+  { id: 'type2-nonce-2^64-1', name: 'EIP-1559 signed by the publisher with nonce 2^64 - 1', built: signedTyped(2, typedBody(2, { nonce: MAX_UINT64 })), rule: null, signer: 'key' },
+  { id: 'type2-nonce-2^64', name: 'EIP-1559 signed by the publisher with nonce 2^64', built: signedTyped(2, typedBody(2, { nonce: MAX_UINT64 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type2-gas-limit-2^64-1', name: 'EIP-1559 signed by the publisher with gasLimit 2^64 - 1', built: signedTyped(2, typedBody(2, { gasLimit: MAX_UINT64 })), rule: null, signer: 'key' },
+  { id: 'type2-gas-limit-2^64', name: 'EIP-1559 signed by the publisher with gasLimit 2^64', built: signedTyped(2, typedBody(2, { gasLimit: MAX_UINT64 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type2-value-2^256-1', name: 'EIP-1559 signed by the publisher with value 2^256 - 1', built: signedTyped(2, typedBody(2, { value: MAX_UINT256 })), rule: null, signer: 'key' },
+  { id: 'type2-value-2^256', name: 'EIP-1559 signed by the publisher with value 2^256', built: signedTyped(2, typedBody(2, { value: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type2-max-fee-2^256-1', name: 'EIP-1559 signed by the publisher with maxFeePerGas 2^256 - 1', built: signedTyped(2, typedBody(2, { cap: MAX_UINT256 })), rule: null, signer: 'key' },
+  { id: 'type2-max-fee-2^256', name: 'EIP-1559 signed by the publisher with maxFeePerGas 2^256', built: signedTyped(2, typedBody(2, { cap: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type1-gas-price-2^256', name: 'EIP-2930 signed by the publisher with gasPrice 2^256', built: signedTyped(1, typedBody(1, { gasPrice: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'type2-chain-id-2^256-1', name: 'EIP-1559 signed by the publisher for chain id 2^256 - 1 (item 5)', built: signedTyped(2, typedBody(2, { chainId: MAX_UINT256 })), rule: null, signer: 'key' },
+  { id: 'type2-chain-id-2^256', name: 'EIP-1559 signed by the publisher for chain id 2^256', built: signedTyped(2, typedBody(2, { chainId: MAX_UINT256 + 1n })), rule: 'field-sizes', signer: 'key' },
+  { id: 'legacy-v-max', name: 'legacy v 2 * (2^256 - 1) + 36: an EIP-155 signature by the publisher for chain id 2^256 - 1 (item 5)', built: signedLegacy(MAX_LEGACY_CHAIN, 1), rule: null, signer: 'key' },
+  { id: 'legacy-v-above-max', name: 'legacy v 2 * 2^256 + 35: an EIP-155 signature by the publisher for chain id 2^256', built: signedLegacy(MAX_LEGACY_CHAIN + 1n, 0), rule: 'field-sizes', signer: 'key' },
 ];
 
 /** What every transaction case's publication claims for its block: offline, nothing checks it. */
 const TX_BLOCK = { blockNumber: 1, blockHash: keccak256(new TextEncoder().encode('tzun-anchor/1 §10.4 item 2')) };
 const blockedCheck: Check = { outcome: 'not-checked', reason: 'blocked_by:anchor.evm.tx' };
 const transactionCases = transactionSpecs.map(({ id, name, built, rule, signer }) => {
-  const found = breaks(built);
-  if (found !== rule) throw new Error(`${id}: built to break ${rule ?? 'nothing'}, but breaks ${found ?? 'nothing'}`);
   const raw = envelope(built);
+  const found = broken(built, raw);
+  if (found.join() !== (rule ?? '')) throw new Error(`${id}: built to break ${rule ?? 'nothing'}, but breaks ${found.join(' and ') || 'nothing'}`);
+  // A case refused for its bytes or a field's size is otherwise the publisher's: read by
+  // value, its signature recovers the key.
+  if ((rule === 'encoding' || rule === 'field-sizes') && recovered(built) !== KEY_ADDRESS) throw new Error(`${id}: read by value, does not recover the key`);
   const sender = rule === null ? recovered(built) : null;
   if (rule === null && signer === 'key' && sender !== KEY_ADDRESS) throw new Error(`${id}: does not recover the key`);
   // The manifest names the key, or for a signature no key made, the address it recovers.
@@ -476,14 +639,14 @@ const transactionCases = transactionSpecs.map(({ id, name, built, rule, signer }
 const ids = new Set(transactionCases.map((c) => c.id));
 if (ids.size !== transactionCases.length) throw new Error('two transaction cases share an id');
 // Every rule is broken by some case, and some cases break none.
-for (const rule of ['typed-chain-id', 'legacy-v', 'signature-scalars', 'fee-cap', 'public-key-recovery', null] as const) {
+for (const rule of [...RULES, null]) {
   if (!transactionCases.some((c) => c.rule === rule)) throw new Error(`no case breaks ${rule ?? 'nothing'}`);
 }
 
 const out = {
   description:
     'The publisher-manifest validity cases of tzun-anchor/1 §9 and §13: a manifest entry for the real publisher whose validFrom or validUntil sits at, just inside or just outside the time of the block that holds the publication, the leap days the format allows and the leap second it refuses, and the verdict of tzun-anchor/1 §10.4 for each, presented three ways. Both ends of a window are inclusive and compared at full precision: a block time is a whole second, so a validFrom with any non-zero fraction admits only a block at a later second, and a validUntil with one still admits a block at its own second. ' +
-    'Then the transaction cases of §10.4 item 2: signed transactions at each edge of what item 2 refuses because no block on any chain a manifest can name holds such a transaction (a typed transaction on chain id 0; a legacy v of 35 or 36, or any other below 37 but 27 and 28; r outside [1, n - 1], s outside [1, n/2] or a typed yParity other than 0 or 1; an EIP-1559 tip above its fee cap; a signature from which no public key recovers), each with the transaction just inside the edge, and the verdict of §10.4 for each, offline. A refused transaction is false, malformed_publication, whatever an Ethereum library would recover from it. The header-source cases §13 also lists for this file are not in it.',
+    'Then the transaction cases of §10.4 item 2: signed transactions at each edge of the rules item 2 states (Chain id: a typed transaction on chain id 0; Legacy v: a v of 35 or 36, or any other below 37 but 27 and 28; Signature values: r outside [1, n - 1], s outside [1, n/2] or a typed yParity other than 0 or 1; Fees: an EIP-1559 tip above its fee cap; Recovery: a signature from which no public key recovers; Encoding: a rawTransaction that is not the canonical RLP of its fields; Field sizes: a nonce or gasLimit above 2^64 - 1, a chain id, value, gasPrice or fee above 2^256 - 1, or a legacy v above 2 * (2^256 - 1) + 36), each with the transaction just inside the edge where there is one, and the verdict of §10.4 for each, offline. No block on a chain a manifest can name can include, today, a transaction that breaks one of these rules. A refused transaction is false, malformed_publication, whatever an Ethereum library would recover from it. The header-source cases §13 also lists for this file are not in it.',
   source:
     'Generated by scripts/generate-evm-anchor-vectors.ts, which reads each bound by its own transcription of §9 (full precision, the fraction kept as digits) and states each verdict from §10.4, calling no SDK code. The publication, its block and the publisher are epoch 0 of anchor-e2e-vectors.json, byte for byte: signed and mined on anvil, and checked there by the Go gate with go-ethereum. The transaction cases are signed by the script with the throwaway key of the EIP-155 example (0x46 repeated, RFC 6979 signatures), or carry a signature built to recover a chosen way, and the script reads each against its own transcription of §10.4 item 2. scripts/regenerate-vectors.ts --anvil rewrites this file right after anchor-e2e-vectors.json.',
   format: {
@@ -497,7 +660,7 @@ const out = {
     modes:
       'header: the publication as given (blockHeader, txIndex and txProof carried), with headerSource, so the window is judged at the header\'s time (§10.4 item 6) and again at the time the source confirms (item 13). noHeader: the publication without blockHeader, txIndex and txProof, with headerSource, so the window is judged only at the time the source confirms, and the source\'s lookup places the transaction (item 12). offline: the publication as given and no header source, so the header can make the publication fail but never pass.',
     transactionCases:
-      'chain, blockNumber and blockHash: what every case\'s publication claims (no header, no trie proof, no header source: offline). A case is { "kind": "evm-calldata/1", "chain": chain, "transactionId": transactionId, "rawTransaction": rawTransaction, "blockNumber": blockNumber, "blockHash": blockHash }, verified for P = p of this file and anchorOrigin, with the manifest { "publishers": { anchorOrigin: [ { "address": publisher, "chain": chain, "namespace": "test" } ] } }. Each case: id; name; rule, the rule of item 2 it breaks (typed-chain-id, legacy-v, signature-scalars, fee-cap, public-key-recovery), or null when item 2 reads it; item2, refuses or reads; rawTransaction and transactionId (its keccak-256); publisher, the address the signing key has, or for a signature no key made, the address it recovers (for a high s, read as n - s with the other parity); sender, the address item 2 recovers (null when it refuses); expect, the verdict of verifyEvmPublication, as for validityBounds.',
+      'chain, blockNumber and blockHash: what every case\'s publication claims (no header, no trie proof, no header source: offline). A case is { "kind": "evm-calldata/1", "chain": chain, "transactionId": transactionId, "rawTransaction": rawTransaction, "blockNumber": blockNumber, "blockHash": blockHash }, verified for P = p of this file and anchorOrigin, with the manifest { "publishers": { anchorOrigin: [ { "address": publisher, "chain": chain, "namespace": "test" } ] } }. Each case: id; name; rule, the rule of item 2 it breaks, by the specification\'s label (chain-id: Chain id, legacy-v: Legacy v, signature-values: Signature values, fees: Fees, recovery: Recovery, encoding: Encoding, field-sizes: Field sizes), or null when item 2 reads it; each refused case breaks that rule and no other; item2, refuses or reads; rawTransaction and transactionId (its keccak-256); publisher, the address the signing key has, or for a signature no key made, the address it recovers (for a high s, read as n - s with the other parity); sender, the address item 2 recovers (null when it refuses); expect, the verdict of verifyEvmPublication, as for validityBounds. An encoding or field-sizes case is the signing key\'s signature over the canonical encoding of the same field values, so a reader that took the values would recover the publisher.',
   },
   chain: E2E.chain,
   anchorOrigin: E2E.anchorOrigin,

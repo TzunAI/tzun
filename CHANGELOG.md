@@ -27,33 +27,63 @@ rewritten to the engine's exact version at publish time.
 ### Changed
 
 - The `evm-calldata/1` publication verifier (`verifyEvmPublication`,
-  `verify_evm_publication`) states the rules of tzun-anchor/1 §10.4 item 2 it
-  applies, so its verdict no longer depends on what an Ethereum library
-  recovers. Each of these is now `false`, `malformed_publication`, in both
-  SDKs:
-  - a typed transaction (EIP-2930, EIP-1559) signed for chain id 0;
-  - a legacy transaction whose `v` is not 27, 28, or `chainId * 2 + 35` or
+  `verify_evm_publication`) applies the seven rules tzun-anchor/1 §10.4 item 2
+  states for a transaction to decode and yield a sender, itself, before any
+  signature is recovered. On the points those rules cover, the outcome and
+  reason no longer depend on the Ethereum library a verifier uses; on other
+  points they still can. Each of these is now `false`, `malformed_publication`,
+  in both SDKs:
+  - **Chain id**: a typed transaction (EIP-2930, EIP-1559) signed for chain id
+    0;
+  - **Legacy v**: a legacy `v` other than 27, 28, or `chainId * 2 + 35` or
     `+ 36` for a chain id of 1 or more, so `v` 35 and 36;
-  - a signature with `r` outside [1, n - 1], `s` outside [1, n/2] (EIP-2), or
-    a typed `yParity` other than 0 or 1;
-  - an EIP-1559 transaction whose `maxPriorityFeePerGas` exceeds its
-    `maxFeePerGas`;
-  - a signature from which no public key recovers.
+  - **Signature values**: `r` outside [1, n - 1], `s` outside [1, (n - 1) / 2]
+    (EIP-2), or a typed `yParity` other than 0 or 1;
+  - **Fees**: an EIP-1559 `maxPriorityFeePerGas` above its `maxFeePerGas`;
+  - **Recovery**: a signature from which no public key recovers;
+  - **Encoding**: a `rawTransaction` that is not the canonical RLP of its
+    fields: an integer with a leading zero byte (0 must be the empty string),
+    a single byte below `0x80` written as a one-byte string, a length not in
+    its minimal form, or anything after the list;
+  - **Field sizes**: a `nonce` or `gasLimit` above 2^64 - 1; a chain id,
+    `value`, `gasPrice`, `maxPriorityFeePerGas` or `maxFeePerGas` above
+    2^256 - 1; a legacy `v` above 2 * (2^256 - 1) + 36.
 
-  No block on any chain a manifest can name holds such a transaction, so no
-  real anchor is refused. Before, ethers recovered a sender for a typed
-  transaction on chain id 0 and for a high `s` (read as `n - s`), so such a
-  publication from a listed publisher was `evm_chain_mismatch` or `true`;
-  go-ethereum recovers one for a legacy `v` of 35 or 36 and for a tip above
-  the fee cap, which ethers refuses. An unprotected legacy transaction (`v`
-  27 or 28) is read as before, and §10.4 item 5 refuses its chain. Types
-  other than 0, 1 and 2 abstain as before. See TzunAI/tzun-verify#37.
-- `decodeEvmTransaction` (`src/attestation/blockchain.ts`) reads a signed
-  transaction as item 2 does, and `decode_signed_transaction`
-  (`tzun_sdk.attestation.evm_transaction`) refuses what it refuses.
+  No block on a chain a manifest can name can include such a transaction
+  today, so no real anchor is refused. Before, ethers recovered a sender for a
+  typed transaction on chain id 0, for a high `s` (read as `n - s`), for
+  non-canonical RLP and for a `gasLimit` of 2^64 or more, so such a
+  publication from a listed publisher could be `evm_chain_mismatch` or
+  `true`; go-ethereum recovers one for a legacy `v` of 35 or 36, for a tip
+  above the fee cap, and for a `value` or fee of 2^256 or more, which ethers
+  refuses. An unprotected legacy transaction (`v` 27 or 28) is read as
+  before, and §10.4 item 5 refuses its chain. Types other than 0, 1 and 2
+  abstain as before. See TzunAI/tzun-verify#37.
+
+### Fixed
+
+- A transaction with a `nonce` from 2^53 to 2^64 - 1 is read and its sender
+  recovered. A chain can hold such a nonce, and the SDKs refused it as
+  `malformed_publication` only because ethers reads a nonce as a JavaScript
+  safe integer (the Python SDK copied that limit). A legacy `v` above
+  2^256 - 1 (a chain id of 2^255 or more) is read for the same reason.
+
+### Added
+
+- `readEvmTransaction` and `evmRlpForm` (`src/attestation/blockchain.ts`,
+  exported from that module, not from the package entry) read a signed
+  transaction as item 2 does and report the rule it breaks; ethers supplies
+  RLP decoding, keccak-256 and secp256k1 recovery, and no longer reads the
+  transaction (`Transaction.from`). `decodeEvmTransaction` returns the
+  transaction or `null`. In Python, `decode_signed_transaction`
+  (`tzun_sdk.attestation.evm_transaction`) raises `EvmTransactionError` with
+  the same rule as `.rule`, and `rlp_form` (`tzun_sdk.attestation.evm_rlp`)
+  is `evmRlpForm`.
 - `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
-  transactions at each edge of item 2, those it refuses and those just inside
-  each rule, with the verdict for each. Its existing cases are unchanged.
+  transactions at each edge of each rule of item 2, those it refuses and those
+  just inside, each refused case with the one rule it breaks (`chain-id`,
+  `legacy-v`, `signature-values`, `fees`, `recovery`, `encoding`,
+  `field-sizes`), and the verdict for each. Its existing cases are unchanged.
 
 ## [0.8.2] — 2026-10-06
 

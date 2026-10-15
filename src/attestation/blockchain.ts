@@ -2,15 +2,17 @@ import {
   FetchRequest,
   JsonRpcProvider,
   Network,
+  Signature,
   Transaction,
   decodeRlp,
   encodeRlp,
   getBytes,
+  hexlify,
   keccak256,
+  recoverAddress,
   toBeHex,
   type AccessList,
   type RlpStructuredData,
-  type Signature,
 } from 'ethers';
 import type { EvmFinality, PublisherManifest, PublisherManifestEntry } from '@tzun/engine';
 
@@ -65,8 +67,9 @@ export type EvmPublicationReason =
   /**
    * The publication is present but unreadable: a field is missing or
    * mistyped, or §10.4 item 2 refuses the raw transaction (see
-   * {@link decodeEvmTransaction}): it does not parse, is unsigned, breaks a
-   * rule no transaction in a block breaks, or recovers no public key.
+   * {@link readEvmTransaction}): it is not a signed transaction of type 0, 1
+   * or 2, or it breaks one of the rules item 2 states (Chain id, Legacy v,
+   * Signature values, Fees, Recovery, Encoding, Field sizes).
    */
   | 'malformed_publication'
   /** Not decided. `checks` names what was missing: see {@link EvmNotCheckedReason}. */
@@ -440,8 +443,12 @@ function rlpSafeInt(item: RlpStructuredData): number | null {
 
 /** The order n of the secp256k1 group; `SECP256K1_N` in the Python SDK's `evm_transaction`. */
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-/** ⌊n/2⌋: the largest s EIP-2 allows. */
+/** ⌊n/2⌋, which is (n − 1) / 2 because n is odd: the largest s EIP-2 allows. */
 const SECP256K1_HALF_N = SECP256K1_N / 2n;
+const MAX_UINT64 = 2n ** 64n - 1n;
+const MAX_UINT256 = 2n ** 256n - 1n;
+/** The largest legacy v: chainId * 2 + 36 for the largest chain id, 2^256 − 1. */
+const MAX_LEGACY_V = MAX_UINT256 * 2n + 36n;
 
 /** A signed transaction as tzun-anchor/1 §10.4 item 2 reads it. */
 export interface EvmSignedTransaction {
@@ -455,85 +462,278 @@ export interface EvmSignedTransaction {
   sender: string;
 }
 
-/** An RLP scalar's value, leading zero bytes read by value; `null` for a list. */
-function rlpScalar(item: RlpStructuredData): bigint | null {
-  if (typeof item !== 'string') return null;
-  return item === '0x' ? 0n : BigInt(item);
-}
-
 /**
- * Whether a signed transaction's RLP fields keep the rules of §10.4 item 2
- * that no transaction in a block on any chain breaks, read before any library
- * is asked for a sender:
- *
- * - a typed transaction (EIP-2930, EIP-1559) signs a chain id of 1 or more;
- * - a legacy transaction's `v` is 27 or 28 (unprotected: item 5 decides its
- *   chain), or `chainId * 2 + 35` or `+ 36` for a chain id of 1 or more, so
- *   `v` 35 and 36, which would sign chain id 0, are refused;
- * - `r` is in [1, n - 1] and `s` in [1, n/2] (EIP-2), n the secp256k1 order,
- *   and a typed transaction's `yParity` is 0 or 1;
- * - an EIP-1559 transaction's `maxPriorityFeePerGas` is at most its
- *   `maxFeePerGas`.
- *
- * Stating them here makes the verdict independent of the Ethereum library,
- * and libraries differ on each: ethers 6.17 recovers a sender for a typed
- * transaction on chain id 0 and for a high `s`, where go-ethereum refuses
- * both, and go-ethereum recovers one for a legacy `v` of 35 or 36 and for a
- * tip above the fee cap, where ethers refuses both. A field count other than
- * the signed form's is refused too.
+ * A rule of tzun-anchor/1 §10.4 item 2, by the name
+ * `vectors/evm-anchor-vectors.json` gives it: **Chain id**, **Legacy v**,
+ * **Signature values**, **Fees**, **Recovery**, **Encoding** and **Field
+ * sizes**.
  */
-function itemTwoAdmits(type: 0 | 1 | 2, fields: RlpStructuredData): boolean {
-  if (!Array.isArray(fields)) return false;
-  const signedLength = type === 0 ? 9 : type === 1 ? 11 : 12;
-  if (fields.length !== signedLength) return false;
-  // The signature closes every signed form: legacy `v, r, s`, typed `yParity, r, s`.
-  const [vOrYParity, r, s] = fields.slice(signedLength - 3).map(rlpScalar);
-  if (vOrYParity === null || r === null || s === null) return false;
-  if (type === 0) {
-    const v = vOrYParity;
-    if (v !== 27n && v !== 28n && v < 37n) return false;
-  } else {
-    const chainId = rlpScalar(fields[0]);
-    if (chainId === null || chainId < 1n) return false;
-    if (vOrYParity !== 0n && vOrYParity !== 1n) return false;
-  }
-  if (r < 1n || r >= SECP256K1_N || s < 1n || s > SECP256K1_HALF_N) return false;
-  if (type === 2) {
-    const tip = rlpScalar(fields[2]);
-    const cap = rlpScalar(fields[3]);
-    if (tip === null || cap === null || tip > cap) return false;
-  }
-  return true;
-}
+export type EvmItemTwoRule =
+  | 'chain-id'
+  | 'legacy-v'
+  | 'signature-values'
+  | 'fees'
+  | 'recovery'
+  | 'encoding'
+  | 'field-sizes';
 
 /**
- * Read a signed legacy, EIP-2930 or EIP-1559 transaction envelope and recover
- * its sender (tzun-anchor/1 §10.4 item 2), or `null` when item 2 refuses it.
+ * What {@link readEvmTransaction} makes of a raw transaction: the transaction
+ * and its sender, or the rule of item 2 it breaks. `rule` is `null` when the
+ * bytes are not a signed transaction of type 0, 1 or 2 at all: not one RLP
+ * item, another type, the wrong number of fields, or a field of the wrong
+ * shape.
+ */
+export type EvmTransactionReading =
+  | { ok: true; transaction: EvmSignedTransaction }
+  | { ok: false; rule: EvmItemTwoRule | null };
+
+/**
+ * How `data` is written as RLP, read from its bytes alone, without recursion:
  *
- * `raw` is `type ‖ rlp(payload)` for a typed transaction, or `rlp(fields)`
- * for a legacy one (first byte `0xc0` or above). The rules of item 2 that no
- * real transaction breaks are applied first, from the RLP fields (see
- * `itemTwoAdmits`); ethers then reads the fields' shapes and recovers the
- * sender, and a signature from which no public key recovers is refused. Any
- * other type is refused. The Python SDK's `decode_signed_transaction` accepts
- * and refuses the same envelopes and recovers the same sender.
+ * - `'malformed'`: it is not an RLP item: it is empty, or a string, list or
+ *   length runs past the data or past the list that holds it;
+ * - `'non-canonical'`: it is an RLP item, but not in the one encoding RLP
+ *   gives its value: a single byte below `0x80` written as a one-byte string,
+ *   a length in the long form when the short form holds it, a long-form
+ *   length with a leading zero byte, or bytes after the item;
+ * - `'canonical'`: anything else.
+ *
+ * This is the RLP half of item 2's **Encoding** rule; that integers carry no
+ * leading zero byte is checked on the fields. `rlp_form` in the Python SDK's
+ * `evm_rlp` is the same function. {@link decodeEvmRlp} reads every form, as
+ * headers and trie nodes need.
+ */
+export function evmRlpForm(data: Uint8Array): 'canonical' | 'non-canonical' | 'malformed' {
+  let canonical = true;
+  /** The item whose prefix is at `pos`, inside a list or the data that ends at `bound`; null when it runs past. */
+  const item = (pos: number, bound: number): { start: number; end: number; list: boolean } | null => {
+    const prefix = data[pos];
+    if (prefix < 0x80) return { start: pos, end: pos + 1, list: false };
+    const list = prefix >= 0xc0;
+    const short = prefix - (list ? 0xc0 : 0x80);
+    let start = pos + 1;
+    let length = short;
+    if (short > 55) {
+      start += short - 55;
+      if (start > bound) return null;
+      length = 0;
+      for (let i = pos + 1; i < start; i++) length = length * 256 + data[i];
+      if (data[pos + 1] === 0 || length <= 55) canonical = false;
+    }
+    const end = start + length;
+    if (end > bound) return null;
+    if (!list && length === 1 && data[start] < 0x80) canonical = false;
+    return { start, end, list };
+  };
+  if (data.length === 0) return 'malformed';
+  const outer = item(0, data.length);
+  if (outer === null) return 'malformed';
+  if (outer.end !== data.length) canonical = false;
+  // The ends of the lists open at `pos`, innermost last.
+  const ends: number[] = outer.list ? [outer.end] : [];
+  let pos = outer.start;
+  while (ends.length > 0) {
+    if (pos === ends[ends.length - 1]) {
+      ends.pop();
+      continue;
+    }
+    const next = item(pos, ends[ends.length - 1]);
+    if (next === null) return 'malformed';
+    if (next.list) ends.push(next.end);
+    pos = next.list ? next.start : next.end;
+  }
+  return canonical ? 'canonical' : 'non-canonical';
+}
+
+type TxField =
+  | 'chainId'
+  | 'nonce'
+  | 'gasPrice'
+  | 'maxPriorityFeePerGas'
+  | 'maxFeePerGas'
+  | 'gasLimit'
+  | 'to'
+  | 'value'
+  | 'data'
+  | 'accessList'
+  | 'v'
+  | 'yParity'
+  | 'r'
+  | 's';
+
+/** Each type's signed fields, in order. */
+const SIGNED_FIELDS: Record<0 | 1 | 2, readonly TxField[]> = {
+  0: ['nonce', 'gasPrice', 'gasLimit', 'to', 'value', 'data', 'v', 'r', 's'],
+  1: ['chainId', 'nonce', 'gasPrice', 'gasLimit', 'to', 'value', 'data', 'accessList', 'yParity', 'r', 's'],
+  2: ['chainId', 'nonce', 'maxPriorityFeePerGas', 'maxFeePerGas', 'gasLimit', 'to', 'value', 'data', 'accessList', 'yParity', 'r', 's'],
+};
+
+/** The fields that are integers, which the **Encoding** rule writes with no leading zero byte. */
+const INTEGER_FIELDS: ReadonlySet<TxField> = new Set<TxField>([
+  'chainId', 'nonce', 'gasPrice', 'maxPriorityFeePerGas', 'maxFeePerGas', 'gasLimit', 'value', 'v', 'yParity', 'r', 's',
+]);
+
+/** **Field sizes**: the largest value of each integer field it bounds (`r`, `s` and `yParity` are bounded by **Signature values**). */
+const FIELD_MAX: ReadonlyArray<readonly [TxField, bigint]> = [
+  ['chainId', MAX_UINT256],
+  ['nonce', MAX_UINT64],
+  ['gasPrice', MAX_UINT256],
+  ['maxPriorityFeePerGas', MAX_UINT256],
+  ['maxFeePerGas', MAX_UINT256],
+  ['gasLimit', MAX_UINT64],
+  ['value', MAX_UINT256],
+  ['v', MAX_LEGACY_V],
+];
+
+/** A byte string's length, from its `0x` hex. */
+const byteLength = (hex: string) => (hex.length - 2) / 2;
+
+/** An access list's shape: a list of `[20-byte address, [32-byte storage keys]]`. */
+function isAccessList(item: RlpStructuredData): boolean {
+  return (
+    Array.isArray(item) &&
+    item.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        entry.length === 2 &&
+        typeof entry[0] === 'string' &&
+        byteLength(entry[0]) === 20 &&
+        Array.isArray(entry[1]) &&
+        entry[1].every((key) => typeof key === 'string' && byteLength(key) === 32),
+    )
+  );
+}
+
+/** An integer as RLP writes it: no leading zero byte, and 0 as the empty string. */
+const rlpInteger = (n: bigint): string => (n === 0n ? '0x' : toBeHex(n));
+
+/**
+ * Read a signed legacy, EIP-2930 or EIP-1559 transaction envelope as
+ * tzun-anchor/1 §10.4 item 2 reads it: the transaction and its recovered
+ * sender, or the rule of item 2 it breaks (see {@link EvmTransactionReading}).
+ *
+ * `raw` is `type ‖ rlp(fields)` for a typed transaction, or `rlp(fields)` for
+ * a legacy one (first byte `0xc0` or above). Item 2's rules are applied here,
+ * on the bytes and then on the fields read as integers of any size, before
+ * any signature is recovered, and the first one broken is reported:
+ *
+ * 1. **Encoding**: the bytes after the type are the canonical RLP of one list
+ *    and nothing after it ({@link evmRlpForm}), and no integer field has a
+ *    leading zero byte (0 is the empty string).
+ * 2. **Field sizes**: `nonce` and `gasLimit` are at most 2^64 − 1; the chain
+ *    id, `value`, `gasPrice`, `maxPriorityFeePerGas` and `maxFeePerGas` at
+ *    most 2^256 − 1; a legacy `v` at most 2 × (2^256 − 1) + 36.
+ * 3. **Chain id**: a typed transaction's chain id is 1 or more.
+ * 4. **Legacy v**: 27 or 28 (unprotected: item 5 decides its chain), or
+ *    `chainId * 2 + 35` or `+ 36` for a chain id of 1 or more, so `v` 35 and
+ *    36 are refused.
+ * 5. **Signature values**: `r` in [1, n − 1] and `s` in [1, (n − 1) / 2]
+ *    (EIP-2), n the secp256k1 order, and a typed `yParity` of 0 or 1.
+ * 6. **Fees**: an EIP-1559 `maxPriorityFeePerGas` is at most its
+ *    `maxFeePerGas`.
+ * 7. **Recovery**: a public key recovers from the signature over the
+ *    transaction's signing payload, built here from the fields (EIP-2718 type
+ *    byte and the unsigned fields; for legacy EIP-155, the chain id, 0 and 0).
+ *
+ * The field shapes (the signed form's field count, a `to` of 0 or 20 bytes,
+ * an access list of 20-byte addresses and 32-byte keys) are checked first
+ * among the fields, and a transaction that breaks one is not a transaction at
+ * all (`rule` null). ethers supplies the RLP decoding of a canonical item,
+ * keccak-256, and secp256k1 public-key recovery; it does not read the
+ * transaction, so no ethers limit (its nonce, for one, is a safe integer)
+ * applies. The Python SDK's `decode_signed_transaction` reads and refuses the
+ * same envelopes, for the same rule, and recovers the same sender.
  *
  * Never throws.
  */
-export function decodeEvmTransaction(raw: string): EvmSignedTransaction | null {
+export function readEvmTransaction(raw: string): EvmTransactionReading {
+  const refused = (rule: EvmItemTwoRule | null): EvmTransactionReading => ({ ok: false, rule });
   try {
-    if (!isHex(raw) || raw === '0x') return null;
-    const first = parseInt(raw.slice(2, 4), 16);
-    const type = first >= 0xc0 ? 0 : first === 1 || first === 2 ? first : null;
-    if (type === null) return null;
-    if (!itemTwoAdmits(type, decodeEvmRlp(type === 0 ? raw : '0x' + raw.slice(4)))) return null;
-    const tx = Transaction.from(raw);
-    // Recovering the sender fails on a signature that parses but recovers no public key.
-    if (!tx.isSigned() || !tx.from) return null;
-    return { type, chainId: tx.chainId, data: tx.data.toLowerCase(), sender: tx.from.toLowerCase() };
+    if (!isHex(raw) || raw === '0x') return refused(null);
+    const bytes = getBytes(raw);
+    const type = bytes[0] >= 0xc0 ? 0 : bytes[0] === 1 || bytes[0] === 2 ? bytes[0] : null;
+    if (type === null) return refused(null);
+    const payload = type === 0 ? bytes : bytes.subarray(1);
+
+    const form = evmRlpForm(payload);
+    if (form === 'malformed') return refused(null);
+    if (form === 'non-canonical') return refused('encoding');
+
+    const names = SIGNED_FIELDS[type];
+    const decoded = decodeEvmRlp(hexlify(payload));
+    if (!Array.isArray(decoded) || decoded.length !== names.length) return refused(null);
+    const fields = new Map<TxField, RlpStructuredData>(names.map((name, i) => [name, decoded[i]]));
+    for (const [name, item] of fields) {
+      if (name === 'accessList' ? !isAccessList(item) : typeof item !== 'string') return refused(null);
+    }
+    const to = fields.get('to') as string;
+    if (to !== '0x' && byteLength(to) !== 20) return refused(null);
+
+    const n = new Map<TxField, bigint>();
+    for (const name of names) {
+      if (!INTEGER_FIELDS.has(name)) continue;
+      const item = fields.get(name) as string;
+      if (item.startsWith('0x00')) return refused('encoding');
+      n.set(name, item === '0x' ? 0n : BigInt(item));
+    }
+    for (const [name, max] of FIELD_MAX) {
+      const value = n.get(name);
+      if (value !== undefined && value > max) return refused('field-sizes');
+    }
+    if (type !== 0 && (n.get('chainId') as bigint) < 1n) return refused('chain-id');
+    const v = type === 0 ? (n.get('v') as bigint) : null;
+    if (v !== null && v !== 27n && v !== 28n && v < 37n) return refused('legacy-v');
+    const r = n.get('r') as bigint;
+    const s = n.get('s') as bigint;
+    if (r < 1n || r >= SECP256K1_N || s < 1n || s > SECP256K1_HALF_N) return refused('signature-values');
+    const typedParity = type === 0 ? null : (n.get('yParity') as bigint);
+    if (typedParity !== null && typedParity !== 0n && typedParity !== 1n) return refused('signature-values');
+    if (type === 2 && (n.get('maxPriorityFeePerGas') as bigint) > (n.get('maxFeePerGas') as bigint)) {
+      return refused('fees');
+    }
+
+    // The signing payload, from the fields read as integers.
+    const unsigned: RlpStructuredData[] = names
+      .slice(0, -3)
+      .map((name) => (INTEGER_FIELDS.has(name) ? rlpInteger(n.get(name) as bigint) : (fields.get(name) as RlpStructuredData)));
+    let chainId: bigint;
+    let yParity: 0 | 1;
+    if (v === null) {
+      chainId = n.get('chainId') as bigint;
+      yParity = typedParity === 1n ? 1 : 0;
+    } else if (v === 27n || v === 28n) {
+      chainId = 0n;
+      yParity = v === 28n ? 1 : 0;
+    } else {
+      chainId = (v - 35n) / 2n;
+      yParity = (v - 35n) % 2n === 1n ? 1 : 0;
+      unsigned.push(rlpInteger(chainId), '0x', '0x');
+    }
+    const body = encodeRlp(unsigned);
+    const digest = keccak256(type === 0 ? body : `0x0${type}${body.slice(2)}`);
+
+    let sender: string;
+    try {
+      const signature = Signature.from({ r: toBeHex(r, 32), s: toBeHex(s, 32), yParity });
+      sender = recoverAddress(digest, signature).toLowerCase();
+    } catch {
+      // r is no point's x-coordinate, or the point recovered is the point at infinity.
+      return refused('recovery');
+    }
+    return { ok: true, transaction: { type, chainId, data: (fields.get('data') as string).toLowerCase(), sender } };
   } catch {
-    return null;
+    return refused(null);
   }
+}
+
+/**
+ * The transaction and sender {@link readEvmTransaction} reads from `raw`, or
+ * `null` when tzun-anchor/1 §10.4 item 2 refuses it. Never throws.
+ */
+export function decodeEvmTransaction(raw: string): EvmSignedTransaction | null {
+  const reading = readEvmTransaction(raw);
+  return reading.ok ? reading.transaction : null;
 }
 
 export interface EvmBlockHeader {

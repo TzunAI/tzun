@@ -191,6 +191,16 @@ export function encodeEnvelope(type: 0 | 1 | 2, fields: RlpStructuredData[]): st
   return type === 0 ? body : `0x0${type}${body.slice(2)}`;
 }
 
+/**
+ * The typed transaction `key` signs over these unsigned fields, as its signed
+ * envelope: for fields ethers will not sign, such as a nonce of 2^53 or more
+ * or a tip above the fee cap.
+ */
+export function signTypedFields(key: SigningKey, type: 1 | 2, unsigned: RlpStructuredData[]): string {
+  const sig = key.sign(keccak256(encodeEnvelope(type, unsigned)));
+  return encodeEnvelope(type, [...unsigned, q(BigInt(sig.yParity)), q(BigInt(sig.r)), q(BigInt(sig.s))]);
+}
+
 /** `raw` carrying another signature, which no key need have made: `v` is a legacy v or a typed yParity. */
 export function withSignature(raw: string, sig: { v: bigint; r: bigint; s: bigint }): string {
   const { type, fields } = envelopeFields(raw);

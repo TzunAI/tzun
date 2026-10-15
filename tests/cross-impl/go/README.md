@@ -115,11 +115,12 @@ here, their EVM half in `evm/`. The EVM anchor vectors
 (`evm-anchor-vectors.json`) hold the publisher-manifest validity cases of
 tzun-anchor/1 §9, over one publication that is `anchor-e2e-vectors.json`'s
 first, byte for byte, which `evm/` checks, and the transaction cases of §10.4
-item 2: signed transactions at each edge of what item 2 refuses, on which stock
-Ethereum libraries disagree with each other (go-ethereum recovers a sender for a
-legacy `v` of 35 or a tip above the fee cap, ethers for a typed chain id of 0 or
-a high `s`). The file is classified out of scope, and the TypeScript and Python
-suites hold its copy to the original and the SDKs to every case. Planned for
+item 2: signed transactions at each edge of each rule item 2 states, on which
+stock Ethereum libraries disagree with each other (go-ethereum recovers a sender
+for a legacy `v` of 35, a tip above the fee cap or a `value` of 2^256, ethers
+for a typed chain id of 0, a high `s`, non-canonical RLP or a `gasLimit` of
+2^64). The file is classified out of scope, and the TypeScript and Python suites
+hold its copy to the original and the SDKs to every case. Planned for
 this gate: Sepolia end-to-end vectors, and the EVM anchor vectors' own
 transactions (with go-ethereum).
 

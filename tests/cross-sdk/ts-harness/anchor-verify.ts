@@ -14,9 +14,10 @@
  *
  *   { action: "transactions" }
  *     → { cases: [{ name, raw }] }: ethers-signed transactions of every type
- *     the verifier reads, mutations of them, and signatures made at the
- *     edges of tzun-anchor/1 §10.4 item 2, for the "corpus" command, which
- *     reads each with `decodeEvmTransaction`.
+ *     the verifier reads, mutations of them, and transactions at the edges of
+ *     each rule of tzun-anchor/1 §10.4 item 2, for the "corpus" command, which
+ *     reads each with `readEvmTransaction`: the transaction and its sender, or
+ *     `{ refused: <rule> }` (null when no rule applies: not a transaction).
  *
  *   { action: "evm-scenarios" }
  *     → { cases: [{ name, input, sources, verdict }] }: publications, blocks
@@ -49,8 +50,8 @@ import { UnreadableTrustAnchorError } from '../../../src/attestation/rfc3161-tok
 import {
   DEFAULT_EVM_NETWORKS,
   decodeEvmRlp,
-  decodeEvmTransaction,
   parseEvmBlockHeader,
+  readEvmTransaction,
   verifyEvmPublication,
   verifyEvmTransactionProof,
   type EvmHeaderSource,
@@ -80,6 +81,7 @@ import {
   randomP,
   signAnchorTx,
   signLegacy,
+  signTypedFields,
   signatureOf,
   withSignature,
   type FabricatedBlock,
@@ -223,13 +225,12 @@ function corpus(c: Corpus): Record<string, unknown[]> {
     bindings: (c.bindings ?? []).map((b) => checkOriginBinding(b.anchorOrigin, b.logOrigin, b.chainId)),
     formats: (c.formats ?? []).map((f) => errorOr(() => ({ body: formatCheckpoint(f.origin as string, f.size as number, f.root as string) }))),
     rlp: (c.rlp ?? []).map((hex) => errorOr(() => ({ value: decodeEvmRlp(hex) }))),
-    transactions: (c.transactions ?? []).map((raw) =>
-      errorOr(() => {
-        const tx = decodeEvmTransaction(raw);
-        if (tx === null) throw new Error('refused by tzun-anchor/1 §10.4 item 2');
-        return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.sender };
-      }),
-    ),
+    transactions: (c.transactions ?? []).map((raw) => {
+      const reading = readEvmTransaction(raw);
+      if (!reading.ok) return { refused: reading.rule };
+      const tx = reading.transaction;
+      return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.sender };
+    }),
     headers: (c.headers ?? []).map((h) => parseEvmBlockHeader(h as string)),
     proofs: (c.proofs ?? []).map((p) => verifyEvmTransactionProof(p.root as string, p.index as number, p.proof as string[])),
     base64: (c.base64 ?? []).map((s) => Buffer.from(s, 'base64').toString('hex')),
@@ -366,6 +367,44 @@ async function transactions(): Promise<Array<{ name: string; raw: string }>> {
     r: BigInt(aboveSig.r),
     s: BigInt(aboveSig.s),
   }));
+
+  // Encoding: the canonical RLP of the fields. The publisher's EIP-1559
+  // transaction with its values written in other bytes.
+  const wrote = (i: number, bytes: string) => '0x02' + listOfEncoded(fields.map((f, j) => (j === i ? bytes : enc(f))));
+  add('a chain id with a leading zero byte', withField(0, '0x00' + (fields[0] as string).slice(2)));
+  add('a gas limit with a leading zero byte', withField(4, '0x00' + (fields[4] as string).slice(2)));
+  add('a nonce of 0 written 0x8100', wrote(1, '8100'));
+  add('a nonce of 5 written 0x8105', wrote(1, '8105'));
+  add('a list length with a leading zero byte', '0x02f900' + t2.slice(6));
+  add('two bytes after the list', t2 + '0000');
+  add('legacy gas price with a leading zero byte', legacyWith(1, '0x00' + (legacy[1] as string).slice(2)));
+  add('legacy trailing byte', t0 + '00');
+
+  // Field sizes, each signed by the publisher over its own values: nonce and
+  // gasLimit up to 2^64 - 1, the chain id, value and fees up to 2^256 - 1, a
+  // legacy v up to 2 * (2^256 - 1) + 36.
+  const signed2 = (over: Partial<Record<'chainId' | 'nonce' | 'tip' | 'cap' | 'gasLimit' | 'value', bigint>>) =>
+    signTypedFields(wallet.signingKey, 2, [
+      q(over.chainId ?? SEPOLIA), q(over.nonce ?? 0n), q(over.tip ?? 1_000_000_000n), q(over.cap ?? 3_000_000_000n),
+      q(over.gasLimit ?? 30_000n), wallet.address.toLowerCase(), q(over.value ?? 0n), p, [],
+    ]);
+  add('signed: nonce 2^53', signed2({ nonce: 2n ** 53n }));
+  add('signed: nonce 2^53 + 1', signed2({ nonce: 2n ** 53n + 1n }));
+  add('signed: nonce 2^64 - 1', signed2({ nonce: 2n ** 64n - 1n }));
+  add('signed: nonce 2^64', signed2({ nonce: 2n ** 64n }));
+  add('signed: gasLimit 2^64 - 1', signed2({ gasLimit: 2n ** 64n - 1n }));
+  add('signed: gasLimit 2^64', signed2({ gasLimit: 2n ** 64n }));
+  add('signed: value 2^256 - 1', signed2({ value: 2n ** 256n - 1n }));
+  add('signed: value 2^256', signed2({ value: 2n ** 256n }));
+  add('signed: maxFeePerGas 2^256', signed2({ cap: 2n ** 256n }));
+  add('signed: maxPriorityFeePerGas 2^256 above a fee cap of 7', signed2({ tip: 2n ** 256n, cap: 7n }));
+  add('signed: chain id 2^64', signed2({ chainId: 2n ** 64n }));
+  add('signed: chain id 2^256 - 1', signed2({ chainId: 2n ** 256n - 1n }));
+  add('signed: chain id 2^256', signed2({ chainId: 2n ** 256n }));
+  add('legacy chain id 2^255', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 255n, yParity: 0 }));
+  add('legacy v 2 * (2^256 - 1) + 36', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 256n - 1n, yParity: 1 }));
+  add('legacy chain id 2^256', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 256n, yParity: 0 }));
+  add('legacy gas price 2^256', legacyWith(1, q(2n ** 256n)));
 
   // Types the verifier does not parse are refused here too.
   add('type 3 header only', '0x03c0');

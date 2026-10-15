@@ -10,9 +10,13 @@ every check, reason and fact:
 - the RLP decoder, the transaction decoder and sender recovery, over
   ethers-signed transactions of every type the verifier reads and mutations the
   TypeScript side makes of them (non-canonical encodings, high s, bad parity,
-  out-of-range fields, bad access lists, legacy ``v`` values), and signatures at
-  each edge of §10.4 item 2 (typed chain id 0, legacy ``v`` 35 to 38, ``s`` at
-  and above n/2, a tip at and above the fee cap, an ``r`` no key recovers from);
+  out-of-range fields, bad access lists, legacy ``v`` values), and transactions
+  at each edge of each rule of §10.4 item 2 (typed chain id 0, legacy ``v`` 35 to
+  38, ``s`` at and above n/2, a tip at and above the fee cap, an ``r`` no key
+  recovers from, integers and lengths written non-canonically, bytes after the
+  list, a nonce or gasLimit at and above 2^64, amounts and chain ids at and
+  above 2^256, a legacy ``v`` at and above its size); a refused transaction must
+  be refused for the same rule in both;
 - the block-header reader and the transactions-trie walk, over two real Sepolia
   blocks, the anvil vectors and tries the TypeScript trie builder makes;
 - Node's base64 and asn1js's ``UTCTime`` and ``GeneralizedTime``, which decide
@@ -99,7 +103,12 @@ from tzun_sdk.attestation.evm_publication import (  # noqa: E402
     verify_evm_transaction_proof,
 )
 from tzun_sdk.attestation.evm_rlp import RlpItem, decode_rlp, encode_rlp  # noqa: E402
-from tzun_sdk.attestation.evm_transaction import decode_signed_transaction, keccak256  # noqa: E402
+from tzun_sdk.attestation.evm_transaction import (  # noqa: E402
+    ITEM_TWO_RULES,
+    EvmTransactionError,
+    decode_signed_transaction,
+    keccak256,
+)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 HARNESS = REPO_ROOT / "tests" / "cross-sdk" / "ts-harness" / "anchor-verify.ts"
@@ -282,7 +291,10 @@ def _parsed(r: Any) -> Any:
 
 
 def _transaction(raw: str) -> Any:
-    tx = decode_signed_transaction(bytes.fromhex(raw[2:]))
+    try:
+        tx = decode_signed_transaction(bytes.fromhex(raw[2:]))
+    except EvmTransactionError as exc:
+        return {"refused": exc.rule}
     return {
         "type": tx.type,
         "chainId": str(tx.chain_id),
@@ -791,7 +803,10 @@ def test_the_corpus(ts_transactions: list[dict[str, str]], ts_trie: dict[str, An
         assert_same(key, inputs, ts[key], py[key])
     # The corpus reaches what it is for: senders recovered, trie proofs walked, bodies read.
     assert sum(1 for r in ts["transactions"] if "sender" in r) >= 20
-    assert sum(1 for r in ts["transactions"] if r == {"error": True}) >= 20
+    # And refusals for every rule of §10.4 item 2, and for bytes that are no transaction.
+    refused = [r["refused"] for r in ts["transactions"] if "refused" in r]
+    assert len(refused) >= 20
+    assert set(refused) == {*ITEM_TWO_RULES, None}
     assert sum(1 for r in ts["proofs"] if r is not None) >= 30
     assert sum(1 for r in ts["bodies"] if r["ok"]) >= len(valid)
     # MAX_RLP_DEPTH lists decode and one more does not, in an item, a header's

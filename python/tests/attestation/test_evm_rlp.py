@@ -5,14 +5,16 @@ some non-canonical encodings (a single byte below 0x80 behind a prefix, a long
 form for a short length, leading zeros in a length). The Python decoder accepts
 exactly the same inputs, so an offline verdict never depends on which SDK read
 the bytes. ``tests/cross-sdk/test_anchor_verify_parity.py`` runs a corpus
-through both decoders.
+through both decoders. ``rlp_form`` tells a canonical encoding from the others,
+for the Encoding rule of tzun-anchor/1 §10.4 item 2, as the TypeScript SDK's
+``evmRlpForm`` does.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from tzun_sdk.attestation.evm_rlp import MAX_RLP_DEPTH, RlpError, decode_rlp, encode_rlp
+from tzun_sdk.attestation.evm_rlp import MAX_RLP_DEPTH, RlpError, decode_rlp, encode_rlp, rlp_form
 
 
 def h(text: str) -> bytes:
@@ -113,3 +115,55 @@ def encode_rlp_list_of(child: bytes) -> bytes:
 def test_encodes_integers_as_ethers_does() -> None:
     assert encode_rlp(b"") == h("80")
     assert encode_rlp([b"", b"\x00", b"\x01" * 60]) == h("f840" + "80" + "00" + "b83c" + "01" * 60)
+
+
+STR56 = "ab" * 56
+
+
+@pytest.mark.parametrize(
+    ("label", "encoded"),
+    [
+        ("a byte below 0x80 as itself", "05"),
+        ("the empty string", "80"),
+        ("a byte of 0x80 or more as a one-byte string", "8180"),
+        ("55 bytes in the short form", "b7" + "ab" * 55),
+        ("56 bytes in the long form", "b838" + STR56),
+        ("an empty list", "c0"),
+        ("nested lists", "c3c1c0c0"),
+        ("a list of 56 bytes in the long form", "f838" + "c0" * 56),
+    ],
+)
+def test_rlp_form_canonical(label: str, encoded: str) -> None:
+    assert rlp_form(h(encoded)) == "canonical", label
+
+
+@pytest.mark.parametrize(
+    ("label", "encoded"),
+    [
+        ("a byte below 0x80 as a one-byte string", "8105"),
+        ("zero as a one-byte string", "8100"),
+        ("a short length in the long form (string)", "b80105"),
+        ("a short length in the long form (list)", "f800"),
+        ("a long length with a leading zero byte (string)", "b90038" + STR56),
+        ("a long length with a leading zero byte (list)", "f90038" + "c0" * 56),
+        ("a byte after the item (decode_rlp refuses it too)", "0500"),
+        ("a byte after a list (decode_rlp refuses it too)", "c000"),
+        ("a non-canonical item inside a list", "c3c28105"),
+    ],
+)
+def test_rlp_form_non_canonical(label: str, encoded: str) -> None:
+    assert rlp_form(h(encoded)) == "non-canonical", label
+
+
+@pytest.mark.parametrize(
+    ("label", "encoded"),
+    [
+        ("nothing", ""),
+        ("a string that runs past the data", "81"),
+        ("a long length that runs past the data", "b9"),
+        ("a list that runs past the data", "c280"),
+        ("an item that runs past its list", "c18105"),
+    ],
+)
+def test_rlp_form_malformed(label: str, encoded: str) -> None:
+    assert rlp_form(h(encoded)) == "malformed", label

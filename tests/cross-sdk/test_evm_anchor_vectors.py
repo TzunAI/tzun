@@ -6,9 +6,9 @@ publisher whose ``validFrom`` or ``validUntil`` sits at, just inside or just
 outside the block time, compared at full precision, and dates
 §9 refuses. ``verify_evm_publication`` must give every case its stated verdict
 in each of the file's three modes. It also holds §10.4 item 2's transaction
-cases: a transaction no block on any chain holds is false,
-``malformed_publication``, and the one just inside each edge is read, with the
-sender the file states. These need the ``anchor`` extra: without it they are
+cases: a transaction that breaks one of the rules item 2 states is false,
+``malformed_publication``, refused for the very rule the file names, and the one
+just inside each edge is read, with the sender the file states. These need the ``anchor`` extra: without it they are
 skipped, except under CI, where they fail.
 
 This file needs no Node. ``tests/ts/evm-anchor-vectors.test.ts`` holds the
@@ -164,11 +164,13 @@ def test_every_case_gets_its_stated_verdict(case: dict[str, Any], mode: str) -> 
 
 def test_the_transaction_cases_break_each_rule_and_meet_each_at_its_edge() -> None:
     assert {c["rule"] for c in TX_CASES} == {
-        "typed-chain-id",
+        "chain-id",
         "legacy-v",
-        "signature-scalars",
-        "fee-cap",
-        "public-key-recovery",
+        "signature-values",
+        "fees",
+        "recovery",
+        "encoding",
+        "field-sizes",
         None,
     }
     assert len({c["id"] for c in TX_CASES}) == len(TX_CASES)
@@ -219,3 +221,20 @@ def test_every_transaction_case_gets_its_stated_verdict(case: dict[str, Any]) ->
         "canonical": e["canonical"],
         "sender": case["sender"],
     }
+
+
+@pytest.mark.parametrize("case", TX_CASES, ids=[c["id"] for c in TX_CASES])
+def test_every_transaction_case_breaks_the_rule_it_states(case: dict[str, Any]) -> None:
+    _needs_anchor_extra()
+    from tzun_sdk.attestation.evm_transaction import (
+        EvmTransactionError,
+        decode_signed_transaction,
+    )
+
+    raw = bytes.fromhex(case["rawTransaction"][2:])
+    if case["rule"] is None:
+        assert decode_signed_transaction(raw).sender == case["sender"]
+    else:
+        with pytest.raises(EvmTransactionError) as refused:
+            decode_signed_transaction(raw)
+        assert refused.value.rule == case["rule"]

@@ -92,12 +92,25 @@ rewritten to the engine's exact version at publish time.
     item 2 does not read (3, 4 and so on) is refused for its `type`, and the
     error's message names the type and says item 2 does not read it. A high
     `s` on a legacy `v` of 27 or 28 is never lowered: such a transaction
-    signs no chain id, and rule 3 requires one.
+    signs no chain id, and rule 3 requires one. A publisher passed to
+    `createAnchorScheduler` as `publisher` returns the bytes that are sent,
+    and nothing it returns is lowered: before anything it returns is stored
+    or enrols the wallet, the scheduler reads it the same way. It must meet
+    every rule as returned, a high `s` included, sign the publisher's chain
+    id and recover the publisher's address, and be the transaction asked for
+    (its nonce, its calldata, no value, its hash the hash of its bytes).
+    Otherwise it is refused with an `AnchorSignerError` and nothing is
+    stored, enrolled or sent; a publication's pass fails with the
+    `anchor_signer_mismatch` alarm and is retried. Before, what such a
+    publisher returned was stored and broadcast as it was.
   - It checks the bytes it is about to send on every broadcast, a stored
     transaction sent again included: they must meet every rule, sign the
     publisher's chain id, and recover the sender authenticated for the
     publication, or the wallet for an accounted transaction (`sweep`,
-    `handover`). Anyone who can write the store can replace a stored
+    `handover`). A publication's bytes must also carry the nonce and the
+    calldata, 0x ‖ P, it was signed or authenticated with this pass, not
+    those of a row read since: another transaction of the same key is not
+    sent in its place. Anyone who can write the store can replace a stored
     transaction, without the key, with its twin (`s` as n - `s`, the parity
     flipped) or with its values in RLP that is not canonical; both recover the
     same sender, and every verifier refuses both. Such bytes are not sent and

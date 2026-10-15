@@ -86,10 +86,12 @@ export function itemTwoRefusal(rule: EvmItemTwoRule | null): string {
  * was asked to sign: another address signed it, or a field differs (a nonce,
  * a fee, the calldata). Or it returned a transaction that breaks a rule of
  * tzun-anchor/1 §10.4 item 2 other than a high `s`, which every verifier
- * refuses (§7.2 rule 3, §11 item 6): `rule` names it. Nothing it returned is
- * stored or sent, because the outbox and the nonce accounting depend on those
- * exact bytes. `field` names what differs, or the rule; nothing here carries
- * key material.
+ * refuses (§7.2 rule 3, §11 item 6): `rule` names it. A publisher passed as
+ * `AnchorSchedulerOptions.publisher` returns the bytes that are sent, so a
+ * high `s` from it is refused too. Nothing it returned is stored or sent,
+ * because the outbox and the nonce accounting depend on those exact bytes.
+ * `field` names what differs, or the rule; nothing here carries key
+ * material.
  */
 export class AnchorSignerError extends Error {
   readonly code = 'anchor_signer_mismatch' as const;
@@ -175,7 +177,8 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    is cut until it is mined.
  *   anchor_signer_mismatch           the publisher's signer returned a transaction other than the one it
  *                                    was asked to sign (another address, or a changed field), or one that
- *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 other than a high s.
+ *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 other than a high s (a
+ *                                    publisher passed to the scheduler: any rule, a high s included).
  *                                    Nothing it returned is stored or sent; the pass fails and is retried.
  *   anchor_signer_unavailable        the publisher's signer threw, or did not answer within
  *                                    `signTimeoutMs`. Nothing is stored or sent; the pass fails and is

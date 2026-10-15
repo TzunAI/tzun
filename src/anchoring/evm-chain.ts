@@ -495,6 +495,13 @@ export interface EvmTransactionFields {
  * The dedicated publisher of one domain on one chain (tzun-anchor/1 §7.2
  * rule 2): an address, a chain, and a signer. The key is not reachable from
  * this object.
+ *
+ * What it returns is what the scheduler stores and sends, and the scheduler
+ * reads it first. A transaction that breaks a rule of §10.4 item 2, a high
+ * `s` included, that is signed for another chain or by another address, or
+ * that is not the transaction asked for, is refused with an
+ * `AnchorSignerError`, and nothing is stored or sent. `createEvmPublisher`
+ * lowers a high `s` its signer returns before it returns the transaction.
  */
 export interface EvmPublisher {
   /** `0x` and 40 lowercase hex. */

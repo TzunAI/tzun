@@ -10,16 +10,26 @@ every check, reason and fact:
 - the RLP decoder, the transaction decoder and sender recovery, over
   ethers-signed transactions of every type the verifier reads and mutations the
   TypeScript side makes of them (non-canonical encodings, high s, bad parity,
-  out-of-range fields, bad access lists, legacy ``v`` values);
+  out-of-range fields, bad access lists, legacy ``v`` values), and transactions
+  at each edge of each rule of §10.4 item 2 (typed chain id 0, legacy ``v`` 35 to
+  38, ``s`` at and above n/2, a tip at and above the fee cap, an ``r`` no key
+  recovers from, integers and lengths written non-canonically, bytes after the
+  list, a nonce or gasLimit at and above 2^64, amounts and chain ids at and
+  above 2^256, a legacy ``v`` at and above its size); a refused transaction must
+  be refused for the same rule in both;
 - the block-header reader and the transactions-trie walk, over two real Sepolia
   blocks, the anvil vectors and tries the TypeScript trie builder makes;
 - Node's base64 and asn1js's ``UTCTime`` and ``GeneralizedTime``, which decide
   whether an ``rfc3161/1`` token is readable;
 - ``verifyEvmPublication``, over about 240 publications with scripted header
   sources (``ScriptedSource``: the JSON both sides build a source from), and
-  over every validity case of ``evm-anchor-vectors.json`` in each of its modes;
+  over every validity case of ``evm-anchor-vectors.json`` in each of its modes,
+  and its transaction cases;
 - ``verifyAnchor``, over anchored records with EVM and RFC 3161 publications,
-  the checkpoint and anvil vectors whole, and hostile artifacts.
+  the checkpoint and anvil vectors whole, and hostile artifacts;
+- the transactions the TypeScript anchor writer sends when a signer returns a
+  high ``s`` (``withLowS``, tzun-anchor/1 §7.2 rule 3): the Python decoder reads
+  each with the same sender.
 
 Two differences are designed, and those cases are held to them, not to equality:
 
@@ -96,7 +106,12 @@ from tzun_sdk.attestation.evm_publication import (  # noqa: E402
     verify_evm_transaction_proof,
 )
 from tzun_sdk.attestation.evm_rlp import RlpItem, decode_rlp, encode_rlp  # noqa: E402
-from tzun_sdk.attestation.evm_transaction import decode_signed_transaction, keccak256  # noqa: E402
+from tzun_sdk.attestation.evm_transaction import (  # noqa: E402
+    ITEM_TWO_RULES,
+    EvmTransactionError,
+    decode_signed_transaction,
+    keccak256,
+)
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 HARNESS = REPO_ROOT / "tests" / "cross-sdk" / "ts-harness" / "anchor-verify.ts"
@@ -279,7 +294,10 @@ def _parsed(r: Any) -> Any:
 
 
 def _transaction(raw: str) -> Any:
-    tx = decode_signed_transaction(bytes.fromhex(raw[2:]))
+    try:
+        tx = decode_signed_transaction(bytes.fromhex(raw[2:]))
+    except EvmTransactionError as exc:
+        return {"refused": exc.rule}
     return {
         "type": tx.type,
         "chainId": str(tx.chain_id),
@@ -788,7 +806,10 @@ def test_the_corpus(ts_transactions: list[dict[str, str]], ts_trie: dict[str, An
         assert_same(key, inputs, ts[key], py[key])
     # The corpus reaches what it is for: senders recovered, trie proofs walked, bodies read.
     assert sum(1 for r in ts["transactions"] if "sender" in r) >= 20
-    assert sum(1 for r in ts["transactions"] if r == {"error": True}) >= 20
+    # And refusals for every rule of §10.4 item 2, and for bytes that are no transaction.
+    refused = [r["refused"] for r in ts["transactions"] if "refused" in r]
+    assert len(refused) >= 20
+    assert set(refused) == {*ITEM_TWO_RULES, None}
     assert sum(1 for r in ts["proofs"] if r is not None) >= 30
     assert sum(1 for r in ts["bodies"] if r["ok"]) >= len(valid)
     # MAX_RLP_DEPTH lists decode and one more does not, in an item, a header's
@@ -942,7 +963,7 @@ def _evm_vector_cases() -> list[dict[str, Any]]:
     """Every validity case of evm-anchor-vectors.json in each of its modes, as
     verify-evm cases: header (the publication as given, with the file's header
     source), noHeader (without blockHeader, txIndex and txProof) and offline (no
-    header source)."""
+    header source); then every transaction case of §10.4 item 2, offline."""
     spec = EVM_ANCHOR["headerSource"]
     source = {
         "chainId": str(spec["chainId"]),
@@ -979,12 +1000,38 @@ def _evm_vector_cases() -> list[dict[str, Any]]:
                     "sources": None if mode == "offline" else {EVM_ANCHOR["chain"]: source},
                 }
             )
+    tx = EVM_ANCHOR["transactionCases"]
+    for case in tx["cases"]:
+        cases.append(
+            {
+                "input": {
+                    "publication": {
+                        "kind": "evm-calldata/1",
+                        "chain": tx["chain"],
+                        "transactionId": case["transactionId"],
+                        "rawTransaction": case["rawTransaction"],
+                        "blockNumber": tx["blockNumber"],
+                        "blockHash": tx["blockHash"],
+                    },
+                    "p": EVM_ANCHOR["p"],
+                    "anchorOrigin": origin,
+                    "manifest": {
+                        "publishers": {
+                            origin: [
+                                {"address": case["publisher"], "chain": tx["chain"], "namespace": "test"}
+                            ]
+                        }
+                    },
+                },
+                "sources": None,
+            }
+        )
     return cases
 
 
 def test_the_evm_anchor_vectors_get_the_same_whole_verdicts() -> None:
     """Both SDKs give every validity case of evm-anchor-vectors.json, in each mode,
-    the same verdict, every check and fact included. Each SDK's own suite holds it
+    and every transaction case the same verdict, every check and fact included. Each SDK's own suite holds it
     to the file's stated verdicts (tests/ts/evm-anchor-vectors.test.ts,
     test_evm_anchor_vectors.py)."""
     cases = _evm_vector_cases()
@@ -1057,6 +1104,59 @@ def test_every_anchor_scenario_gets_the_same_verdict(
     tsa = [c for c in compared if c["name"].startswith("RFC 3161:")]
     readable = [c for c in tsa if c["verdict"]["publications"][0]["valid"] is None]
     assert len(readable) >= 5 and len(tsa) - len(readable) >= 20
+
+
+def test_a_legacy_publication_whose_v_is_27_or_28_reports_no_signed_chain_id(
+    anchor_scenarios: list[dict[str, Any]],
+) -> None:
+    """tzun-anchor/1 §10.7: a legacy transaction with ``v`` 27 or 28 signs no chain id, so
+    both SDKs report its ``signedChainId`` as null, beside the sender item 2 recovers."""
+    case = next(
+        c for c in anchor_scenarios if c["name"] == "EVM: a legacy publication whose v is 27 or 28"
+    )
+    ts = case["verdict"]
+    assert py_verify_anchor(case) == ts
+    tx = next(c for c in ts["publications"][0]["checks"] if c["id"] == "anchor.evm.tx[0]")
+    assert (tx["outcome"], tx["reason"]) == ("checked-wrong", "evm_chain_mismatch")
+    assert tx["facts"]["txType"] == 0
+    assert "signedChainId" in tx["facts"] and tx["facts"]["signedChainId"] is None
+
+
+def test_python_reads_what_the_typescript_anchor_writer_lowers() -> None:
+    """tzun-anchor/1 §7.2 rule 3: when a signer returns a high ``s``, the TypeScript anchor
+    writer sends the signature with n - s and the other parity (``withLowS``). The Python
+    decoder reads each such transaction, with the sender the key has and the TypeScript
+    reader recovers, and refuses the high-``s`` original for Signature values."""
+    cases = harness({"action": "lowered"})["cases"]
+    assert len(cases) == 7
+    for case in cases:
+        with pytest.raises(EvmTransactionError) as refused:
+            decode_signed_transaction(bytes.fromhex(case["high"][2:]))
+        assert refused.value.rule == "signature-values", case["name"]
+        tx = decode_signed_transaction(bytes.fromhex(case["lowered"][2:]))
+        assert tx.sender == case["sender"] == case["tsSender"], case["name"]
+
+
+def test_the_evm_transaction_cases_report_the_signed_chain_id_the_file_states() -> None:
+    """Each transaction case of evm-anchor-vectors.json that item 2 reads reports the
+    signedChainId the file states, null for ``v`` 27 and 28, in both SDKs; a refused one
+    reports none."""
+    tx = EVM_ANCHOR["transactionCases"]
+    # _evm_vector_cases() ends with the transaction cases, in the file's order.
+    cases = _evm_vector_cases()[-len(tx["cases"]) :]
+    ts = harness({"action": "verify-evm", "cases": cases})["verdicts"]
+    for stated, case, verdict in zip(tx["cases"], cases, ts, strict=True):
+        assert case["input"]["publication"]["rawTransaction"] == stated["rawTransaction"]
+        assert py_verify_evm(case) == verdict
+        if stated["rule"] is None:
+            assert "signedChainId" in verdict["facts"], stated["id"]
+            assert verdict["facts"]["signedChainId"] == stated["signedChainId"], stated["id"]
+        else:
+            assert "signedChainId" not in verdict["facts"], stated["id"]
+    assert [s["id"] for s in tx["cases"] if s["rule"] is None and s["signedChainId"] is None] == [
+        "legacy-v-27",
+        "legacy-v-28",
+    ]
 
 
 def test_a_trust_anchor_that_cannot_be_read_is_refused_by_both(

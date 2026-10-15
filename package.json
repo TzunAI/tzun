@@ -1,6 +1,6 @@
 {
   "name": "@tzun/sdk",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Cryptographic evidence capture for AI decisions",
   "main": "dist/src/sdk/index.js",
   "types": "dist/src/sdk/index.d.ts",

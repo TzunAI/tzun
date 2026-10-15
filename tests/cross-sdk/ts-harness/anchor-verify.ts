@@ -14,7 +14,18 @@
  *
  *   { action: "transactions" }
  *     → { cases: [{ name, raw }] }: ethers-signed transactions of every type
- *     the verifier reads, and mutations of them, for the "corpus" command.
+ *     the verifier reads, mutations of them, and transactions at the edges of
+ *     each rule of tzun-anchor/1 §10.4 item 2, for the "corpus" command, which
+ *     reads each with `readEvmTransaction`: the transaction and its sender, or
+ *     `{ refused: <rule> }` (null when no rule applies: not a transaction).
+ *
+ *   { action: "lowered" }
+ *     → { cases: [{ name, high, lowered, sender, tsSender }] }: transactions
+ *     ethers signs, each as a signer returning a high `s` gives it (`high`)
+ *     and as the anchor writer sends it (`lowered`, `withLowS` of
+ *     src/anchoring/evm-chain.ts, tzun-anchor/1 §7.2 rule 3); `sender` is the
+ *     key's address and `tsSender` the one `readEvmTransaction` recovers from
+ *     `lowered`.
  *
  *   { action: "evm-scenarios" }
  *     → { cases: [{ name, input, sources, verdict }] }: publications, blocks
@@ -48,6 +59,7 @@ import {
   DEFAULT_EVM_NETWORKS,
   decodeEvmRlp,
   parseEvmBlockHeader,
+  readEvmTransaction,
   verifyEvmPublication,
   verifyEvmTransactionProof,
   type EvmHeaderSource,
@@ -60,8 +72,30 @@ import {
   parseCheckpoint,
   parseOrigin,
 } from '../../../src/attestation/checkpoint';
-import { MAINNET, SEPOLIA, buildTxTrie, fabricateBlock, publicationFrom, randomP, signAnchorTx, type FabricatedBlock } from '../../ts/helpers/evm-fixtures';
+import {
+  HALF_N,
+  MAINNET,
+  SECP256K1_N,
+  SEPOLIA,
+  buildTxTrie,
+  encodeEnvelope,
+  envelopeFields,
+  fabricateBlock,
+  firstRecoverableR,
+  firstUnrecoverableR,
+  highS,
+  infinitySignature,
+  publicationFrom,
+  randomP,
+  signAnchorTx,
+  signLegacy,
+  signTypedFields,
+  signatureOf,
+  withSignature,
+  type FabricatedBlock,
+} from '../../ts/helpers/evm-fixtures';
 import { PLATFORM_PREFIX, TEST_PREFIX, anchoredRecord, sha256 } from '../../ts/helpers/anchor-fixtures';
+import { withLowS } from '../../../src/anchoring/evm-chain';
 import { makeTsaFixture } from '../../ts/rfc3161-fixture';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -200,13 +234,12 @@ function corpus(c: Corpus): Record<string, unknown[]> {
     bindings: (c.bindings ?? []).map((b) => checkOriginBinding(b.anchorOrigin, b.logOrigin, b.chainId)),
     formats: (c.formats ?? []).map((f) => errorOr(() => ({ body: formatCheckpoint(f.origin as string, f.size as number, f.root as string) }))),
     rlp: (c.rlp ?? []).map((hex) => errorOr(() => ({ value: decodeEvmRlp(hex) }))),
-    transactions: (c.transactions ?? []).map((raw) =>
-      errorOr(() => {
-        const tx = Transaction.from(raw);
-        if (!tx.isSigned() || !tx.from) throw new Error('unsigned');
-        return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.from.toLowerCase() };
-      }),
-    ),
+    transactions: (c.transactions ?? []).map((raw) => {
+      const reading = readEvmTransaction(raw);
+      if (!reading.ok) return { refused: reading.rule };
+      const tx = reading.transaction;
+      return { type: tx.type, chainId: tx.chainId.toString(), data: tx.data, sender: tx.sender };
+    }),
     headers: (c.headers ?? []).map((h) => parseEvmBlockHeader(h as string)),
     proofs: (c.proofs ?? []).map((p) => verifyEvmTransactionProof(p.root as string, p.index as number, p.proof as string[])),
     base64: (c.base64 ?? []).map((s) => Buffer.from(s, 'base64').toString('hex')),
@@ -228,6 +261,36 @@ function listOfEncoded(items: string[]): string {
   let l = len.toString(16);
   if (l.length % 2) l = '0' + l;
   return (0xf7 + l.length / 2).toString(16) + l + payload;
+}
+
+/** The `lowered` command: a signer's high-`s` signatures as the anchor writer sends them. */
+async function lowered(): Promise<Array<{ name: string; high: string; lowered: string; sender: string; tsSender: string }>> {
+  const wallet = Wallet.createRandom();
+  const p = randomP();
+  const sender = wallet.address.toLowerCase();
+  const out: Array<{ name: string; high: string; lowered: string; sender: string; tsSender: string }> = [];
+  const add = (name: string, low: string) => {
+    const high = highS(low);
+    const sent = withLowS(high);
+    if (sent === null) throw new Error(`withLowS does not lower ${name}`);
+    const reading = readEvmTransaction(sent);
+    out.push({ name, high, lowered: sent, sender, tsSender: reading.ok ? reading.transaction.sender : '' });
+  };
+  /** The first EIP-1559 transaction from nonce 0 whose signature `accept` takes. */
+  const firstType2 = async (accept: (sig: { v: bigint; s: bigint }) => boolean): Promise<string> => {
+    for (let nonce = 0; ; nonce++) {
+      const raw = await signAnchorTx(wallet, { data: p, type: 2, nonce });
+      if (accept(signatureOf(raw))) return raw;
+    }
+  };
+  add('EIP-1559, the high s with yParity 1', await firstType2((sig) => sig.v === 0n));
+  add('EIP-1559, the high s with yParity 0', await firstType2((sig) => sig.v === 1n));
+  add('EIP-1559, n - s below 2^248', await firstType2((sig) => sig.s < 2n ** 248n));
+  add('EIP-2930', await signAnchorTx(wallet, { data: p, type: 1 }));
+  add('legacy EIP-155 on Sepolia, lowered to v = 2c + 35', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: SEPOLIA, yParity: 0 }));
+  add('legacy EIP-155 on Sepolia, lowered to v = 2c + 36', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: SEPOLIA, yParity: 1 }));
+  add('legacy EIP-155 on mainnet', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: MAINNET, yParity: 0 }));
+  return out;
 }
 
 async function transactions(): Promise<Array<{ name: string; raw: string }>> {
@@ -310,7 +373,89 @@ async function transactions(): Promise<Array<{ name: string; raw: string }>> {
   add('legacy huge v', legacyWith(6, '0x' + 'ff'.repeat(32)));
   add('legacy r of 33 bytes', legacyWith(7, '0x00' + (legacy[7] as string).slice(2).padStart(64, '0')));
 
-  // Types the verifier does not parse still go through Transaction.from here.
+  // The edges of tzun-anchor/1 §10.4 item 2.
+  add('EIP-1559 on chain id 0', await signAnchorTx(wallet, { data: p, type: 2, chainId: 0n }));
+  add('EIP-2930 on chain id 0', await signAnchorTx(wallet, { data: p, type: 1, chainId: 0n }));
+  add('EIP-2930 on chain id 1', await signAnchorTx(wallet, { data: p, type: 1, chainId: MAINNET }));
+  for (const yParity of [0, 1] as const) {
+    add(`legacy v ${35 + yParity}, signed for chain id 0`, signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 0n, yParity }));
+    add(`legacy v ${37 + yParity}, signed for chain id 1`, signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: MAINNET, yParity }));
+    add(`legacy v ${27 + yParity}, unprotected`, signLegacy(wallet.signingKey, { data: p, eip155: false, yParity }));
+  }
+  add('legacy high s', highS(t0));
+  add('EIP-2930 high s', highS(t1));
+  const digest = Transaction.from(t2).unsignedHash;
+  const half = firstRecoverableR(digest, HALF_N, 0);
+  add('s exactly n/2', withSignature(t2, { v: 0n, r: half.r, s: HALF_N }));
+  add('s = n/2 + 1, the other parity', withSignature(t2, { v: 1n, r: half.r, s: HALF_N + 1n }));
+  add('s = 1', withSignature(t2, { v: 1n, r: firstRecoverableR(digest, 1n, 1).r, s: 1n }));
+  add('s = 0', withSignature(t2, { ...signatureOf(t2), s: 0n }));
+  add('r = n', withSignature(t2, { ...signatureOf(t2), r: SECP256K1_N }));
+  add('yParity 27', withSignature(t2, { ...signatureOf(t2), v: 27n }));
+  add('an r that is no x-coordinate', withSignature(t2, { v: 0n, r: firstUnrecoverableR(), s: 1n }));
+  const infinity = infinitySignature(digest);
+  add('a signature that recovers the point at infinity', withSignature(t2, { v: BigInt(infinity.yParity), r: infinity.r, s: infinity.s }));
+  const fees = { type: 2, chainId: SEPOLIA, nonce: 0, to: wallet.address, value: 0n, data: p, gasLimit: 30_000n } as const;
+  const atCap = await wallet.signTransaction({ ...fees, maxFeePerGas: 7n, maxPriorityFeePerGas: 7n });
+  add('a tip equal to the fee cap', atCap);
+  const aboveCap = envelopeFields(atCap).fields.slice(0, 9);
+  aboveCap[2] = '0x08';
+  const aboveSig = wallet.signingKey.sign(keccak256(encodeEnvelope(2, aboveCap)));
+  add('a tip one wei above the fee cap, signed', withSignature(encodeEnvelope(2, [...aboveCap, '0x', '0x', '0x']), {
+    v: BigInt(aboveSig.yParity),
+    r: BigInt(aboveSig.r),
+    s: BigInt(aboveSig.s),
+  }));
+
+  // Encoding: the canonical RLP of the fields. The publisher's EIP-1559
+  // transaction with its values written in other bytes.
+  const wrote = (i: number, bytes: string) => '0x02' + listOfEncoded(fields.map((f, j) => (j === i ? bytes : enc(f))));
+  add('a chain id with a leading zero byte', withField(0, '0x00' + (fields[0] as string).slice(2)));
+  add('a gas limit with a leading zero byte', withField(4, '0x00' + (fields[4] as string).slice(2)));
+  add('a nonce of 0 written 0x8100', wrote(1, '8100'));
+  add('a nonce of 5 written 0x8105', wrote(1, '8105'));
+  add('a list length with a leading zero byte', '0x02f900' + t2.slice(6));
+  add('two bytes after the list', t2 + '0000');
+  add('legacy gas price with a leading zero byte', legacyWith(1, '0x00' + (legacy[1] as string).slice(2)));
+  add('legacy trailing byte', t0 + '00');
+  // An access-list entry of an address and one key is 55 bytes, the longest
+  // item the short form holds: read as 0xf7, refused as 0xf837.
+  const entry55 = [wallet.address.toLowerCase(), ['0x' + '01'.repeat(32)]];
+  const listed55 = signTypedFields(wallet.signingKey, 2, [
+    q(SEPOLIA), q(0n), q(1_000_000_000n), q(3_000_000_000n), q(30_000n), wallet.address.toLowerCase(), q(0n), p, [entry55],
+  ]);
+  const fields55 = decodeRlp('0x' + listed55.slice(4)) as RlpStructuredData[];
+  add('an access-list entry of 55 bytes', listed55);
+  add('an access-list entry of 55 bytes in the long form',
+    '0x02' + listOfEncoded(fields55.map((f, j) => (j === 8 ? listOfEncoded(['f837' + enc(entry55).slice(2)]) : enc(f)))));
+
+  // Field sizes, each signed by the publisher over its own values: nonce and
+  // gasLimit up to 2^64 - 1, the chain id, value and fees up to 2^256 - 1, a
+  // legacy v up to 2 * (2^256 - 1) + 36.
+  const signed2 = (over: Partial<Record<'chainId' | 'nonce' | 'tip' | 'cap' | 'gasLimit' | 'value', bigint>>) =>
+    signTypedFields(wallet.signingKey, 2, [
+      q(over.chainId ?? SEPOLIA), q(over.nonce ?? 0n), q(over.tip ?? 1_000_000_000n), q(over.cap ?? 3_000_000_000n),
+      q(over.gasLimit ?? 30_000n), wallet.address.toLowerCase(), q(over.value ?? 0n), p, [],
+    ]);
+  add('signed: nonce 2^53', signed2({ nonce: 2n ** 53n }));
+  add('signed: nonce 2^53 + 1', signed2({ nonce: 2n ** 53n + 1n }));
+  add('signed: nonce 2^64 - 1', signed2({ nonce: 2n ** 64n - 1n }));
+  add('signed: nonce 2^64', signed2({ nonce: 2n ** 64n }));
+  add('signed: gasLimit 2^64 - 1', signed2({ gasLimit: 2n ** 64n - 1n }));
+  add('signed: gasLimit 2^64', signed2({ gasLimit: 2n ** 64n }));
+  add('signed: value 2^256 - 1', signed2({ value: 2n ** 256n - 1n }));
+  add('signed: value 2^256', signed2({ value: 2n ** 256n }));
+  add('signed: maxFeePerGas 2^256', signed2({ cap: 2n ** 256n }));
+  add('signed: maxPriorityFeePerGas 2^256 above a fee cap of 7', signed2({ tip: 2n ** 256n, cap: 7n }));
+  add('signed: chain id 2^64', signed2({ chainId: 2n ** 64n }));
+  add('signed: chain id 2^256 - 1', signed2({ chainId: 2n ** 256n - 1n }));
+  add('signed: chain id 2^256', signed2({ chainId: 2n ** 256n }));
+  add('legacy chain id 2^255', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 255n, yParity: 0 }));
+  add('legacy v 2 * (2^256 - 1) + 36', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 256n - 1n, yParity: 1 }));
+  add('legacy chain id 2^256', signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 2n ** 256n, yParity: 0 }));
+  add('legacy gas price 2^256', legacyWith(1, q(2n ** 256n)));
+
+  // Types the verifier does not parse are refused here too.
   add('type 3 header only', '0x03c0');
   add('EIP-2930 unsigned', '0x01' + encodeRlp((decodeRlp('0x' + t1.slice(4)) as RlpStructuredData[]).slice(0, 8)).slice(2));
   add('garbage', '0xc3010203');
@@ -576,6 +721,8 @@ async function evmScenarios(): Promise<EvmCase[]> {
     ['a bad namespace', { publishers: { [ORIGIN]: [{ address: good, chain: SEPOLIA_CHAIN, namespace: 'prod' }] } }],
     ['a bad date', { publishers: { [ORIGIN]: [{ address: good, chain: SEPOLIA_CHAIN, namespace: 'test', validUntil: 'soon' }] } }],
     ['a leading-zero chain id', { publishers: { [ORIGIN]: [{ address: good, chain: 'eip155:011155111', namespace: 'test' }] } }],
+    ['chain id 0', { publishers: { [ORIGIN]: [{ address: good, chain: 'eip155:0', namespace: 'test' }] } }],
+    ['the publisher on its chain and on chain id 0', manifestOf(entry(s.publisher.address), { address: s.publisher.address, chain: 'eip155:0', namespace: 'test' })],
     ['a chain that is not a string', { publishers: { [ORIGIN]: [{ address: good, chain: 11155111, namespace: 'test' }] } }],
     ['a non-EVM entry beside the publisher', manifestOf({ address: 'x', chain: 'bip122:000000000019d6689c085ae165831e93', namespace: 'test' }, entry(s.publisher.address))],
     ['only non-EVM entries', manifestOf({ address: 'x', chain: 'bip122:000000000019d6689c085ae165831e93', namespace: 'test' })],
@@ -726,6 +873,15 @@ async function anchorScenarios(): Promise<AnchorCase[]> {
     add('EVM: two true publications that disagree on finality', withPubs(r, [e.envelope, e2.envelope]), r.digest, { ...base, publisherManifest: m2, publicationMaterial: [e.full, e2.full], evmHeaderSources: S({ ...sources, finalized: e.block.number + 64, finality: 'finalized' }) });
     add('EVM: one true, one false', withPubs(r, [e.envelope, e2.envelope]), r.digest, { ...base, publicationMaterial: [e.full, e2.full], evmHeaderSources: S({ ...sources, finalized: e.block.number + 64 }) });
   }
+  {
+    // A legacy publication whose v is 27 or 28 (here 27): it signs no chain id, so item 5
+    // refuses it, and anchor.evm.tx reports signedChainId null (tzun-anchor/1 §10.7).
+    const legacy = signLegacy(e.publisher.signingKey, { data: '0x' + r.p, eip155: false, yParity: 0 });
+    const block = fabricateBlock([...(await fillers(2)), legacy], e.block.number + 1, e.block.timestamp + 12);
+    const full = publicationFrom(block, 2);
+    const envelope = { kind: 'evm-calldata/1', chain: SEPOLIA_CHAIN, transactionId: full.transactionId, blockNumber: full.blockNumber, blockHash: full.blockHash, publisher: e.publisher.address };
+    add('EVM: a legacy publication whose v is 27 or 28', withPubs(r, [envelope]), r.digest, { ...base, publicationMaterial: [full], evmHeaderSources: S(sourceOf(block)) });
+  }
   add('EVM: [null, true]', withPubs(r, [null, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
   add('EVM: [no kind, true]', withPubs(r, [{ token: 'x' }, e.envelope]), r.digest, { ...base, evmHeaderSources: S(e.source) });
   add('EVM: [unknown kind, not checked]', withPubs(r, [{ kind: 'witness/1' }, e.envelope]), r.digest, base);
@@ -801,6 +957,9 @@ async function main(): Promise<void> {
       break;
     case 'transactions':
       out = { cases: await transactions() };
+      break;
+    case 'lowered':
+      out = { cases: await lowered() };
       break;
     // One case at a time: some cases time header sources out.
     case 'evm-scenarios': {

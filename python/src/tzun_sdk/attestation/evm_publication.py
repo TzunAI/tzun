@@ -81,7 +81,9 @@ the manifest lists for this origin, or was not one at the block time),
 does not hash to the block hash or names another number, or the trie proof does
 not place the transaction under the header's ``transactionsRoot``),
 ``anchor_not_found_on_chain`` (the header source says the block, or the
-transaction's place in it, is not canonical) and ``malformed_publication``.
+transaction's place in it, is not canonical) and ``malformed_publication`` (a
+field is missing or mistyped, or §10.4 item 2 refuses the raw transaction: see
+:func:`~tzun_sdk.attestation.evm_transaction.decode_signed_transaction`).
 
 ``None`` reasons: ``publication_not_checked`` (the checks name what was
 missing), ``unsupported_publication_kind`` and ``unsupported_evm_tx_type``.
@@ -144,8 +146,9 @@ class EvmPublicationFacts(TypedDict, total=False):
     txType: int
     #: Recovered from the signature. Reported whatever the verdict.
     sender: str
-    #: The chain id the sender signed, in decimal; ``'0'`` for a pre-EIP-155 transaction.
-    signedChainId: str
+    #: The chain id the sender signed, in decimal; ``None`` for a legacy transaction whose
+    #: ``v`` is 27 or 28, which signs no chain id (tzun-anchor/1 §10.7).
+    signedChainId: str | None
     #: As the publication claims it. Confirmed only when ``valid`` is true.
     blockNumber: int
     blockHash: str
@@ -761,6 +764,7 @@ async def verify_evm_publication(
                 facts["txType"] = first_byte
                 return tx_abstained("unsupported_evm_tx_type")
 
+        # Item 2: the transaction decodes and its signature yields a sender.
         raw_bytes = _hex_bytes(raw)
         try:
             tx: SignedEvmTransaction = decode_signed_transaction(raw_bytes)
@@ -774,7 +778,8 @@ async def verify_evm_publication(
         facts["transactionId"] = computed_id
         facts["txType"] = tx.type
         facts["sender"] = sender
-        facts["signedChainId"] = str(tx.chain_id)
+        # Only an unprotected legacy transaction reads as chain id 0: item 2 refuses a typed one.
+        facts["signedChainId"] = None if tx.chain_id == 0 else str(tx.chain_id)
 
         if transaction_id is not None and str(transaction_id).lower() != computed_id:
             return tx_failed("evm_tx_proof_invalid")
@@ -789,7 +794,8 @@ async def verify_evm_publication(
         by_sender = [e for e in entries if e.address == sender]
         if not by_sender:
             return tx_failed("evm_sender_mismatch")
-        # A pre-EIP-155 transaction signs chain id 0, which matches no entry.
+        # A legacy transaction whose v is 27 or 28 signs no chain id and reads as
+        # chain id 0, which matches no entry.
         by_chain = [e for e in by_sender if e.chain_id == tx.chain_id]
         if not by_chain:
             return tx_failed("evm_chain_mismatch")

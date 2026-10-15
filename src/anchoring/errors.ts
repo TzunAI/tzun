@@ -5,6 +5,7 @@
  * the rules do not allow. An alarm is reported: the scheduler found something
  * an operator must look at, and keeps running unless the alarm stops it.
  */
+import type { EvmItemTwoRule } from '../attestation/blockchain';
 
 /** The configuration cannot be used. */
 export class AnchoringConfigError extends Error {
@@ -58,19 +59,54 @@ export class AnchorWalletError extends Error {
   }
 }
 
+/** The specification's label of each rule of tzun-anchor/1 §10.4 item 2. */
+const ITEM_TWO_LABEL: Readonly<Record<EvmItemTwoRule, string>> = {
+  'chain-id': 'Chain id',
+  'legacy-v': 'Legacy v',
+  'signature-values': 'Signature values',
+  fees: 'Fees',
+  recovery: 'Recovery',
+  encoding: 'Encoding',
+  'field-sizes': 'Field sizes',
+};
+
+/**
+ * Why tzun-anchor/1 §10.4 item 2 does not read a transaction, from
+ * `readEvmTransaction`'s `rule`: the rule it breaks, by label and vector id,
+ * or, for `null`, that it is no signed transaction of type 0, 1 or 2.
+ */
+export function itemTwoRefusal(rule: EvmItemTwoRule | null): string {
+  return rule === null
+    ? 'it is not a signed transaction of type 0, 1 or 2'
+    : `it breaks the ${ITEM_TWO_LABEL[rule]} rule of tzun-anchor/1 §10.4 item 2 (${rule}), which every verifier refuses`;
+}
+
 /**
  * The publisher's signer returned something other than the transaction it
  * was asked to sign: another address signed it, or a field differs (a nonce,
- * a fee, the calldata). Nothing it returned is stored or sent, because the
- * outbox and the nonce accounting depend on those exact bytes. `field` names
- * what differs; nothing here carries key material.
+ * a fee, the calldata). Or it returned a transaction that breaks a rule of
+ * tzun-anchor/1 §10.4 item 2 other than a high `s`, which every verifier
+ * refuses (§7.2 rule 3, §11 item 6): `rule` names it. A publisher passed as
+ * `AnchorSchedulerOptions.publisher` returns the bytes that are sent, so a
+ * high `s` from it is refused too, and the fields the scheduler compares are
+ * the ones `EvmPublisher` names. Nothing it returned is stored or sent,
+ * because the outbox and the nonce accounting depend on those exact bytes.
+ * `field` names what differs, or the rule; nothing here carries key
+ * material.
  */
 export class AnchorSignerError extends Error {
   readonly code = 'anchor_signer_mismatch' as const;
+  /** The rule of tzun-anchor/1 §10.4 item 2 the transaction breaks, by its vector id, when that is why it was refused. */
+  readonly rule?: EvmItemTwoRule;
 
-  constructor(readonly field: string, detail: string) {
-    super(`The publisher's signer returned a transaction other than the one it was asked to sign (${field}: ${detail}). Nothing was stored or sent.`);
+  constructor(readonly field: string, detail: string, rule?: EvmItemTwoRule) {
+    super(
+      rule === undefined
+        ? `The publisher's signer returned a transaction other than the one it was asked to sign (${field}: ${detail}). Nothing was stored or sent.`
+        : `The publisher's signer returned a transaction that breaks the ${ITEM_TWO_LABEL[rule]} rule of tzun-anchor/1 §10.4 item 2 (${rule}: ${detail}), so every verifier would refuse it. Nothing was stored or sent.`,
+    );
     this.name = 'AnchorSignerError';
+    if (rule !== undefined) this.rule = rule;
     Object.setPrototypeOf(this, AnchorSignerError.prototype);
   }
 }
@@ -141,8 +177,10 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    Its stored transaction is rebroadcast, never replaced, and no epoch
  *                                    is cut until it is mined.
  *   anchor_signer_mismatch           the publisher's signer returned a transaction other than the one it
- *                                    was asked to sign (another address, or a changed field). Nothing it
- *                                    returned is stored or sent; the pass fails and is retried.
+ *                                    was asked to sign (another address, or a changed field), or one that
+ *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 other than a high s (a
+ *                                    publisher passed to the scheduler: any rule, a high s included).
+ *                                    Nothing it returned is stored or sent; the pass fails and is retried.
  *   anchor_signer_unavailable        the publisher's signer threw, or did not answer within
  *                                    `signTimeoutMs`. Nothing is stored or sent; the pass fails and is
  *                                    retried.
@@ -156,18 +194,22 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    Stops anchoring: publishing past it would vouch for it, and the
  *                                    log is insert-only, so the domain moves to a new identity.
  *   anchor_publication_unexplained   a publication row is not one the scheduler made: an attempt not
- *                                    signed by an allowed publisher inside its window, or a prepared
- *                                    row whose P the scheduler cannot re-derive. Nothing is signed.
- *                                    Stops anchoring.
+ *                                    signed by an allowed publisher inside its window, or one that
+ *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 (a stored high-s twin
+ *                                    among them), or a prepared row whose P the scheduler cannot
+ *                                    re-derive; or a transaction about to be sent fails that item, the
+ *                                    chain id or the sender. Nothing is signed or sent. Stops anchoring.
  *   anchor_wallet_tx_unexplained     an accounted wallet transaction is not the signed transaction it
- *                                    claims to be. Stops anchoring.
+ *                                    claims to be, or breaks a rule of tzun-anchor/1 §10.4 item 2.
+ *                                    Nothing is sent. Stops anchoring.
  *   anchor_fill_conflict             a record does not match its evidence leaf (another chain, another
  *                                    position, or a digest the leaf's path does not place); the fill
  *                                    skipped it. A store written before 0.8.0, the demo-tamper hooks or
  *                                    a writer the triggers do not hold.
  *   anchor_publisher_outside_window  the publisher manifest lists the configured publisher, and none of
- *                                    its windows contains now: nothing is signed, since verifiers would
- *                                    refuse it. The pass defers until a window opens or the key changes.
+ *                                    its windows contains now: nothing is signed, nor stored if a window
+ *                                    closed while the signer answered, since verifiers would refuse it.
+ *                                    The pass defers until a window opens or the key changes.
  *   anchor_block_material_unreadable a mined publication's block cannot be stored: its header does not
  *                                    rebuild to its hash (a field a later fork added) or its transactions
  *                                    are not the ones the header commits to. The publication cannot

@@ -5,7 +5,13 @@
  * precision: a validFrom any fraction past the block's second
  * excludes the block, a validUntil any fraction past it still admits it, and
  * a date §9 refuses (a leap second, an impossible day, a lowercase `t`) makes
- * the manifest unreadable.
+ * the manifest unreadable. Then §10.4 item 2's transaction cases, offline: a
+ * transaction that breaks one of the rules item 2 states (a typed chain id of
+ * 0, a legacy v of 35 or 36, a high s, a tip above the fee cap, a signature no
+ * key recovers from, bytes that are not the canonical RLP of the fields, a
+ * field above its size) is false, malformed_publication, and the one just
+ * inside each edge is read, with the sender the file states.
+ * `readEvmTransaction` must report the very rule each refused case breaks.
  *
  * The file's publication is epoch 0 of vectors/anchor-e2e-vectors.json, byte
  * for byte, which the Go gate checks with go-ethereum; the first test holds it
@@ -13,7 +19,12 @@
  * the same file, and tests/cross-sdk/test_anchor_verify_parity.py requires
  * both SDKs to give every case the same whole verdict.
  */
-import { verifyEvmPublication, type EvmHeaderSource, type EvmPublicationInput } from '../../src/attestation/blockchain';
+import {
+  readEvmTransaction,
+  verifyEvmPublication,
+  type EvmHeaderSource,
+  type EvmPublicationInput,
+} from '../../src/attestation/blockchain';
 import e2e from '../../vectors/anchor-e2e-vectors.json';
 import vectors from '../../vectors/evm-anchor-vectors.json';
 
@@ -71,6 +82,77 @@ function inputFor(c: Case, mode: Mode): EvmPublicationInput {
 
 const withoutUndefined = (c: { outcome: string; reason?: string }): Check =>
   c.reason === undefined ? { outcome: c.outcome } : { outcome: c.outcome, reason: c.reason };
+
+interface TransactionCase {
+  id: string;
+  name: string;
+  rule: string | null;
+  item2: 'reads' | 'refuses';
+  rawTransaction: string;
+  transactionId: string;
+  publisher: string;
+  sender: string | null;
+  signedChainId: string | null;
+  expect: Expect;
+}
+
+const tx = vectors.transactionCases;
+const txCases = tx.cases as unknown as TransactionCase[];
+
+function transactionInput(c: TransactionCase): EvmPublicationInput {
+  return {
+    publication: {
+      kind: 'evm-calldata/1',
+      chain: tx.chain,
+      transactionId: c.transactionId,
+      rawTransaction: c.rawTransaction,
+      blockNumber: tx.blockNumber,
+      blockHash: tx.blockHash,
+    },
+    p: vectors.p,
+    anchorOrigin: vectors.anchorOrigin,
+    manifest: { publishers: { [vectors.anchorOrigin]: [{ address: c.publisher, chain: tx.chain, namespace: 'test' }] } },
+  };
+}
+
+describe('vectors/evm-anchor-vectors.json: the transaction cases of tzun-anchor/1 §10.4 item 2', () => {
+  it('breaks each rule of item 2, and meets each at its edge', () => {
+    expect(new Set(txCases.map((c) => c.rule))).toEqual(
+      new Set(['chain-id', 'legacy-v', 'signature-values', 'fees', 'recovery', 'encoding', 'field-sizes', null]),
+    );
+    expect(new Set(txCases.map((c) => c.id)).size).toBe(txCases.length);
+    for (const c of txCases) expect(c.item2).toBe(c.rule === null ? 'reads' : 'refuses');
+  });
+
+  it.each(txCases.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
+    const v = await verifyEvmPublication(transactionInput(c));
+    expect({
+      valid: v.valid,
+      reason: v.reason,
+      tx: withoutUndefined(v.checks.tx),
+      canonical: withoutUndefined(v.checks.canonical),
+      sender: v.facts.sender ?? null,
+    }).toEqual({ ...c.expect, sender: c.sender });
+    // tzun-anchor/1 §10.7: the signed chain id once the transaction decodes, null for v 27 or
+    // 28; no facts at all when item 2 refuses it.
+    if (c.rule === null) expect(v.facts).toHaveProperty('signedChainId', c.signedChainId);
+    else expect(v.facts).not.toHaveProperty('signedChainId');
+  });
+
+  it('states the signed chain id of each transaction item 2 reads, and null for v 27 and 28', () => {
+    const read = txCases.filter((c) => c.rule === null);
+    expect(txCases.filter((c) => c.rule !== null).every((c) => c.signedChainId === null)).toBe(true);
+    expect(read.filter((c) => c.signedChainId === null).map((c) => c.id).sort()).toEqual(['legacy-v-27', 'legacy-v-28']);
+    expect(read.every((c) => c.signedChainId === null || /^[1-9][0-9]*$/.test(c.signedChainId))).toBe(true);
+  });
+
+  it.each(txCases.map((c) => [c.id, c] as const))('%s: readEvmTransaction reports the rule it breaks', (_id, c) => {
+    const reading = readEvmTransaction(c.rawTransaction);
+    expect(reading.ok ? { sender: reading.transaction.sender } : { rule: reading.rule }).toEqual(
+      c.rule === null ? { sender: c.sender } : { rule: c.rule },
+    );
+  });
+});
 
 describe('vectors/evm-anchor-vectors.json (tzun-anchor/1 §9, §13)', () => {
   it('carries epoch 0 of anchor-e2e-vectors.json, byte for byte', () => {

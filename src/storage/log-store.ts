@@ -94,7 +94,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import BetterSqlite3 from 'better-sqlite3';
 import type { Pool, PoolClient } from 'pg';
-import { Transaction } from 'ethers';
+import { Transaction, keccak256 } from 'ethers';
 import { missingAttestationComponents, type AnchorArtifact, type EvidenceEnvelope } from '@tzun/engine';
 import {
   ANCHOR_LOG_KIND,
@@ -106,6 +106,7 @@ import {
   sourceLogOrigin,
   type ChainIdRefusalReason,
 } from '../attestation/checkpoint';
+import { readEvmTransaction } from '../attestation/blockchain';
 import { verifyMerkleProof } from '../attestation/merkle';
 import { EXISTING_ROW_TAG, postgresBackdatedIdGuard } from './append-only';
 import { fillAbsentArtifacts, nextAttestationStatus } from './attestation-fill';
@@ -1158,11 +1159,16 @@ const EVM_ADDRESS = /^0x[0-9a-f]{40}$/;
 const EIP155_CHAIN = /^eip155:([1-9][0-9]*)$/;
 
 /**
- * Refuse an accounted transaction whose hash is not `keccak256(rawTx)`, or
- * whose signed sender, nonce or chain is not the row's. Neither SQL dialect
- * can hash or parse a transaction, so every `insertAnchorWalletTx` makes the
- * check before it writes (exported from the package root as
- * `assertAnchorWalletTx`, for a store kept outside the SDK).
+ * Refuse an accounted transaction that tzun-anchor/1 §10.4 item 2 does not
+ * read (`readEvmTransaction`), whose hash is not `keccak256(rawTx)`, or whose
+ * signed sender, nonce or chain is not the row's. The sender and chain are
+ * item 2's reading, so a stored twin with n − s and the recovery parity
+ * flipped, or the same values in RLP that is not canonical, is refused by the
+ * rule it breaks, though a more lenient reader recovers the same sender from
+ * it. Neither SQL dialect can hash or parse a transaction, so every
+ * `insertAnchorWalletTx` makes the check before it writes, and the scheduler
+ * makes it on every accounted transaction it reads (exported from the package
+ * root as `assertAnchorWalletTx`, for a store kept outside the SDK).
  *
  * @throws {Error} naming the row and what is wrong with it.
  */
@@ -1171,16 +1177,25 @@ export function assertWalletTx(tx: NewAnchorWalletTx): void {
   if (!EVM_ADDRESS.test(tx.address)) throw new Error(`${where}: the address is not 0x and 40 lowercase hex`);
   const chainId = EIP155_CHAIN.exec(tx.chain)?.[1];
   if (chainId === undefined) throw new Error(`${where}: the chain is not eip155:<id>`);
+  const reading = readEvmTransaction(tx.rawTx);
+  if (!reading.ok) {
+    throw new Error(
+      reading.rule === null
+        ? `${where}: rawTx is not a signed transaction`
+        : `${where}: rawTx breaks the ${reading.rule} rule of tzun-anchor/1 §10.4 item 2`,
+    );
+  }
   let parsed: Transaction;
   try {
     parsed = Transaction.from(tx.rawTx);
   } catch {
     throw new Error(`${where}: rawTx is not a signed transaction`);
   }
-  if (parsed.hash === null || parsed.hash !== tx.txHash) {
+  if (keccak256(tx.rawTx) !== tx.txHash) {
     throw new Error(`${where}: txHash is not keccak256(rawTx)`);
   }
-  if (parsed.from?.toLowerCase() !== tx.address || parsed.nonce !== tx.nonce || parsed.chainId !== BigInt(chainId)) {
+  const { sender, chainId: signedChainId } = reading.transaction;
+  if (sender !== tx.address || parsed.nonce !== tx.nonce || signedChainId !== BigInt(chainId)) {
     throw new Error(`${where}: the signed transaction's sender, nonce or chain is not the row's`);
   }
 }

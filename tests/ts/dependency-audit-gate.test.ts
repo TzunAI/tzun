@@ -42,7 +42,6 @@ function cmpSemver(a: string, b: string): number {
 const MINIMUM_RESOLVED_VERSIONS: Array<{ pkg: string; min: string; advisory: string }> = [
   { pkg: 'ws', min: '8.21.0', advisory: 'GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS)' },
   { pkg: 'ethers', min: '6.17.0', advisory: 'transitively pins ws; 6.16.0 pinned ws@8.17.1 exactly' },
-  { pkg: 'uuid', min: '13.0.2', advisory: 'CVE-2026-41907' },
   // The chain pnpm.overrides removes:
   // test-exclude@6 -> glob@7 -> minimatch@3 -> brace-expansion@1.
   { pkg: 'test-exclude', min: '8.0.0', advisory: 'pulls glob@7 -> minimatch@3 -> vulnerable brace-expansion' },

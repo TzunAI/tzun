@@ -89,7 +89,7 @@ def test_capture_then_verify_roundtrip_json(tmp_path: pathlib.Path) -> None:
 
 
 def test_capture_human_text_output(tmp_path: pathlib.Path) -> None:
-    """Without --json, capture prints rich human-readable text."""
+    """Without --json, capture prints human-readable text."""
     runner = CliRunner()
     ai_output = tmp_path / "ai.json"
     ai_output.write_text(json.dumps({"text": "approve"}), encoding="utf-8")

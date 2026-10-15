@@ -9,7 +9,7 @@ Typer app with subcommands matching the TS CLI:
 * ``tzun models register``, ``list``, ``show``, ``compute-digest``,
   ``annotate``, ``alias``.
 
-Default output: rich-formatted human text. ``--json`` switches to
+Default output: human-readable text. ``--json`` switches to
 machine-readable JSON.
 
 Config precedence: CLI flags > env vars. No configuration FILE is read —

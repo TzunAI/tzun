@@ -25,7 +25,6 @@ dependencies = [
   "httpx >= 0.28.1",
   "anyio >= 4.15.1",
   "typer >= 0.27.3",
-  "rich >= 15.0.0",
   "cryptography >= 50.0.2",
   "webauthn >= 3.0.1",
 ]
@@ -34,11 +33,10 @@ dependencies = [
 postgres = ["asyncpg >= 0.32.0", "psycopg[binary] >= 3.3.6", "psycopg_pool >= 3.3.3"]
 sqlite = ["aiosqlite >= 0.22.1"]
 rfc3161 = ["rfc3161-client >= 1.0.9"]
-sigstore = ["sigstore >= 4.5.0"]
 # EVM anchor verification (tzun_sdk.attestation.evm_transaction): secp256k1 public-key
 # recovery through libsecp256k1, and Keccak-256, which hashlib does not provide.
 anchor = ["coincurve >= 21.0", "pycryptodomex >= 3.24.1"]
-all = ["tzun-sdk[postgres,sqlite,rfc3161,sigstore,anchor]"]
+all = ["tzun-sdk[postgres,sqlite,rfc3161,anchor]"]
 
 [project.urls]
 Homepage = "https://tzun.ai"
@@ -107,7 +105,6 @@ exclude = ["tests"]
 [[tool.mypy.overrides]]
 module = [
   "rfc3161_client.*",
-  "sigstore.*",
   "asyncpg.*",
   "psycopg.*",
   "psycopg_pool.*",

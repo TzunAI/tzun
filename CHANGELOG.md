@@ -22,6 +22,19 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+### Removed
+
+- `uuid` is no longer a dependency of `@tzun/sdk`. Nothing imports it
+  (TzunAI/tzun#2).
+- `rich` is no longer a dependency of `tzun-sdk`. Nothing in the package
+  imports it; the `tzun` command is built on `typer`, which depends on `rich`
+  itself (TzunAI/tzun#2).
+- The `sigstore` extra of `tzun-sdk`, which `all` included. It installed
+  `sigstore`, which nothing imports: `SigstoreBackend` is not implemented and
+  raises `NotImplementedError`, as before. `sigstore` 4.5 caps `rich` below 16
+  and `rfc3161-client` below 1.1, so raising either floor would have made
+  `[sigstore]` and `[all]` impossible to install (TzunAI/tzun#2).
+
 ### Fixed
 
 - `@tzun/sdk` lists `@types/better-sqlite3` and `@types/pg` as dependencies,

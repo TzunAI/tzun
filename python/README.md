@@ -19,11 +19,9 @@ optional extras:
 | `anchor` | EVM anchor verification (coincurve, pycryptodomex) |
 | `all` | every extra |
 
-Two further extras exist, and nothing in this release needs either:
-`[rfc3161]` installs `rfc3161-client`, but RFC 3161 timestamping
-(`RFC3161Backend`) is part of the core install and uses no RFC 3161 library;
-`[sigstore]` installs `sigstore`, but the Sigstore backend (`SigstoreBackend`)
-is not implemented and raises `NotImplementedError`.
+One further extra exists, and nothing in this release needs it: `[rfc3161]`
+installs `rfc3161-client`, but RFC 3161 timestamping (`RFC3161Backend`) is
+part of the core install and uses no RFC 3161 library.
 
 Python 3.11+ required.
 

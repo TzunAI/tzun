@@ -2,7 +2,7 @@
  * Connector registry tests.
  *
  * The registry is the single import surface for the wrapper layer to
- * dispatch per-vendor. Tests assert that all seven connectors are present
+ * dispatch per-vendor. Tests assert that all eight connectors are present
  * and that the accessor returns undefined for unknown vendors.
  */
 
@@ -20,9 +20,10 @@ describe('connectorRegistry', () => {
     'azure-ai',
     'nvidia-nim',
     'hf-inference',
+    'openrouter',
   ];
 
-  it('connectorRegistry has entries for all 7 vendors', () => {
+  it('connectorRegistry has entries for all 8 vendors', () => {
     expect(Object.keys(connectorRegistry).sort()).toEqual(
       [...expectedVendors].sort(),
     );

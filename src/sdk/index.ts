@@ -585,7 +585,7 @@ export type { DecisionInput, AttachOptions, SupportedVendor } from './wrappers';
 export {
   SUPPORTED_VENDORS, TZUN_CAPTURE_KWARG,
   wrapOpenAI, wrapAnthropic, wrapAwsBedrock, wrapGcpVertex,
-  wrapAzureAI, wrapNvidiaNim, wrapHFInference,
+  wrapAzureAI, wrapNvidiaNim, wrapHFInference, wrapOpenRouter,
 } from './wrappers';
 import {
   MonitoringEventBus,
@@ -4080,9 +4080,12 @@ export class Tzun {
   /**
    * Extract an AI-BOM from a vendor SDK call's `(request, response)` pair.
    *
-   * `vendor` is one of the seven supported labels: `openai`, `anthropic`,
-   * `bedrock`, `vertex`, `azure-ai`, `nvidia-nim`, `hf-inference`. Unknown
-   * vendors throw with the supported list in the error message.
+   * `vendor` is one of the eight supported labels: `openai`, `anthropic`,
+   * `bedrock`, `vertex`, `azure-ai`, `nvidia-nim`, `hf-inference`,
+   * `openrouter`. Unknown vendors throw with the supported list in the error
+   * message. For `openrouter`, pass the gateway base URL the client called as
+   * `request.openrouter_endpoint` to record it as `infrastructure.endpoint`;
+   * nothing is assumed without it.
    *
    * Returns `null` when the connector cannot extract a model (e.g., no
    * `model` field on the response). Reuses the per-Tzun LRU cache for
@@ -4111,8 +4114,10 @@ export class Tzun {
    * Wrap a vendor SDK client so per-call `tzun_capture` kwargs trigger
    * `tzun.capture()` automatically.
    *
-   * Detection is duck-typed against the seven vendor call shapes:
-   *   - `chat.completions.create` → openai (also NIM via `{ vendor: 'nvidia-nim' }`)
+   * Detection is duck-typed against the vendor call shapes:
+   *   - `chat.completions.create` → openrouter when the client's `baseURL`
+   *     host is `openrouter.ai`, else openai (also NIM via
+   *     `{ vendor: 'nvidia-nim' }`)
    *   - `messages.create` → anthropic
    *   - `send` + `BedrockRuntimeClient` constructor → bedrock
    *   - `generateContent` or `predict` → vertex

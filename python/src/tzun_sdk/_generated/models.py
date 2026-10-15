@@ -2016,7 +2016,7 @@ class ModelDescriptorAliasRow(_Forbid):
     setBy: str
 
 
-ModelDescriptorSource = Literal["manual", "hf-import", "connector-auto", "openai-known-models", "anthropic-known-models", "bedrock-known-models", "vertex-known-models", "azure-ai-known-models", "nim-known-models", "hf-inference-known-models", "imported-by-digest"]
+ModelDescriptorSource = Literal["manual", "hf-import", "connector-auto", "openai-known-models", "anthropic-known-models", "bedrock-known-models", "vertex-known-models", "azure-ai-known-models", "nim-known-models", "hf-inference-known-models", "openrouter-known-models", "imported-by-digest"]
 
 
 class ModelDescriptorRow(_Forbid):

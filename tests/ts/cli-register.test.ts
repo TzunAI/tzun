@@ -690,7 +690,7 @@ describe('runCli register applies the known-models reference (SQLite)', () => {
       expect((await storage.listModelDescriptors!({})).length).toBe(1);
 
       expect(lines).toContain(
-        'known-models: enriched openai/gpt-4o@2024-08-06 from reference 2026-09-09 (modelType, trainedBy, license, modelCardUrl)',
+        `known-models: enriched openai/gpt-4o@2024-08-06 from reference ${(await loadKnownModels()).version} (modelType, trainedBy, license, modelCardUrl)`,
       );
     } finally {
       cleanup();
@@ -722,7 +722,7 @@ describe('runCli register applies the known-models reference (SQLite)', () => {
       expect(d.trainedBy).toBe('OpenAI');        // absent — filled
       expect(d.modelCardUrl).toBe('https://platform.openai.com/docs/models/gpt-4o');
       expect(lines).toContain(
-        'known-models: enriched openai/gpt-4o@2024-08-06 from reference 2026-09-09 (trainedBy, modelCardUrl)',
+        `known-models: enriched openai/gpt-4o@2024-08-06 from reference ${(await loadKnownModels()).version} (trainedBy, modelCardUrl)`,
       );
     } finally {
       cleanup();
@@ -755,7 +755,7 @@ describe('runCli register applies the known-models reference (SQLite)', () => {
       );
       expect(code).toBe(0);
       expect(lines).toContain(
-        'known-models: entry for openai/gpt-4o@2024-08-06 in reference 2026-09-09 adds nothing (no absent field the entry could fill)',
+        `known-models: entry for openai/gpt-4o@2024-08-06 in reference ${(await loadKnownModels()).version} adds nothing (no absent field the entry could fill)`,
       );
       expect(lines.join('\n')).not.toMatch(/all fields supplied/);
     } finally {

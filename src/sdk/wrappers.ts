@@ -8,7 +8,7 @@
  * entry point that dispatches by vendor label.
  *
  * `attachClient` (exposed as `Tzun#attach`) is the optional sugar: it
- * duck-types an incoming client against the seven supported vendor
+ * duck-types an incoming client against the supported vendor
  * shapes and returns a wrapped object whose intercepted methods strip a
  * `tzun_capture` kwarg and, when present, call `hook()` + `tzun.capture()`
  * after forwarding to the underlying client.
@@ -22,6 +22,7 @@ import type { CaptureResult, EvidenceEnvelope } from '@tzun/engine';
 import { LruCache } from '../models/lru-cache';
 import { loadKnownModels, KnownModelsReference } from '../models/known-models';
 import { getConnector } from './connectors/index';
+import { isOpenRouterBaseUrl } from './connectors/openrouter';
 import type { Connector, AiBomSkeleton } from './connectors/base';
 import { sdkLog } from './log';
 import { isModelCatalogUnsupported } from './http-transport';
@@ -29,7 +30,7 @@ import { isModelCatalogUnsupported } from './http-transport';
 // ── Supported vendor enumeration ─────────────────────────────────────
 
 /**
- * The seven vendor labels supported by `tzun.hook()` and `tzun.attach()`.
+ * The eight vendor labels supported by `tzun.hook()` and `tzun.attach()`.
  * Mirrors the registry keys in `src/sdk/connectors/index.ts`.
  */
 export const SUPPORTED_VENDORS = [
@@ -40,6 +41,7 @@ export const SUPPORTED_VENDORS = [
   'azure-ai',
   'nvidia-nim',
   'hf-inference',
+  'openrouter',
 ] as const;
 
 export type SupportedVendor = (typeof SUPPORTED_VENDORS)[number];
@@ -395,9 +397,11 @@ export const TZUN_CAPTURE_KWARG = 'tzun_capture' as const;
  * `options.vendor` always wins; otherwise the function inspects the
  * client's call surface in a fixed priority order:
  *
- *   1. `client.chat.completions.create` → openai
+ *   1. `client.chat.completions.create` → openrouter when the client's
+ *      `baseURL` host is `openrouter.ai`, else openai
  *      (NIM shares this shape; callers MUST pass `vendor: 'nvidia-nim'`
- *       to override.)
+ *       to override. `vendor: 'openai'` restores the openai classification
+ *       for an OpenRouter client.)
  *   2. `client.messages.create` → anthropic
  *   3. `client.send` + constructor name matching `/^Bedrock(Runtime)?Client$/`
  *      → bedrock
@@ -405,8 +409,8 @@ export const TZUN_CAPTURE_KWARG = 'tzun_capture' as const;
  *   5. `client.complete` or `client.getChatCompletions` → azure-ai
  *   6. `client.chatCompletion` or `client.textGeneration` → hf-inference
  *
- * Unrecognized shapes throw with the seven checked shapes named in the
- * error message.
+ * Unrecognized shapes throw with every checked shape named in the error
+ * message.
  */
 export function detectVendor(
   client: unknown,
@@ -424,8 +428,11 @@ export function detectVendor(
     chatCompletion?: unknown;
     textGeneration?: unknown;
     constructor?: { name?: string };
+    baseURL?: unknown;
   };
-  if (typeof c?.chat?.completions?.create === 'function') return 'openai';
+  if (typeof c?.chat?.completions?.create === 'function') {
+    return isOpenRouterBaseUrl(c.baseURL) ? 'openrouter' : 'openai';
+  }
   if (typeof c?.messages?.create === 'function') return 'anthropic';
   if (
     typeof c?.send === 'function' &&
@@ -453,7 +460,9 @@ export function detectVendor(
   }
   throw new Error(
     `tzun.attach: client shape unrecognized. Checked: ` +
-      `openai (chat.completions.create), anthropic (messages.create), ` +
+      `openai (chat.completions.create), ` +
+      `openrouter (chat.completions.create + baseURL on openrouter.ai), ` +
+      `anthropic (messages.create), ` +
       `bedrock (send + BedrockRuntimeClient), vertex (generateContent or predict), ` +
       `azure-ai (complete or getChatCompletions), nvidia-nim (explicit override), ` +
       `hf-inference (chatCompletion or textGeneration).`,
@@ -842,6 +851,20 @@ export function extractAzureClientHints(client: object): Record<string, unknown>
   return hints;
 }
 
+/**
+ * Read the gateway base URL off an OpenRouter client instance.
+ *
+ * openai-node keeps the base URL on the instance (`baseURL`), never in a
+ * `chat.completions.create` payload. It is handed to the connector as the
+ * `openrouter_endpoint` hint, which the connector normalises; it is never
+ * forwarded to the call. Returns `{}` when the client carries no string
+ * `baseURL`.
+ */
+export function extractOpenRouterClientHints(client: object): Record<string, unknown> {
+  const baseURL = (client as Record<string, unknown>).baseURL;
+  return typeof baseURL === 'string' ? { openrouter_endpoint: baseURL } : {};
+}
+
 export function attachClient<T extends object>(
   client: T,
   tzun: Tzun,
@@ -868,7 +891,8 @@ export function attachClient<T extends object>(
 
   switch (vendor) {
     case 'openai':
-    case 'nvidia-nim': {
+    case 'nvidia-nim':
+    case 'openrouter': {
       const completions = c.chat!.completions!;
       const originalCreate = completions.create!.bind(completions);
       const completionsCopy = copyPreservingPrototype(completions);
@@ -878,7 +902,11 @@ export function attachClient<T extends object>(
         completions,
         tzun,
         options,
-        vendor === 'openai' ? extractAzureClientHints(client) : undefined,
+        vendor === 'openai'
+          ? extractAzureClientHints(client)
+          : vendor === 'openrouter'
+            ? extractOpenRouterClientHints(client)
+            : undefined,
       );
       wrapped.chat = copyPreservingPrototype(c.chat!);
       wrapped.chat.completions = completionsCopy;
@@ -967,3 +995,8 @@ export const wrapAzureAI = makeVendorWrapper('azure-ai');
 export const wrapNvidiaNim = makeVendorWrapper('nvidia-nim');
 /** Wrap a Hugging Face Inference client, pinning the vendor to `hf-inference`. */
 export const wrapHFInference = makeVendorWrapper('hf-inference');
+/**
+ * Wrap an OpenAI-compatible client pointed at OpenRouter, pinning the vendor
+ * to `openrouter` whatever its base URL (for a proxy in front of OpenRouter).
+ */
+export const wrapOpenRouter = makeVendorWrapper('openrouter');

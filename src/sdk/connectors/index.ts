@@ -1,7 +1,7 @@
 /**
  * Connector registry.
  *
- * Single import surface for the seven AI-BOM connectors. The wrapper layer
+ * Single import surface for the eight AI-BOM connectors. The wrapper layer
  * consumes `getConnector(vendor)` to dispatch per-vendor without hard-coding
  * the vendor → module map at every call site.
  *
@@ -18,6 +18,7 @@ import { vertexConnector } from './vertex';
 import { azureAiConnector } from './azure-ai';
 import { nimConnector } from './nim';
 import { hfInferenceConnector } from './hf-inference';
+import { openRouterConnector } from './openrouter';
 
 export const connectorRegistry: Record<string, Connector> = {
   openai: openAiConnector,
@@ -27,6 +28,7 @@ export const connectorRegistry: Record<string, Connector> = {
   'azure-ai': azureAiConnector,
   'nvidia-nim': nimConnector,
   'hf-inference': hfInferenceConnector,
+  openrouter: openRouterConnector,
 };
 
 /**

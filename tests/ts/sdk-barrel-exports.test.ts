@@ -9,6 +9,7 @@ import type { CaptureOptions } from '../../src/sdk/index';
 import {
   SUPPORTED_VENDORS, TZUN_CAPTURE_KWARG,
   wrapOpenAI, wrapAnthropic, wrapAwsBedrock, wrapGcpVertex, wrapAzureAI, wrapNvidiaNim, wrapHFInference,
+  wrapOpenRouter,
 } from '../../src/sdk/index';
 import type { DecisionInput, AttachOptions, SupportedVendor } from '../../src/sdk/index';
 
@@ -36,6 +37,8 @@ it('re-exports the wrapper types + constants from the barrel', () => {
   expect(typeof wrapAzureAI).toBe('function');
   expect(typeof wrapNvidiaNim).toBe('function');
   expect(typeof wrapHFInference).toBe('function');
+  expect(typeof wrapOpenRouter).toBe('function');
+  expect(SUPPORTED_VENDORS).toContain('openrouter');
   const _t: { d?: DecisionInput; a?: AttachOptions; v?: SupportedVendor } = {};
   expect(_t).toBeDefined();
 });

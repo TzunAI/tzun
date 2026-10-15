@@ -9,7 +9,8 @@
  *   5. Asserts `tzun.list({})` returned a single record (the capture).
  *
  * Plus one negative test: unknown client shape throws with informative
- * message naming the seven checked shapes.
+ * message naming every checked shape. The OpenRouter base-URL rule of the
+ * `chat.completions.create` shape is covered in `openrouter.test.ts`.
  */
 
 import { Tzun } from '../../../src/sdk/index';

@@ -10,7 +10,7 @@ import * as wrappers from '../../../src/sdk/wrappers';
 import { Tzun } from '../../../src/sdk/index';
 import {
   wrapOpenAI, wrapAnthropic, wrapAwsBedrock, wrapGcpVertex,
-  wrapAzureAI, wrapNvidiaNim, wrapHFInference,
+  wrapAzureAI, wrapNvidiaNim, wrapHFInference, wrapOpenRouter,
 } from '../../../src/sdk/wrappers';
 
 const fakeOpenAI = () => ({
@@ -45,9 +45,9 @@ describe('per-vendor wrapper files deleted; named aliases exported', () => {
 
   // ── Named per-vendor wrappers ───────────────────────────────────────────
   describe('named per-vendor wrappers', () => {
-    it('all seven exist and are functions', () => {
+    it('all eight exist and are functions', () => {
       for (const w of [wrapOpenAI, wrapAnthropic, wrapAwsBedrock, wrapGcpVertex,
-                       wrapAzureAI, wrapNvidiaNim, wrapHFInference]) {
+                       wrapAzureAI, wrapNvidiaNim, wrapHFInference, wrapOpenRouter]) {
         expect(typeof w).toBe('function');
       }
     });

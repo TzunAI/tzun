@@ -22,6 +22,70 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+### Added
+
+- An `openrouter` connector for models served through the OpenRouter gateway
+  (TzunAI/tzun#14). A model called through OpenRouter had no truthful AI-BOM:
+  an OpenAI SDK client pointed at OpenRouter was recorded as `openai`, and the
+  `nvidia-nim` connector run on an OpenRouter-served model recorded a NIM call
+  with no endpoint, so the gateway disappeared from the record. The connector
+  records the descriptor `vendor` as `openrouter`, the served id
+  (`response.model`, variant suffix such as `:free` included) as `modelName`
+  with `modelVersion: 'unknown'`, its author prefix (`nvidia`, `meta-llama`,
+  `x-ai`, ...) as `trainedBy`, the upstream OpenRouter reports
+  (`response.provider`, e.g. `Nvidia`) as `infrastructure.provider`, and the
+  gateway base URL the client called as `infrastructure.endpoint`, without
+  credentials, query or trailing `/`, its host lowercased and a default port
+  dropped. The tier is `vendor-asserted`, asserted by the gateway. It assumes
+  nothing it was not told: no `model` in the response gives no AI-BOM, and a
+  missing provider or base URL is `null`. A value the AI-BOM rules would
+  refuse is recorded as `null` rather than failing the capture: `maxTokens`
+  and `seed` are kept only as safe integers, an infrastructure string only up
+  to 256 UTF-16 code units, and `stopSequences` only when there are at most 16
+  of at most 256 code units each (never truncated). The TypeScript and Python
+  connectors record the same bytes for the same call.
+- TypeScript: `tzun.attach()` detects an OpenAI-compatible client whose base
+  URL host is `openrouter.ai` as `openrouter` and records its base URL;
+  `wrapOpenRouter` pins the vendor for any base URL. `tzun.hook('openrouter',
+  request, response)` records the endpoint passed as
+  `request.openrouter_endpoint`. `SUPPORTED_VENDORS` has eight labels. The
+  importer exports the `openRouterAuthor` and `openRouterVariantBase` id
+  helpers.
+- Python: the `openrouter` connector (`tzun_sdk.ai_bom.connectors.openrouter`,
+  registry key `openrouter`), so `hook("openrouter", request, response)`
+  works, with the endpoint passed as `request["openrouter_endpoint"]`.
+  `attach()` detects an OpenAI client whose `base_url` host is
+  `openrouter.ai` as `openrouter` and records its base URL; `vendor=
+  "openrouter"` pins the vendor for any base URL. `parse_model_id` gains the
+  `openrouter` rule, and `openrouter_author` and `openrouter_variant_base` are
+  the id helpers.
+- 39 `openrouter` entries in the bundled known-models reference
+  (`data/known-models.json`, version `2026-10-15`), for selected current
+  models of OpenAI, Anthropic, Google, Meta, Mistral AI, xAI, DeepSeek, Qwen,
+  NVIDIA, Microsoft, Amazon, Cohere, Moonshot AI, Z.ai and MiniMax on
+  OpenRouter: model type, license, OpenRouter model page and, for published
+  weights, the Hugging Face repository. A model without an entry is still
+  recorded, with `license`, `modelType` and `modelCardUrl` null. A `:free` or
+  `:batch` variant enriches from its base model's entry and keeps its own
+  `modelName`, in both SDKs. Three license labels join the
+  `<maker>-commercial` vocabulary for models whose weights are not published:
+  `meta-commercial`, `xai-commercial` and `amazon-commercial`. Published
+  weights take the license id on the Hugging Face card, or, where the card
+  names none, a slug of the repository's license title:
+  `mistral-modified-mit` for Mistral Medium 3.5. The rules are in
+  `docs/integration/ai-bom-runbook.md`.
+- `'openrouter-known-models'` in `ModelDescriptorSource` (`@tzun/engine`).
+
+### Changed
+
+- A capture through an attached OpenAI SDK client whose base URL host is
+  `openrouter.ai` now registers a descriptor with `vendor: 'openrouter'`, the
+  served id as `modelName`, and an `infrastructure` block, where it registered
+  `vendor: 'openai'` with no infrastructure. This holds in both SDKs. Records
+  already captured are unchanged and still verify. `tzun.attach(client, {
+  vendor: 'openai' })` (TypeScript) and `attach(client, tzun=tzun,
+  vendor="openai")` (Python) keep the old classification.
+
 ### Removed
 
 - `uuid` is no longer a dependency of `@tzun/sdk`. Nothing imports it

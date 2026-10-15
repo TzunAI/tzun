@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-09",
+  "version": "2026-10-15",
   "entries": [
     {
       "vendor": "openai",
@@ -198,6 +198,533 @@
       "license": "llama-3.1-community",
       "modelCardUrl": "https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct",
       "trainedBy": "Meta"
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-6.1-sol",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-6.1-sol",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-6-astra",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-6-astra",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-6-luna",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-6-luna",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-5.6-terra",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-5.6-terra",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-5.4-mini",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openai-commercial",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-5.4-mini",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "openai/gpt-oss-120b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/openai/gpt-oss-120b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "openai/gpt-oss-120b",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/openai/gpt-oss-120b"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "anthropic/claude-opus-5.5",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://openrouter.ai/anthropic/claude-opus-5.5",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "anthropic/claude-sonnet-5.5",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://openrouter.ai/anthropic/claude-sonnet-5.5",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "anthropic/claude-haiku-5.5",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://openrouter.ai/anthropic/claude-haiku-5.5",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "anthropic/claude-fable-5.1",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "anthropic-commercial",
+      "modelCardUrl": "https://openrouter.ai/anthropic/claude-fable-5.1",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "google/gemini-4-argon",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "google-commercial",
+      "modelCardUrl": "https://openrouter.ai/google/gemini-4-argon",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "google/gemini-3.8-flash",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "google-commercial",
+      "modelCardUrl": "https://openrouter.ai/google/gemini-3.8-flash",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "google/gemma-4-31b-it",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/google/gemma-4-31b-it",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "google/gemma-4-31B-it",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/google/gemma-4-31B-it"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "meta-llama/llama-4-maverick",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "llama4",
+      "modelCardUrl": "https://openrouter.ai/meta-llama/llama-4-maverick",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "meta-llama/Llama-4-Maverick-17B-128E-Instruct",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E-Instruct"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "meta-llama/llama-3.3-70b-instruct",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "llama3.3",
+      "modelCardUrl": "https://openrouter.ai/meta-llama/llama-3.3-70b-instruct",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "meta-llama/Llama-3.3-70B-Instruct",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "meta/muse-wonder",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "meta-commercial",
+      "modelCardUrl": "https://openrouter.ai/meta/muse-wonder",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "meta/muse-spark-1.3",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "meta-commercial",
+      "modelCardUrl": "https://openrouter.ai/meta/muse-spark-1.3",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "meta/muse-glimmer-30b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/meta/muse-glimmer-30b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "meta-models/Muse-Glimmer-30B",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/meta-models/Muse-Glimmer-30B"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "mistralai/mistral-large-4-0",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mistral-commercial",
+      "modelCardUrl": "https://openrouter.ai/mistralai/mistral-large-4-0",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "mistralai/mistral-medium-3-5",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mistral-modified-mit",
+      "modelCardUrl": "https://openrouter.ai/mistralai/mistral-medium-3-5",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "mistralai/Mistral-Medium-3.5-128B",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/mistralai/Mistral-Medium-3.5-128B"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "mistralai/mistral-small-2603",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/mistralai/mistral-small-2603",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "mistralai/Mistral-Small-4-119B-2603",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/mistralai/Mistral-Small-4-119B-2603"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "x-ai/grok-4.7",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "xai-commercial",
+      "modelCardUrl": "https://openrouter.ai/x-ai/grok-4.7",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "deepseek/deepseek-v4-pro-0813",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://openrouter.ai/deepseek/deepseek-v4-pro-0813",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "deepseek-ai/DeepSeek-V4-Pro-0813",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro-0813"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "deepseek/deepseek-v4.1-flash",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://openrouter.ai/deepseek/deepseek-v4.1-flash",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "deepseek-ai/DeepSeek-V4.1-Flash",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "deepseek/deepseek-v4-flash-0731",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://openrouter.ai/deepseek/deepseek-v4-flash-0731",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "deepseek-ai/DeepSeek-V4-Flash-0731",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "qwen/qwen3.8-2.4t-a95b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "qwen3.8-max",
+      "modelCardUrl": "https://openrouter.ai/qwen/qwen3.8-2.4t-a95b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "Qwen/Qwen3.8-2.4T-A95B",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "qwen/qwen3.8-27b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/qwen/qwen3.8-27b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "Qwen/Qwen3.8-27B",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/Qwen/Qwen3.8-27B"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "nvidia/nemotron-3-ultra-550b-a55b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openmdw-1.1",
+      "modelCardUrl": "https://openrouter.ai/nvidia/nemotron-3-ultra-550b-a55b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "nvidia/nemotron-3-super-120b-a12b",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "nvidia-nemotron-open-model-license",
+      "modelCardUrl": "https://openrouter.ai/nvidia/nemotron-3-super-120b-a12b",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "nvidia/nemotron-3.5-lightning",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "openmdw-1.1",
+      "modelCardUrl": "https://openrouter.ai/nvidia/nemotron-3.5-lightning",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "microsoft/phi-4",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://openrouter.ai/microsoft/phi-4",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "microsoft/phi-4",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/microsoft/phi-4"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "amazon/nova-premier-v1",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "amazon-commercial",
+      "modelCardUrl": "https://openrouter.ai/amazon/nova-premier-v1",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "amazon/nova-2-lite-v1",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "amazon-commercial",
+      "modelCardUrl": "https://openrouter.ai/amazon/nova-2-lite-v1",
+      "externalIdentifiers": []
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "cohere/command-a-plus",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "apache-2.0",
+      "modelCardUrl": "https://openrouter.ai/cohere/command-a-plus",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "CohereLabs/command-a-plus-05-2026-bf16",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/CohereLabs/command-a-plus-05-2026-bf16"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "cohere/command-a",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "cc-by-nc-4.0",
+      "modelCardUrl": "https://openrouter.ai/cohere/command-a",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "CohereLabs/c4ai-command-a-03-2025",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/CohereLabs/c4ai-command-a-03-2025"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "moonshotai/kimi-k3",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "kimi-k3",
+      "modelCardUrl": "https://openrouter.ai/moonshotai/kimi-k3",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "moonshotai/Kimi-K3",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/moonshotai/Kimi-K3"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "z-ai/glm-5.3",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "glm-5.3",
+      "modelCardUrl": "https://openrouter.ai/z-ai/glm-5.3",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "zai-org/GLM-5.3",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/zai-org/GLM-5.3"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "z-ai/glm-5.3-flash",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "mit",
+      "modelCardUrl": "https://openrouter.ai/z-ai/glm-5.3-flash",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "zai-org/GLM-5.3-Flash",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/zai-org/GLM-5.3-Flash"
+        }
+      ]
+    },
+    {
+      "vendor": "openrouter",
+      "modelName": "minimax/minimax-m3",
+      "modelVersion": "unknown",
+      "modelType": "llm",
+      "license": "minimax-community",
+      "modelCardUrl": "https://openrouter.ai/minimax/minimax-m3",
+      "externalIdentifiers": [
+        {
+          "scheme": "hf-repo",
+          "value": "MiniMaxAI/MiniMax-M3",
+          "issuedBy": null,
+          "issuedAt": null,
+          "url": "https://huggingface.co/MiniMaxAI/MiniMax-M3"
+        }
+      ]
     }
   ]
 }

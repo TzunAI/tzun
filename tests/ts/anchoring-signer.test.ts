@@ -8,7 +8,7 @@
  * The chain is the in-memory one the scheduler's suite uses; the anvil suite
  * (tests/anvil/) runs both key kinds against a real node.
  */
-import { Transaction, Wallet, concat, decodeRlp, encodeRlp, toBeHex, type TransactionRequest } from 'ethers';
+import { N, Transaction, Wallet, concat, decodeRlp, encodeRlp, keccak256, toBeHex, type TransactionRequest } from 'ethers';
 import type { AnchorTransactionRequest, AnchorTransactionSigner } from '@tzun/engine';
 import {
   AnchorSignerError,
@@ -20,10 +20,14 @@ import {
   type AnchorScheduler,
   type EvmPublisher,
 } from '../../src/anchoring';
+import { transactionToBroadcast, withLowS } from '../../src/anchoring/evm-chain';
+import { readEvmTransaction } from '../../src/attestation/blockchain';
 import { anchorStoreFor, logStoreFor, type AnchorPublication } from '../../src/storage/log-store';
 import { makeEnvelope } from './storage-conformance/fixtures';
 import { FakeEvmChain } from './helpers/anchoring-fake-chain';
 import { ClosureSigner } from './helpers/closure-signer';
+import { highSSigner, rewriteType2Field, signType2, toHighS } from './helpers/signer-faults';
+import { signLegacy } from './helpers/evm-fixtures';
 import { type LogBackend, type OpenedStore, logBackends } from './helpers/log-store-backends';
 
 const CHAIN = 'eip155:31337';
@@ -90,19 +94,29 @@ describe('checkSignedTransaction: what a signer returns is the transaction it wa
     expect(() => checkSignedTransaction(unsigned, REQUEST, address)).toThrow(/signature/);
   });
 
-  it('refuses a high-s signature, which ethers parses and will not re-serialise, as a signature mismatch', async () => {
-    // The same transaction with s replaced by n - s and the parity flipped:
-    // the same sender recovers from it, and it is not canonical (EIP-2).
-    const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+  it('lowers a high s: the same transaction with n - s and the other yParity, the bytes the publisher signs with its key', async () => {
     const raw = await wallet.signTransaction(REQUEST);
-    const fields = decodeRlp(`0x${raw.slice(4)}`) as string[];
-    const s = BigInt(fields[11]);
-    fields[9] = fields[9] === '0x' ? '0x01' : '0x';
-    fields[11] = toBeHex(N - s);
-    const highS = concat(['0x02', encodeRlp(fields)]);
-    expect(Transaction.from(highS).from?.toLowerCase()).toBe(address);
-    expect(() => checkSignedTransaction(highS, REQUEST, address)).toThrow(AnchorSignerError);
-    expect(() => checkSignedTransaction(highS, REQUEST, address)).toThrow(expect.objectContaining({ code: 'anchor_signer_mismatch', field: 'signature' }));
+    const highS = toHighS(raw);
+    expect(readEvmTransaction(highS)).toEqual({ ok: false, rule: 'signature-values' });
+    const signed = checkSignedTransaction(highS, REQUEST, address);
+    expect(signed).toEqual({ raw: raw.toLowerCase(), hash: keccak256(raw) });
+  });
+
+  // Each is the publisher's own signature over the transaction it carries; item 2 refuses
+  // it for the rule named, whatever the request asked for, and the refusal names that rule.
+  it.each<[string, () => Promise<string>, string]>([
+    ['a typed transaction signed for chain id 0', () => wallet.signTransaction({ ...REQUEST, chainId: 0n }), 'chain-id'],
+    ['a tip above the fee cap', async () => signType2(wallet.signingKey, { ...REQUEST, maxPriorityFeePerGas: REQUEST.maxFeePerGas + 1n }), 'fees'],
+    ['a high s and a tip above the fee cap', async () => toHighS(signType2(wallet.signingKey, { ...REQUEST, maxPriorityFeePerGas: REQUEST.maxFeePerGas + 1n })), 'fees'],
+    ['a nonce written with a leading zero byte', async () => rewriteType2Field(await wallet.signTransaction(REQUEST), 1, '0x0007'), 'encoding'],
+    ['a high s and a nonce written with a leading zero byte', async () => rewriteType2Field(toHighS(await wallet.signTransaction(REQUEST)), 1, '0x0007'), 'encoding'],
+    ['a high s with yParity 2', async () => rewriteType2Field(toHighS(await wallet.signTransaction(REQUEST)), 9, '0x02'), 'signature-values'],
+    ['s = n', async () => rewriteType2Field(await wallet.signTransaction(REQUEST), 11, toBeHex(N)), 'signature-values'],
+  ])('refuses %s, naming the rule of item 2 it breaks', async (_name, make, rule) => {
+    const raw = await make();
+    expect(() => checkSignedTransaction(raw, REQUEST, address)).toThrow(AnchorSignerError);
+    expect(() => checkSignedTransaction(raw, REQUEST, address)).toThrow(expect.objectContaining({ code: 'anchor_signer_mismatch', field: rule, rule }));
+    expect(() => checkSignedTransaction(raw, REQUEST, address)).toThrow(/tzun-anchor\/1 §10\.4 item 2/);
   });
 
   it('never carries key material in its message', async () => {
@@ -112,6 +126,105 @@ describe('checkSignedTransaction: what a signer returns is the transaction it wa
     } catch (err) {
       expect((err as Error).message).not.toContain(wallet.privateKey.slice(2));
     }
+  });
+});
+
+describe('withLowS and transactionToBroadcast: what the writer broadcasts meets every rule of tzun-anchor/1 §10.4 item 2', () => {
+  const wallet = Wallet.createRandom();
+  const address = wallet.address.toLowerCase();
+  const p = '0x' + 'ab'.repeat(32);
+
+  /** The signing hash of a signed transaction: ethers' unsignedHash, from the fields alone. */
+  const signingHash = (raw: string): string => Transaction.from(raw).unsignedHash;
+
+  it.each<[string, () => Promise<string>]>([
+    ['EIP-1559', () => wallet.signTransaction(REQUEST)],
+    ['EIP-2930', () => wallet.signTransaction({ ...REQUEST, type: 1, gasPrice: 2_100_000_000n, maxFeePerGas: undefined, maxPriorityFeePerGas: undefined })],
+    ['legacy EIP-155, v 2c + 35', async () => signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 31337n, yParity: 0 })],
+    ['legacy EIP-155, v 2c + 36', async () => signLegacy(wallet.signingKey, { data: p, eip155: true, chainId: 31337n, yParity: 1 })],
+    ['legacy, v 27', async () => signLegacy(wallet.signingKey, { data: p, eip155: false, yParity: 0 })],
+    ['legacy, v 28', async () => signLegacy(wallet.signingKey, { data: p, eip155: false, yParity: 1 })],
+  ])('%s with a high s: lowered to the same key\'s signature over the same hash, which every rule reads', async (_name, sign) => {
+    const low = (await sign()).toLowerCase();
+    const high = toHighS(low);
+    expect(high).not.toBe(low);
+    expect(readEvmTransaction(high)).toEqual({ ok: false, rule: 'signature-values' });
+    // The high s is the same key's signature over the same hash: ethers, which reads it,
+    // recovers the publisher from it.
+    const highFields = decodeRlp(high.startsWith('0x0') ? `0x${high.slice(4)}` : high) as string[];
+    expect(BigInt(highFields[highFields.length - 1]) > N / 2n).toBe(true);
+    expect(signingHash(high)).toBe(signingHash(low));
+    expect(Transaction.from(high).from?.toLowerCase()).toBe(address);
+
+    const lowered = withLowS(high);
+    expect(lowered).toBe(low);
+    expect(signingHash(lowered!)).toBe(signingHash(low));
+    const reading = readEvmTransaction(lowered!);
+    expect(reading.ok && reading.transaction.sender).toBe(address);
+    expect(transactionToBroadcast(high)).toEqual({ ok: true, raw: low, lowered: true });
+  });
+
+  it('a transaction that meets every rule is broadcast byte for byte, and withLowS leaves it alone', async () => {
+    const raw = await wallet.signTransaction(REQUEST);
+    expect(transactionToBroadcast(raw)).toEqual({ ok: true, raw, lowered: false });
+    expect(withLowS(raw)).toBeNull();
+  });
+
+  it('withLowS refuses what is not a high s alone: r or s out of range, a typed yParity other than 0 or 1, bytes that are no transaction', async () => {
+    const raw = await wallet.signTransaction(REQUEST);
+    const fields = decodeRlp(`0x${raw.slice(4)}`) as string[];
+    const withSig = (parity: string, r: string, s: string) => concat(['0x02', encodeRlp([...fields.slice(0, -3), parity, r, s])]);
+    const highS = toBeHex(N - BigInt(fields[11]));
+    expect(withLowS(withSig(fields[9], fields[10], toBeHex(N)))).toBeNull();
+    expect(withLowS(withSig(fields[9], '0x', highS))).toBeNull();
+    expect(withLowS(withSig(fields[9], toBeHex(N), highS))).toBeNull();
+    expect(withLowS(withSig('0x02', fields[10], highS))).toBeNull();
+    expect(withLowS(withSig(fields[9], fields[10], '0x00' + highS.slice(2)))).toBeNull();
+    for (const junk of ['0x', '0x1234', 'not hex', '0x05c0']) expect(withLowS(junk)).toBeNull();
+  });
+
+  it('names the rule still broken when a high s is not the only one', async () => {
+    const raw = await wallet.signTransaction({ ...REQUEST, chainId: 0n });
+    expect(transactionToBroadcast(toHighS(raw))).toEqual({ ok: false, rule: 'chain-id' });
+    const junk = await wallet.signTransaction({ ...REQUEST, gasLimit: 2n ** 64n });
+    expect(transactionToBroadcast(junk)).toEqual({ ok: false, rule: 'field-sizes' });
+    expect(transactionToBroadcast(toHighS(junk))).toEqual({ ok: false, rule: 'field-sizes' });
+    expect(transactionToBroadcast('0x1234')).toEqual({ ok: false, rule: null });
+  });
+});
+
+describe('a publisher over an external signer that returns a high s', () => {
+  const chain = new FakeEvmChain();
+  const fields = { nonce: 3, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 100_000_000n, gasLimit: 30_000n };
+  const p = 'ab'.repeat(32);
+
+  it('signs the bytes a publisher holding the same key signs: the high s lowered, the same sender, the same signing hash', async () => {
+    const wallet = Wallet.createRandom();
+    const byKey = createEvmPublisher({ privateKey: wallet.privateKey, chain: CHAIN, client: chain });
+    const signer = highSSigner(wallet);
+    const bySigner = await createSignerPublisher({ signer, chain: CHAIN, client: chain });
+    const expected = await byKey.signPublication(p, fields);
+    const signed = await bySigner.signPublication(p, fields);
+    expect(signed).toEqual(expected);
+    expect(signer.returned).toHaveLength(1);
+    expect(signed.raw).not.toBe(signer.returned[0]);
+    expect(Transaction.from(signed.raw).unsignedHash).toBe(Transaction.from(signer.returned[0]).unsignedHash);
+    const reading = readEvmTransaction(signed.raw);
+    expect(reading.ok && reading.transaction.sender).toBe(wallet.address.toLowerCase());
+    expect(signed.hash).toBe(keccak256(signed.raw));
+    // An accounted transaction is held to the same rules.
+    expect(await bySigner.signTransfer('0x' + '99'.repeat(20), 5n, '0x', fields)).toEqual(await byKey.signTransfer('0x' + '99'.repeat(20), 5n, '0x', fields));
+  });
+
+  it('refuses a high-s legacy EIP-155 transaction for its type: the writer asks for EIP-1559 only', async () => {
+    const wallet = Wallet.createRandom();
+    const legacy: AnchorTransactionSigner = {
+      getAddress: async () => wallet.address,
+      signTransaction: async (request) =>
+        toHighS(await wallet.signTransaction({ ...request, type: 0, gasPrice: request.maxFeePerGas, maxFeePerGas: undefined, maxPriorityFeePerGas: undefined } as TransactionRequest)),
+    };
+    const publisher = await createSignerPublisher({ signer: legacy, chain: CHAIN, client: chain });
+    await expect(publisher.signPublication(p, fields)).rejects.toMatchObject({ code: 'anchor_signer_mismatch', field: 'type' });
   });
 });
 

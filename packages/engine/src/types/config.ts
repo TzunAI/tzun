@@ -137,7 +137,8 @@ export interface AttestationConfig {
  * The transaction an {@link AnchorTransactionSigner} is asked to sign: an
  * EIP-1559 transaction with every field set. A signer signs it exactly as
  * given; the SDK parses what comes back and refuses a transaction that
- * differs in any field, or that another address signed.
+ * differs in any field, that another address signed, or that breaks a rule
+ * of tzun-anchor/1 §10.4 item 2 other than a high `s`.
  */
 export interface AnchorTransactionRequest {
   type: 2;
@@ -164,7 +165,14 @@ export interface AnchorTransactionRequest {
 export interface AnchorTransactionSigner {
   /** The publisher's address, `0x` and 40 hex. Read once, when the scheduler is created. */
   getAddress(): Promise<string>;
-  /** The signed transaction, `0x` hex: `0x02 ‖ rlp(fields ‖ signature)`. */
+  /**
+   * The signed transaction, `0x` hex: `0x02 ‖ rlp(fields ‖ signature)`. A
+   * signature whose `s` is above (n − 1) / 2, as some KMS and HSM signers
+   * return, is accepted: the SDK replaces `s` with n − s and flips `yParity`,
+   * the same key's signature over the same hash, and stores and broadcasts
+   * that transaction, whose id differs from the one returned (tzun-anchor/1
+   * §7.2 rule 3).
+   */
   signTransaction(transaction: AnchorTransactionRequest): Promise<string>;
 }
 

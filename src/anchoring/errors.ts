@@ -5,6 +5,7 @@
  * the rules do not allow. An alarm is reported: the scheduler found something
  * an operator must look at, and keeps running unless the alarm stops it.
  */
+import type { EvmItemTwoRule } from '../attestation/blockchain';
 
 /** The configuration cannot be used. */
 export class AnchoringConfigError extends Error {
@@ -58,19 +59,40 @@ export class AnchorWalletError extends Error {
   }
 }
 
+/** The specification's label of each rule of tzun-anchor/1 §10.4 item 2. */
+const ITEM_TWO_LABEL: Readonly<Record<EvmItemTwoRule, string>> = {
+  'chain-id': 'Chain id',
+  'legacy-v': 'Legacy v',
+  'signature-values': 'Signature values',
+  fees: 'Fees',
+  recovery: 'Recovery',
+  encoding: 'Encoding',
+  'field-sizes': 'Field sizes',
+};
+
 /**
  * The publisher's signer returned something other than the transaction it
  * was asked to sign: another address signed it, or a field differs (a nonce,
- * a fee, the calldata). Nothing it returned is stored or sent, because the
- * outbox and the nonce accounting depend on those exact bytes. `field` names
- * what differs; nothing here carries key material.
+ * a fee, the calldata). Or it returned a transaction that breaks a rule of
+ * tzun-anchor/1 §10.4 item 2 other than a high `s`, which every verifier
+ * refuses (§7.2 rule 3, §11 item 6): `rule` names it. Nothing it returned is
+ * stored or sent, because the outbox and the nonce accounting depend on those
+ * exact bytes. `field` names what differs, or the rule; nothing here carries
+ * key material.
  */
 export class AnchorSignerError extends Error {
   readonly code = 'anchor_signer_mismatch' as const;
+  /** The rule of tzun-anchor/1 §10.4 item 2 the transaction breaks, by its vector id, when that is why it was refused. */
+  readonly rule?: EvmItemTwoRule;
 
-  constructor(readonly field: string, detail: string) {
-    super(`The publisher's signer returned a transaction other than the one it was asked to sign (${field}: ${detail}). Nothing was stored or sent.`);
+  constructor(readonly field: string, detail: string, rule?: EvmItemTwoRule) {
+    super(
+      rule === undefined
+        ? `The publisher's signer returned a transaction other than the one it was asked to sign (${field}: ${detail}). Nothing was stored or sent.`
+        : `The publisher's signer returned a transaction that breaks the ${ITEM_TWO_LABEL[rule]} rule of tzun-anchor/1 §10.4 item 2 (${rule}: ${detail}), so every verifier would refuse it. Nothing was stored or sent.`,
+    );
     this.name = 'AnchorSignerError';
+    if (rule !== undefined) this.rule = rule;
     Object.setPrototypeOf(this, AnchorSignerError.prototype);
   }
 }
@@ -141,8 +163,9 @@ export type AnchorAlarmSeverity = 'warning' | 'critical';
  *                                    Its stored transaction is rebroadcast, never replaced, and no epoch
  *                                    is cut until it is mined.
  *   anchor_signer_mismatch           the publisher's signer returned a transaction other than the one it
- *                                    was asked to sign (another address, or a changed field). Nothing it
- *                                    returned is stored or sent; the pass fails and is retried.
+ *                                    was asked to sign (another address, or a changed field), or one that
+ *                                    breaks a rule of tzun-anchor/1 §10.4 item 2 other than a high s.
+ *                                    Nothing it returned is stored or sent; the pass fails and is retried.
  *   anchor_signer_unavailable        the publisher's signer threw, or did not answer within
  *                                    `signTimeoutMs`. Nothing is stored or sent; the pass fails and is
  *                                    retried.

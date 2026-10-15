@@ -70,6 +70,23 @@ rewritten to the engine's exact version at publish time.
   `anchor.evm.tx` check of `verifyAnchor` and `verify_anchor` carries the
   `null`. The verdict is unchanged: such a transaction signs no chain id, so
   §10.4 item 5 matches it to no manifest entry (`evm_chain_mismatch`).
+- The anchor scheduler checks every transaction its signer returns against the
+  seven rules of §10.4 item 2, with the verifier's own reader, before it
+  stores or broadcasts it, as tzun-anchor/1 §7.2 rule 3 and §11 item 6
+  require of a writer (TzunAI/tzun-spec#14). This covers every signer path:
+  a private key, an ethers `Signer`, and a KMS or HSM signer. A signature
+  whose `s` is above (n - 1) / 2, which some KMS and HSM signers return, is
+  replaced by the equivalent one, `s` as n - `s` with `yParity` flipped: the
+  same key's signature over the same hash, from which the same sender
+  recovers. The scheduler stores and broadcasts that transaction, whose id is
+  not the one the signer returned. Before, it refused a high `s` as a
+  signature mismatch and published nothing. A transaction that breaks any
+  other rule (a chain id of 0, a tip above the fee cap, RLP that is not
+  canonical, and so on) is neither stored nor broadcast: the pass fails with
+  an `AnchorSignerError` whose `field` and new `rule` name the rule, and the
+  `anchor_signer_mismatch` alarm. A transaction that meets every rule is
+  stored and broadcast with its bytes unchanged. The Python SDK has no anchor
+  writer.
 
 ### Fixed
 
@@ -91,6 +108,11 @@ rewritten to the engine's exact version at publish time.
   (`tzun_sdk.attestation.evm_transaction`) raises `EvmTransactionError` with
   the same rule as `.rule`, and `rlp_form` (`tzun_sdk.attestation.evm_rlp`)
   is `evmRlpForm`.
+- `withLowS` and `transactionToBroadcast` (`src/anchoring/evm-chain.ts`,
+  exported from that module, not from the package entry): the high-`s`
+  replacement, and what the scheduler may broadcast for a signed transaction
+  (the transaction, unchanged or with its `s` lowered, or the rule of item 2
+  it breaks).
 - `vectors/evm-anchor-vectors.json` gains `transactionCases`: signed
   transactions at each edge of each rule of item 2, those it refuses and those
   just inside, each refused case with the one rule it breaks (`chain-id`,

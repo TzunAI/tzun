@@ -15,17 +15,22 @@
  * signer), which keeps the key where the caller keeps it, or an ethers
  * `Wallet` built from a private key the caller passes in, held in a closure.
  * Either way the publisher exposes only the address and a signing function,
- * and it checks every transaction the signer returns against the one it asked
- * for before anything stores or sends it. Every call to the signer has a
- * deadline (`signTimeoutMs`). Nothing here reads the environment or logs.
+ * and it checks every transaction the signer returns before anything stores
+ * or sends it: against the one it asked for, and against every rule of
+ * tzun-anchor/1 §10.4 item 2, read by the verifier's own reader (§7.2 rule 3,
+ * §11 item 6). A signature whose `s` is above (n − 1) / 2, which some KMS and
+ * HSM signers return, is replaced by the equivalent one with n − s; anything
+ * else that breaks a rule is refused. Every call to the signer has a deadline
+ * (`signTimeoutMs`). Nothing here reads the environment or logs.
  *
  * THE URL. A node's URL often carries an API key in its path (Infura,
  * Alchemy). ethers writes the request URL into the message of every HTTP
  * failure, so `JsonRpcEvmChain` rethrows every failure as an
  * {@link EvmRpcError}, whose message and fields name no URL.
  */
-import { FetchRequest, JsonRpcProvider, Network, Transaction, Wallet, keccak256, toBeHex } from 'ethers';
+import { FetchRequest, JsonRpcProvider, Network, Transaction, Wallet, encodeRlp, getBytes, keccak256, toBeHex } from 'ethers';
 import type { AnchorTransactionRequest, AnchorTransactionSigner, EvmFinality } from '@tzun/engine';
+import { decodeEvmRlp, evmRlpForm, readEvmTransaction, type EvmItemTwoRule } from '../attestation/blockchain';
 import type { AnchorBroadcastOutcome } from '../storage/log-store';
 import { DEFAULT_SIGN_TIMEOUT_MS, type ResolvedEvmPublisher } from './config';
 import { AnchorSignerError, AnchorSignerUnavailableError } from './errors';
@@ -517,26 +522,135 @@ export function eip155ChainId(chain: string): bigint {
   return BigInt(match[1]);
 }
 
+/** The order n of the secp256k1 group (tzun-anchor/1 §10.4 item 2). */
+const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+/** ⌊n/2⌋, which is (n − 1) / 2 because n is odd: the largest `s` EIP-2 allows. */
+const SECP256K1_HALF_N = SECP256K1_N / 2n;
+
+/** How many fields each transaction type's signed list has. */
+const SIGNED_FIELD_COUNT: Readonly<Record<0 | 1 | 2, number>> = { 0: 9, 1: 11, 2: 12 };
+
+/** An integer as RLP writes it: no leading zero byte, and 0 as the empty string. */
+const rlpInteger = (n: bigint): string => (n === 0n ? '0x' : toBeHex(n));
+
+/**
+ * `raw` with its signature's `s` replaced by n − s and its recovery parity
+ * flipped (tzun-anchor/1 §7.2 rule 3): a typed `yParity` of 0 becomes 1 and 1
+ * becomes 0, and a legacy `v` becomes the other of its pair, 27 and 28, or
+ * c × 2 + 35 and c × 2 + 36 for a chain id c. The hash a transaction's
+ * signature signs covers none of `v`, `yParity`, `r` and `s`, so the result is
+ * an equivalent signature by the same key over the same hash, and the same
+ * sender recovers from it. The other fields keep their bytes.
+ *
+ * `null` unless `raw` is the canonical RLP of a signed type 0, 1 or 2
+ * transaction whose `s` is above (n − 1) / 2 and below n, whose `r` is from 1
+ * to n − 1, and whose typed `yParity` is 0 or 1 (a legacy `v`, 27 or above).
+ * The result is not checked against the other rules of item 2:
+ * {@link transactionToBroadcast} reads it again. Never throws.
+ */
+export function withLowS(raw: string): string | null {
+  try {
+    if (!/^0x([0-9a-fA-F]{2})+$/.test(raw)) return null;
+    const first = parseInt(raw.slice(2, 4), 16);
+    const type = first >= 0xc0 ? 0 : first === 1 || first === 2 ? first : null;
+    if (type === null) return null;
+    const payload = type === 0 ? raw : `0x${raw.slice(4)}`;
+    if (evmRlpForm(getBytes(payload)) !== 'canonical') return null;
+    const fields = decodeEvmRlp(payload);
+    if (!Array.isArray(fields) || fields.length !== SIGNED_FIELD_COUNT[type]) return null;
+    const [parityItem, rItem, sItem] = fields.slice(-3);
+    const integers = [parityItem, rItem, sItem].map((item) =>
+      typeof item === 'string' && !item.startsWith('0x00') ? (item === '0x' ? 0n : BigInt(item)) : null,
+    );
+    if (integers.some((n) => n === null)) return null;
+    const [parity, r, s] = integers as bigint[];
+    if (r < 1n || r >= SECP256K1_N || s <= SECP256K1_HALF_N || s >= SECP256K1_N) return null;
+    let flipped: bigint;
+    if (type === 0) {
+      // 27 and c × 2 + 35 are odd, 28 and c × 2 + 36 even: each moves to the other of its pair.
+      if (parity < 27n) return null;
+      flipped = parity % 2n === 1n ? parity + 1n : parity - 1n;
+    } else {
+      if (parity !== 0n && parity !== 1n) return null;
+      flipped = 1n - parity;
+    }
+    const body = encodeRlp([...fields.slice(0, -3), rlpInteger(flipped), rlpInteger(r), rlpInteger(SECP256K1_N - s)]);
+    return type === 0 ? body : `0x0${type}${body.slice(2)}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the publisher may broadcast for the signed transaction `raw`, as
+ * tzun-anchor/1 §7.2 rule 3 and §11 item 6 require of a writer: a transaction
+ * that meets every rule of §10.4 item 2, read by the verifier's own reader
+ * (`readEvmTransaction`).
+ *
+ * - When `raw` meets every rule: `raw` itself, its bytes unchanged.
+ * - When the only rule it breaks is an `s` above (n − 1) / 2 (EIP-2), which
+ *   some KMS and HSM signers return and a development chain such as anvil
+ *   mines: {@link withLowS}(raw), which meets every rule and recovers the
+ *   same sender (`lowered: true`). It is another transaction id.
+ * - Otherwise: the rule it breaks, by the vectors' id, or `null` when it is
+ *   no signed transaction of type 0, 1 or 2. When a high `s` is not the only
+ *   rule broken, the rule is the one still broken with `s` lowered.
+ *
+ * Never throws.
+ */
+export function transactionToBroadcast(
+  raw: string,
+): { ok: true; raw: string; lowered: boolean } | { ok: false; rule: EvmItemTwoRule | null } {
+  const reading = readEvmTransaction(raw);
+  if (reading.ok) return { ok: true, raw, lowered: false };
+  if (reading.rule !== 'signature-values') return { ok: false, rule: reading.rule };
+  const lowered = withLowS(raw);
+  if (lowered === null) return { ok: false, rule: 'signature-values' };
+  const again = readEvmTransaction(lowered);
+  return again.ok ? { ok: true, raw: lowered, lowered: true } : { ok: false, rule: again.rule };
+}
+
+/** What each rule of tzun-anchor/1 §10.4 item 2 refuses, for an {@link AnchorSignerError}'s message. */
+const ITEM_TWO_BREACH: Readonly<Record<EvmItemTwoRule, string>> = {
+  'chain-id': 'a typed transaction signed for chain id 0',
+  'legacy-v': 'a legacy v other than 27, 28, or chainId * 2 + 35 or + 36 for a chain id of 1 or more',
+  'signature-values': 'r is not from 1 to n - 1, s is 0 or n or more, or yParity is not 0 or 1',
+  fees: 'maxPriorityFeePerGas above maxFeePerGas',
+  recovery: 'no public key recovers from the signature',
+  encoding: 'not the canonical RLP of its fields',
+  'field-sizes': 'a nonce or gasLimit above 2^64 - 1, or a chain id, amount or fee above 2^256 - 1',
+};
+
 /**
  * The signed transaction `raw`, checked against `request` and the publisher's
- * `address`: it parses, it is signed, the recovered sender is the publisher,
- * every field is the one requested, it carries no access list, and its bytes
- * are ethers' canonical serialisation of it (so its hash is the one a node
- * will report). Anything else is an {@link AnchorSignerError}, and nothing is
- * stored or sent.
+ * `address`, as the bytes the publisher stores and broadcasts. First it must
+ * meet every rule of tzun-anchor/1 §10.4 item 2 ({@link transactionToBroadcast}):
+ * a signature whose only fault is an `s` above (n − 1) / 2 is replaced by the
+ * equivalent one with n − s, and a transaction that breaks any other rule is
+ * an {@link AnchorSignerError} whose `rule` names it. Then: it is signed, the
+ * recovered sender is the publisher, every field is the one requested, it
+ * carries no access list, and its bytes are ethers' canonical serialisation of
+ * it (so its hash is the one a node will report). Anything else is an
+ * {@link AnchorSignerError}, and nothing is stored or sent. A transaction that
+ * meets every rule is returned with its bytes unchanged.
  */
 export function checkSignedTransaction(raw: unknown, request: AnchorTransactionRequest, address: string): SignedTransaction {
   if (typeof raw !== 'string' || !/^0x([0-9a-fA-F]{2})+$/.test(raw)) {
     throw new AnchorSignerError('encoding', 'not 0x hex bytes');
   }
+  const ready = transactionToBroadcast(raw);
+  if (!ready.ok) {
+    if (ready.rule !== null) throw new AnchorSignerError(ready.rule, ITEM_TWO_BREACH[ready.rule], ready.rule);
+    if (isUnsignedTransaction(raw)) throw new AnchorSignerError('signature', 'unsigned, or no sender recovers from it');
+    throw new AnchorSignerError('encoding', 'not a signed transaction');
+  }
+  const bytes = ready.raw;
   let tx: Transaction;
   try {
-    tx = Transaction.from(raw);
+    tx = Transaction.from(bytes);
   } catch {
     throw new AnchorSignerError('encoding', 'not a signed transaction');
   }
-  // Recovering the sender and re-serialising can throw on a transaction
-  // ethers parses: a high-s signature parses, and then refuses to serialise.
   let from: string | null;
   let serialized: string;
   try {
@@ -546,7 +660,7 @@ export function checkSignedTransaction(raw: unknown, request: AnchorTransactionR
     throw new AnchorSignerError('signature', `not a canonical signature (${shortReason(err)})`);
   }
   if (!from) throw new AnchorSignerError('signature', 'unsigned, or no sender recovers from it');
-  if (serialized.toLowerCase() !== raw.toLowerCase()) throw new AnchorSignerError('encoding', 'not the canonical serialisation');
+  if (serialized.toLowerCase() !== bytes.toLowerCase()) throw new AnchorSignerError('encoding', 'not the canonical serialisation');
   if (lower(from) !== address) throw new AnchorSignerError('sender', `signed by ${lower(from)}, not the publisher ${address}`);
   const expected: Array<[string, unknown, unknown]> = [
     ['type', tx.type, request.type],
@@ -563,8 +677,17 @@ export function checkSignedTransaction(raw: unknown, request: AnchorTransactionR
     if (got !== want) throw new AnchorSignerError(field, `${String(got)} where ${String(want)} was asked for`);
   }
   if ((tx.accessList ?? []).length > 0) throw new AnchorSignerError('accessList', 'an access list was added');
-  const signed = lower(raw);
+  const signed = lower(bytes);
   return { raw: signed, hash: keccak256(signed) };
+}
+
+/** Whether ethers reads `raw` as a transaction that carries no signature. */
+function isUnsignedTransaction(raw: string): boolean {
+  try {
+    return !Transaction.from(raw).isSigned();
+  } catch {
+    return false;
+  }
 }
 
 /** An error's message up to ethers' parenthesised detail, for a refusal that names what went wrong. */

@@ -19,6 +19,9 @@ import { Transaction, type Wallet } from 'ethers';
 import type { EvidenceEnvelope } from '@tzun/engine';
 import { Tzun, verifyAnchor, RpcEvmHeaderSource, verifyEvmPublication } from '../../src/sdk';
 import { ClosureSigner } from '../ts/helpers/closure-signer';
+import { highSSigner } from '../ts/helpers/signer-faults';
+import { readEvmTransaction } from '../../src/attestation/blockchain';
+import { withLowS } from '../../src/anchoring/evm-chain';
 import { SqliteStorageAdapter } from '../../src/storage/sqlite';
 import { anchorStoreFor, type AnchorPublication } from '../../src/storage/log-store';
 import { AnchorForceRateLimitedError, createAnchorScheduler, type AnchorScheduler, type AnchorSchedulerOptions } from '../../src/anchoring';
@@ -300,6 +303,45 @@ suite('the anchor scheduler on anvil', () => {
       existedBy: { source: 'evm-calldata' },
     });
     expect(verified).not.toHaveProperty('anchorReason');
+  });
+
+  it('an external signer that returns a high s: the transaction mined is its signature with n - s, which every rule of tzun-anchor/1 §10.4 item 2 reads, and the anchor verifies', async () => {
+    const publisher = await node.fundedWallet();
+    const signer = highSSigner(new ClosureSigner(publisher.privateKey));
+    const tzun = await Tzun.init({
+      mode: 'dev',
+      dbPath: join(dir, 'high-s.db'),
+      chainId: 'high-s',
+      logNamespace: NS,
+      anchoring: { publishers: { evm: { rpcUrl: node.rpcUrl, chain: CHAIN, signer } }, autoStart: false },
+    });
+    open.push(tzun);
+    const id = (await tzun.capture({ decider: { kind: 'human', id: 'acct:u-test', agent: null, credential: null, freshness: null }, aiOutput: { highS: true }, action: 'approved', reason: 'high s', aiSystemId: 'anvil-suite' })).envelope.payload.evidenceId;
+    await tzun.anchorNow({ force: true });
+    for (let i = 0; i < 10; i++) {
+      await node.mine(3);
+      await tzun.anchorNow();
+      const state = (await tzun.getAnchorState())!;
+      if (state.lastFinalized && state.inFlight.length === 0 && state.fillBacklog === 0) break;
+    }
+    const state = (await tzun.getAnchorState())!;
+    expect(state.alarms).toEqual([]);
+    expect(signer.returned).toHaveLength(1);
+    // What the signer returned, a verifier refuses; what was mined, it reads, with the publisher as sender.
+    expect(readEvmTransaction(signer.returned[0])).toEqual({ ok: false, rule: 'signature-values' });
+    const [publication] = await anchorStoreFor(tzun.getStorage())!.listAnchorPublications({ kind: 'evm-calldata/1' });
+    expect(publication.state).toBe('finalized');
+    const mined = await node.rpc<string>('eth_getRawTransactionByHash', [publication.minedTxHash]);
+    expect(mined.toLowerCase()).toBe(withLowS(signer.returned[0]));
+    const reading = readEvmTransaction(mined);
+    expect(reading.ok && reading.transaction.sender).toBe(publisher.address.toLowerCase());
+
+    const manifest = { publishers: { [state.anchorOrigin]: [{ address: publisher.address, chain: CHAIN, namespace: 'test' as const }] } };
+    expect(
+      await tzun.verify(id, undefined, {
+        anchor: { publisherManifest: manifest, evmHeaderSources: { [CHAIN]: new RpcEvmHeaderSource(node.provider as never, { finality: 'finalized' }) } },
+      }),
+    ).toMatchObject({ verified: true, anchorValid: true });
   });
 
   it.each(KEY_KINDS)('a process killed right after broadcast restarts to finalize the same transaction, never a second (key: %s)', async (kind) => {

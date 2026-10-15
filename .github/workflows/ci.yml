@@ -88,6 +88,14 @@ jobs:
       - name: Build TypeScript SDK
         run: pnpm run build
 
+      # The build above has every dev dependency installed and sets
+      # skipLibCheck, so a public declaration that imports types only a dev
+      # dependency provides compiles here and fails in a consumer's project.
+      # This packs both packages as release.yml does and compiles a strict
+      # consumer of the two tarballs, with skipLibCheck off.
+      - name: Packed declarations type-check in a strict consumer
+        run: scripts/check-packed-types.sh
+
   python:
     name: Python SDK (python/tests/)
     runs-on: ubuntu-latest

@@ -22,6 +22,18 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+### Fixed
+
+- `@tzun/sdk` lists `@types/better-sqlite3` and `@types/pg` as dependencies,
+  not dev dependencies. Its declarations import types from `better-sqlite3`
+  and `pg`: the storage extension and log-store signatures take a
+  `better-sqlite3` database and a `pg` pool. A project that type-checks
+  library declarations (`skipLibCheck: false`) and did not install the two
+  `@types` packages itself failed to compile against the packed SDK with
+  TS7016. CI now packs `@tzun/engine` and `@tzun/sdk` and compiles a strict
+  consumer of the two tarballs (`scripts/check-packed-types.sh`)
+  (TzunAI/tzun#9).
+
 ## [0.8.2] — 2026-10-06
 
 **The first public release of the source.** Tzun records a tamper-evident

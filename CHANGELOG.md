@@ -109,6 +109,19 @@ rewritten to the engine's exact version at publish time.
     one it reads, refuses one that item 2 does not read, naming the rule, and
     takes its sender and chain id from item 2's reading.
 
+### Removed
+
+- `uuid` is no longer a dependency of `@tzun/sdk`. Nothing imports it
+  (TzunAI/tzun#2).
+- `rich` is no longer a dependency of `tzun-sdk`. Nothing in the package
+  imports it; the `tzun` command is built on `typer`, which depends on `rich`
+  itself (TzunAI/tzun#2).
+- The `sigstore` extra of `tzun-sdk`, which `all` included. It installed
+  `sigstore`, which nothing imports: `SigstoreBackend` is not implemented and
+  raises `NotImplementedError`, as before. `sigstore` 4.5 caps `rich` below 16
+  and `rfc3161-client` below 1.1, so raising either floor would have made
+  `[sigstore]` and `[all]` impossible to install (TzunAI/tzun#2).
+
 ### Fixed
 
 - A transaction with a `nonce` from 2^53 to 2^64 - 1 is read and its sender
@@ -117,6 +130,18 @@ rewritten to the engine's exact version at publish time.
   ethers reads a nonce as a JavaScript safe integer (the Python SDK copied
   that limit). A legacy `v` above 2^256 - 1 (a chain id of about 2^255 or
   more) is read for the same reason.
+- `@tzun/sdk` lists `@types/better-sqlite3` and `@types/pg` as dependencies,
+  not dev dependencies. Its declarations import types from `better-sqlite3`
+  and `pg`: the storage extension and log-store signatures take a
+  `better-sqlite3` database and a `pg` pool. A project that type-checks
+  library declarations (`skipLibCheck: false`) and did not install the two
+  `@types` packages itself failed to compile against the packed SDK with
+  TS7016. The ranges, `^7.6.0 || ^9.6.0` and `^8.11.0`, also accept the
+  older versions a project may have installed itself. CI now packs
+  `@tzun/engine` and `@tzun/sdk` and compiles two strict consumers of the two
+  tarballs, one with nothing else installed and one with the oldest version
+  of each `@types` package the ranges accept
+  (`scripts/check-packed-types.sh`) (TzunAI/tzun#9).
 
 ### Added
 

@@ -1,6 +1,6 @@
 # Tzun SDK
 
-**Cryptographic evidence capture for human-in-the-loop AI decisions.**
+**Cryptographic evidence capture for AI decisions.**
 
 TypeScript (`@tzun/sdk` and `@tzun/engine`, Node.js 22 or later) and Python
 (`tzun-sdk`, Python 3.11 or later) · source published to be read, with no

@@ -1311,13 +1311,16 @@ async function main(): Promise<void> {
         proven: e.proven.map((p) => (p.check === 'ts.record.trust' ? { ...p, at: a2Time } : p)),
       };
     };
-    add('custody-ledger', 'A record with a custody row an operator recorded after capture: the row and the envelope\'s hashed mirror of it agree, custody.ledger holds. Exit 0.', bundleA2Custody, full, genuineA2(ok('custody.ledger')), 0);
+    // This version verifies no custody material (Verification §4.3, Bundle §6):
+    // custody.ledger is never checked-correct. Its one finding is a slot that
+    // holds no row beside a mirror entry in the envelope.
+    add('custody-ledger', 'A record with a custody row an operator recorded after capture, and the envelope\'s hashed mirror of it: this version verifies no custody material, so custody.ledger abstains, unsupported_artifact, and never vouches for the row (Verification §4.3, Bundle §6). Exit 4.', bundleA2Custody, full, genuineA2(abstain('custody.ledger', 'unsupported_artifact')), 4);
     const rowRemoved = json(bundleA2Custody);
     rowRemoved.custody.entries = [];
     add('custody-row-removed', 'The same bundle with its custody row left out: the envelope\'s hashed mirror names a row the ledger does not hold, mirror_entry_unexpected. Exit 1.', rowRemoved, full, genuineA2(wrong('custody.ledger', 'mirror_entry_unexpected')), 1);
     const rowAndMirrorRemoved = json(rowRemoved);
     rowAndMirrorRemoved.envelope.custodyChain = rowAndMirrorRemoved.envelope.custodyChain.filter((e) => !(e as { entryHash?: unknown }).entryHash);
-    add('custody-row-and-mirror-removed', 'The row and its hashed mirror entry both left out: nothing in the bundle commits to the ledger, so custody.ledger proves the rows consistent, never complete, and has nothing to measure (not_applicable). Exit 0.', rowAndMirrorRemoved, full, genuineA2(nc('custody.ledger', 'not_applicable')), 0);
+    add('custody-row-and-mirror-removed', 'The row and its hashed mirror entry both left out: the slot holds no row and the envelope names none, so custody.ledger is not_applicable. Nothing in the bundle commits to the ledger, so a row removed with its mirror entry leaves no trace (Verification §4.3). Exit 0.', rowAndMirrorRemoved, full, genuineA2(nc('custody.ledger', 'not_applicable')), 0);
 
     // ---- The envelope's artifact, and the carried checkpoints ------------------------------
     const noArtifact = (b: ProofBundle, consistency: Row[]): Expected => ({

@@ -550,12 +550,91 @@ describe('verifyBundle()', () => {
     malformed(await verifyBundle(unparsed, auditor()));
   });
 
-  it('refuses custody entries that are not objects', async () => {
-    const b = clone(await store.tzun.exportBundle(r2)) as unknown as { custody: { entries: unknown } };
-    b.custody.entries = [1, 'x', null];
-    const report = await verifyBundle(b, auditor());
-    expect(report.checks).toEqual([{ id: 'bundle', outcome: 'checked-wrong', reason: 'malformed_bundle' }]);
-    expect(bundleExitCode(report)).toBe(2);
+  describe('custody.ledger: never checked-correct, since this version verifies no custody material (Verification §4.3, Bundle §6)', () => {
+    type Loose = Record<string, unknown> & { custody: unknown; envelope: Record<string, unknown> };
+    const MIRROR = { entryHash: 'ab'.repeat(32), action: 'relink' };
+    const custodyRow = async (edit: (b: Loose) => void) => {
+      const b = clone(good) as unknown as Loose;
+      edit(b);
+      const report = await verifyBundle(b, auditor());
+      return { row: find(report, 'custody.ledger'), report };
+    };
+
+    it('a slot that holds no row, and no mirror entry in the envelope: not_applicable', async () => {
+      for (const custody of [null, { entries: [] }, { hashPreimage: 'x', entries: [], trail: null }]) {
+        const { row, report } = await custodyRow((b) => (b.custody = custody));
+        expect(row).toEqual({ id: 'custody.ledger', outcome: 'not-checked', reason: 'not_applicable' });
+        expect(bundleExitCode(report)).toBe(0);
+      }
+      // An entry that is not a mirror entry (no 64-hex entryHash) names no custody row.
+      for (const entry of [{ action: 'relink' }, { entryHash: 'AB'.repeat(32) }, { entryHash: 'ab'.repeat(31) }, 'x', null]) {
+        const { row } = await custodyRow((b) => {
+          b.custody = null;
+          b.envelope.custodyChain = [entry];
+        });
+        expect(row).toEqual({ id: 'custody.ledger', outcome: 'not-checked', reason: 'not_applicable' });
+      }
+    });
+
+    it('a slot that holds no row beside a mirror entry: checked-wrong, mirror_entry_unexpected, exit 1', async () => {
+      for (const custody of [null, { entries: [] }]) {
+        const { row, report } = await custodyRow((b) => {
+          b.custody = custody;
+          b.envelope.custodyChain = [{ action: 'unhashed' }, MIRROR];
+        });
+        expect(row).toEqual({ id: 'custody.ledger', outcome: 'checked-wrong', reason: 'mirror_entry_unexpected' });
+        expect(bundleExitCode(report)).toBe(1);
+        // The finding is the row's alone: every other check is reported as before.
+        expect(report.checks.map((c) => c.id)).toEqual((await verifyBundle(good, auditor())).checks.map((c) => c.id));
+      }
+    });
+
+    it('any other slot abstains, unsupported_artifact, whatever it holds, mirror entry or not: exit 4', async () => {
+      for (const custody of [{}, { entries: null }, { entries: 'rows' }, { entries: [1, 'x', null] }, { entries: [{ id: 1 }] }]) {
+        for (const custodyChain of [[], [MIRROR]]) {
+          const { row, report } = await custodyRow((b) => {
+            b.custody = custody;
+            b.envelope.custodyChain = custodyChain;
+          });
+          expect(row).toEqual({ id: 'custody.ledger', outcome: 'abstain', reason: 'unsupported_artifact' });
+          expect(bundleExitCode(report)).toBe(4);
+          expect(bundleExitCode(report, { allowUnchecked: true })).toBe(0);
+        }
+      }
+    });
+
+    it('a custody slot that is neither an object nor null is unreadable', async () => {
+      for (const custody of [[], 'rows', 1, true]) {
+        const b = clone(good) as unknown as Loose;
+        b.custody = custody;
+        const report = await verifyBundle(b, auditor());
+        expect(report.checks).toEqual([{ id: 'bundle', outcome: 'checked-wrong', reason: 'malformed_bundle' }]);
+        expect(bundleExitCode(report)).toBe(2);
+      }
+    });
+  });
+
+  it('reads a null chain, anchoring or extensions slot as one with nothing to carry (Bundle §3.1, §3.2)', async () => {
+    const withSlot = (slot: 'chain' | 'anchoring' | 'extensions', value: unknown) => {
+      const b = clone(good) as unknown as Record<string, unknown>;
+      b[slot] = value;
+      return b;
+    };
+    const comparable = async (b: unknown) => {
+      const { checkedAt: _t, ...rest } = await verifyBundle(b, auditor());
+      return rest;
+    };
+    expect(await comparable(withSlot('anchoring', null))).toEqual(await comparable(withSlot('anchoring', {})));
+    expect(await comparable(withSlot('extensions', null))).toEqual(await comparable(withSlot('extensions', {})));
+    // A null chain supplies no chain id and no predecessor: the chain is left unchecked.
+    expect(await comparable(withSlot('chain', null))).toEqual(await comparable(withSlot('chain', { chainId: null, predecessor: null })));
+    const unchained = await verifyBundle(withSlot('chain', null), auditor());
+    expect(find(unchained, 'bundle')).toEqual({ id: 'bundle', outcome: 'checked-correct' });
+    expect(find(unchained, 'anchor.origin')?.facts).toMatchObject({ chainChecked: false });
+    // An array is neither an object nor null.
+    for (const slot of ['chain', 'anchoring', 'extensions'] as const) {
+      expect((await verifyBundle(withSlot(slot, []), auditor())).checks).toEqual([{ id: 'bundle', outcome: 'checked-wrong', reason: 'malformed_bundle' }]);
+    }
   });
 
   it('requires every carried checkpoint to be one an anchor authenticated, with one checkpoint per log as with two', async () => {

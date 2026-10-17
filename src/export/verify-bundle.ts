@@ -43,14 +43,18 @@
  *                          `chain_link_missing`, `predecessor_mismatch`,
  *                          `not_in_bundle:predecessor`). A genesis record with
  *                          no link and no predecessor holds.
- *   custody.ledger         The ledger rows against each other and the
- *                          envelope's `custodyChain` (`verifyCustodyLedger`;
- *                          its failure reasons), `not_in_bundle:custody_entries`,
- *                          `not_applicable` when there is nothing to measure.
- *                          It proves the rows consistent, not complete: the
- *                          ledger is committed nowhere a bundle can check, so
- *                          a last row removed with its hashed mirror entry
- *                          leaves no trace.
+ *   custody.ledger         The `custody` slot (Verification §4.3, Bundle §6).
+ *                          This version verifies no custody material, so the
+ *                          row is never `checked-correct`. A slot that holds
+ *                          no row (`null`, or `entries` an empty array) beside
+ *                          an envelope whose `custodyChain` holds a mirror
+ *                          entry (an object with a 64-hex `entryHash`) is
+ *                          `mirror_entry_unexpected`: the envelope names a row
+ *                          the bundle leaves out. Without one it is
+ *                          `not_applicable`. Any other slot abstains,
+ *                          `unsupported_artifact`. The store's and the
+ *                          scanner's own checks (`verifyCustodyLedger`) still
+ *                          verify the rows; the report does not vouch for them.
  *   ts.record.token        The record's RFC 3161 token, tzun-anchor/1 §10.5
  *   ts.record.trust        steps 1 to 4 over the record's digest: a DER
  *                          token, its imprint, its signature, the
@@ -152,9 +156,9 @@ import {
   checkSignoffExpectation,
   earlierFieldSet,
   EvidenceChain,
+  isHashedCustodyEntry,
   recordDigestCheck,
   SchemaRegistry,
-  verifyCustodyLedger,
   type EvidenceEnvelope,
   type EvmFinality,
 } from '@tzun/engine';
@@ -390,7 +394,8 @@ interface ReadBundle {
   subject: Json;
   envelope: EvidenceEnvelope;
   chain: { chainId: unknown; predecessor: Json | null };
-  custodyEntries: unknown[] | null;
+  /** The `custody` slot as it stands: `null`, or an object this version does not verify. */
+  custody: Json | null;
   credentials: unknown;
   relatedRecords: unknown;
   policy: unknown;
@@ -432,6 +437,12 @@ const COMPOSED_MEMBERS = ['logPath', 'anchorLeafIndex', 'anchorSize', 'anchorPat
  * No member name a row id can carry (of the bundle, of `extensions`, of
  * `envelope.nonRepudiation`, of `anchoring`) holds a lone surrogate, since a
  * report that holds one cannot be written (Bundle §4 step 9).
+ *
+ * `chain`, `custody`, `anchoring` and `extensions` are each an object or
+ * `null` (Bundle §3.1, §4 step 6). A `null` slot is read as one with nothing
+ * to carry: no chain id and no predecessor, no custody row, no anchoring
+ * material, no extension. What `custody` holds is left to `custody.ledger`,
+ * which does not verify it.
  */
 function readBundle(bundle: unknown): { check: BundleCheck; read?: ReadBundle } {
   const malformed = { check: check('bundle', 'checked-wrong', 'malformed_bundle') };
@@ -441,20 +452,22 @@ function readBundle(bundle: unknown): { check: BundleCheck; read?: ReadBundle } 
   if (bundle.profile !== 'record') return { check: check('bundle', 'abstain', 'unsupported_bundle_profile') };
   if (!REQUIRED_MEMBERS.every((m) => m in bundle)) return malformed;
 
-  const { subject, envelope, chain, custody, anchoring, anchorPending, extensions } = bundle;
-  if (!isRecord(subject) || !isRecord(envelope) || !isRecord(chain) || !isRecord(custody) || !isRecord(anchoring) || !isRecord(extensions)) {
-    return malformed;
-  }
-  for (const slot of ['credentials', 'relatedRecords', 'policy'] as const) {
+  const { subject, envelope } = bundle;
+  if (!isRecord(subject) || !isRecord(envelope)) return malformed;
+  for (const slot of ['chain', 'custody', 'credentials', 'relatedRecords', 'anchoring', 'policy', 'extensions'] as const) {
     if (bundle[slot] !== null && !isRecord(bundle[slot])) return malformed;
   }
-  if (!('chainId' in chain) || (chain.chainId !== null && typeof chain.chainId !== 'string')) return malformed;
-  const predecessor = chain.predecessor ?? null;
+  // A null slot carries nothing (Bundle §3.1, §3.2).
+  const chain: Json | null = bundle.chain === null ? null : (bundle.chain as Json);
+  const custody: Json | null = bundle.custody === null ? null : (bundle.custody as Json);
+  const anchoring: Json = bundle.anchoring === null ? {} : (bundle.anchoring as Json);
+  const extensions: Json = bundle.extensions === null ? {} : (bundle.extensions as Json);
+  const { anchorPending } = bundle;
+  if (chain !== null && (!('chainId' in chain) || (chain.chainId !== null && typeof chain.chainId !== 'string'))) return malformed;
+  const predecessor = chain?.predecessor ?? null;
   if (predecessor !== null) {
     if (!isRecord(predecessor) || typeof predecessor.canonicalDigest !== 'string' || !isIndex(predecessor.sequenceNumber)) return malformed;
   }
-  const entries = custody.entries ?? null;
-  if (entries !== null && (!Array.isArray(entries) || !entries.every(isRecord))) return malformed;
   if (anchorPending !== null) {
     if (!isRecord(anchorPending) || typeof anchorPending.origin !== 'string' || !isIndex(anchorPending.leafIndex) || typeof anchorPending.since !== 'string') {
       return malformed;
@@ -494,8 +507,8 @@ function readBundle(bundle: unknown): { check: BundleCheck; read?: ReadBundle } 
     read: {
       subject,
       envelope: envelope as unknown as EvidenceEnvelope,
-      chain: { chainId: chain.chainId, predecessor: predecessor as Json | null },
-      custodyEntries: entries as unknown[] | null,
+      chain: { chainId: chain === null ? null : chain.chainId, predecessor: predecessor as Json | null },
+      custody,
       credentials: bundle.credentials,
       relatedRecords: bundle.relatedRecords,
       policy: bundle.policy,
@@ -558,14 +571,26 @@ function chainLinkCheck(read: ReadBundle): BundleCheck {
   return expected !== null && expected === link ? check(id, 'checked-correct') : check(id, 'checked-wrong', 'chain_link_mismatch');
 }
 
+/**
+ * `custody.ledger` (Verification §4.3, Bundle §6). This version does not
+ * verify custody material, and the row is never `checked-correct`:
+ *
+ * - a slot that holds no row (`null`, or an object whose `entries` is an empty
+ *   array) beside an envelope whose `custodyChain` holds a mirror entry (an
+ *   object whose `entryHash` is 64 lowercase hex digits, Record §2.1) is
+ *   `checked-wrong`, `mirror_entry_unexpected`: the envelope names a custody
+ *   row the bundle leaves out, which is what a removed row looks like;
+ * - without a mirror entry, such a slot is `not-checked`, `not_applicable`;
+ * - any other slot abstains, `unsupported_artifact`.
+ */
 function custodyCheck(read: ReadBundle): BundleCheck {
   const id = 'custody.ledger';
-  if (read.custodyEntries === null) return check(id, 'not-checked', 'not_in_bundle:custody_entries');
-  const evidenceId = read.envelope.payload?.evidenceId;
-  const ledger = verifyCustodyLedger(typeof evidenceId === 'string' ? evidenceId : '', read.envelope, undefined, read.custodyEntries as never);
-  if (!ledger.valid) return check(id, 'checked-wrong', ledger.failures[0]?.reason ?? 'custody_ledger_invalid');
-  if (ledger.rows === 0 && ledger.hashedEntries === 0) return check(id, 'not-checked', 'not_applicable');
-  return check(id, 'checked-correct');
+  const slot = read.custody;
+  const noRow = slot === null || (Array.isArray(slot.entries) && slot.entries.length === 0);
+  if (!noRow) return check(id, 'abstain', 'unsupported_artifact');
+  const mirror = (read.envelope as { custodyChain?: unknown }).custodyChain;
+  if (Array.isArray(mirror) && mirror.some(isHashedCustodyEntry)) return check(id, 'checked-wrong', 'mirror_entry_unexpected');
+  return check(id, 'not-checked', 'not_applicable');
 }
 
 /**

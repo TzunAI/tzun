@@ -334,8 +334,8 @@
     },
     {
       "name": "custody-ledger",
-      "exit": 0,
-      "description": "A record with a custody row an operator recorded after capture: the row and the envelope's hashed mirror of it agree, custody.ledger holds. Exit 0."
+      "exit": 4,
+      "description": "A record with a custody row an operator recorded after capture, and the envelope's hashed mirror of it: this version verifies no custody material, so custody.ledger abstains, unsupported_artifact, and never vouches for the row (Verification §4.3, Bundle §6). Exit 4."
     },
     {
       "name": "custody-row-removed",
@@ -345,7 +345,7 @@
     {
       "name": "custody-row-and-mirror-removed",
       "exit": 0,
-      "description": "The row and its hashed mirror entry both left out: nothing in the bundle commits to the ledger, so custody.ledger proves the rows consistent, never complete, and has nothing to measure (not_applicable). Exit 0."
+      "description": "The row and its hashed mirror entry both left out: the slot holds no row and the envelope names none, so custody.ledger is not_applicable. Nothing in the bundle commits to the ledger, so a row removed with its mirror entry leaves no trace (Verification §4.3). Exit 0."
     },
     {
       "name": "artifact-not-filled",

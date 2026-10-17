@@ -5,9 +5,10 @@ The twin of steps 1 to 3 of the TypeScript verifier (``src/attestation/rfc3161-t
 which gives the same verdict and the same error on the same token:
 
 1. parse (:func:`read_rfc3161_token`): base64 (RFC 4648 §4) of a DER TimeStampResp whose
-   status is granted or grantedWithMods, carrying a CMS SignedData over a DER TSTInfo, with
-   exactly one SignerInfo whose certificate the token carries. Every certificate the token
-   carries is read whole, its public key included;
+   status is granted or grantedWithMods, carrying a CMS SignedData over a DER TSTInfo that
+   decodes whole by RFC 3161 §2.4.2, with exactly one SignerInfo whose certificate the
+   token carries, and nothing but certificates in its certificates. Every certificate the
+   token carries is read whole, its public key included;
 2. imprint (:func:`imprint_holds`): SHA-256, and the expected value;
 3. signature and signer (:func:`check_signature_and_signer`): the content-type and
    message-digest attributes, the CMS signature, a signingCertificate (ESSCertID) or
@@ -16,8 +17,8 @@ which gives the same verdict and the same error on the same token:
 
 :func:`verify_rfc3161_steps` runs them in order and reports the first that does not hold:
 ``malformed``, ``imprint_mismatch``, ``verification_failed``, or ``missing_dependency`` for an
-algorithm this verifier does not implement (Anchor §10.5 step 5). Step 4, the trust path, is not
-implemented here.
+algorithm this verifier does not implement (Anchor §10.5 step 5), at step 3 only once every
+requirement it can check holds. Step 4, the trust path, is not implemented here.
 
 Where the TypeScript verifier leans on Node, this module does what Node does:
 
@@ -25,8 +26,8 @@ Where the TypeScript verifier leans on Node, this module does what Node does:
   stricter than the checks of step 1 in its Names (a SEQUENCE OF SET OF type and value,
   each value a string type OpenSSL reads, its characters valid, a constructed value
   nested at most five deep, the Name at most 1 MiB), its validity (two times), the
-  parameters of its AlgorithmIdentifiers, and what follows the subjectPublicKeyInfo
-  ([1], [2] and [3], in that order and nothing else);
+  parameters of its AlgorithmIdentifiers, and its unique identifiers (each a BIT STRING
+  that opens with a count of unused bits from 0 to 7);
 - an RSA key is read as OpenSSL reads one (its INTEGERs unsigned, with no DER rule on
   them), and an RSA signature is checked as OpenSSL checks one (PKCS #1 v1.5), so a key
   OpenSSL reads and :mod:`cryptography` refuses gives the same answer;
@@ -243,16 +244,25 @@ class _Der:
     content: _Buf
 
 
+#: The decoder bounds of Anchor §10.5 step 1: each encoding the DER rules apply to (the
+#: TimeStampResp, the TSTInfo, each typed extension value) holds at most ``_MAX_ELEMENTS``
+#: elements, the outermost included, and its constructed elements, of any class, nest at
+#: most ``_MAX_DEPTH`` deep, the outermost at depth 1. Elements inside a primitive element
+#: are not counted: the TSTInfo and the extension values, carried in OCTET STRINGs, are
+#: bounded as encodings of their own (:func:`_parse_der`).
 _MAX_DEPTH: Final = 64
 _MAX_ELEMENTS: Final = 100_000
 
-#: Universal types DER encodes only in the primitive form.
+#: Universal types X.690 encodes only in the primitive form: BOOLEAN, INTEGER, BIT STRING,
+#: OCTET STRING, NULL, OBJECT IDENTIFIER, ObjectDescriptor, REAL, ENUMERATED, the restricted
+#: string types, RELATIVE-OID, the time types, and OID-IRI and RELATIVE-OID-IRI (35, 36).
 _PRIMITIVE_ONLY: Final = frozenset(
     {1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28}
-    | {29, 30, 31, 32, 33, 34}
+    | {30, 31, 32, 33, 34, 35, 36}
 )
-#: Universal types DER encodes only in the constructed form.
-_CONSTRUCTED_ONLY: Final = frozenset({8, 11, 16, 17})
+#: Universal types X.690 encodes only in the constructed form: EXTERNAL, EMBEDDED PDV,
+#: SEQUENCE, SET, and the unrestricted CHARACTER STRING (29).
+_CONSTRUCTED_ONLY: Final = frozenset({8, 11, 16, 17, 29})
 
 
 def _read_element(buf: _Buf, pos: int, limit: int) -> _Der:
@@ -325,10 +335,12 @@ _UTC_TIME_DER: Final = re.compile(r"[0-9]{12}Z")
 def _check_der(content: _Buf, depth: int, count: list[int]) -> None:
     """Whether ``content`` (every element in it, recursively) is DER as X.690 §10 and §11
     define it, for what can be decided without a schema: definite, minimal lengths and
-    tags; the primitive form for strings and the other primitive types; minimal INTEGERs;
-    BOOLEAN as 00 or FF; a BIT STRING's unused bits zero; and the DER forms of UTCTime and
-    GeneralizedTime. A context-specific primitive is not read inside: its type is the
-    schema's."""
+    tags; the primitive form for strings and the other primitive types, and the
+    constructed form for the constructed ones; minimal INTEGERs; BOOLEAN as 00 or FF; a
+    BIT STRING's unused bits zero; and the DER forms of UTCTime and GeneralizedTime. A
+    context-specific primitive is not read inside: its type is the schema's. The elements
+    of ``content`` sit at depth ``depth + 1``, so a constructed element at depth 65 fails,
+    as does the 100,001st element (``_MAX_DEPTH``, ``_MAX_ELEMENTS``)."""
     if depth > _MAX_DEPTH:
         raise _Malformed("nested too deep")
     pos = 0
@@ -457,9 +469,13 @@ _GENERALIZED_TIME: Final = re.compile(
 _DAYS_IN_MONTH: Final = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
-def _time_of(el: _Der | None) -> int | None:
+def _time_of(el: _Der | None, fraction: bool) -> int | None:
     """A DER UTCTime or GeneralizedTime as milliseconds since the epoch, sub-milliseconds
-    truncated; ``None`` when it is neither, or not a date."""
+    truncated; ``None`` when it is neither, or not a time (Anchor §10.5 step 1). A
+    GeneralizedTime may carry a fraction of a second only where ``fraction`` allows one: in
+    genTime, and not in a certificate's validity (RFC 5280 §4.1.2.5.2). A UTCTime's year is
+    19YY from 50 to 99 and 20YY from 00 to 49 (RFC 5280 §4.1.2.5.1); a GeneralizedTime's is
+    its four digits, 0000 to 9999."""
     if el is None or el.cls != 0 or el.constructed:
         return None
     text = bytes(el.content).decode("latin-1")
@@ -472,18 +488,20 @@ def _time_of(el: _Der | None) -> int | None:
     if el.tag == 24:
         m = _GENERALIZED_TIME.fullmatch(text)
         if m is not None:
+            if m[7] is not None and not fraction:
+                return None
             fields = [int(g) for g in m.groups()[1:6]]
             return _utc(int(m[1]), fields, m[7] or "")
     return None
 
 
 def _utc(year: int, fields: list[int], fraction: str) -> int | None:
+    """The instant of a date and time of day, or ``None`` when it is not one: a month from
+    1 to 12, a day its month has in that year, by the Gregorian rule in every year (0000 is
+    a leap year, 0100 is not), an hour to 23 and a minute and second to 59, so no leap
+    second."""
     month, day, hour, minute, second = fields
-    if month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59:
-        return None
-    # `Date.UTC` reads a year from 0 to 99 as 1900 to 1999, so the date it makes is not
-    # that year's, and the TypeScript verifier refuses it.
-    if 0 <= year <= 99:
+    if month < 1 or month > 12 or day < 1 or hour > 23 or minute > 59 or second > 59:
         return None
     leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
     if day > _DAYS_IN_MONTH[month - 1] + (1 if month == 2 and leap else 0):
@@ -593,13 +611,11 @@ def _name_holds(name: _Der) -> str | None:
     return None
 
 
-def _collected_bit_string_holds(el: _Der) -> str | None:
+def _unique_id_holds(el: _Der) -> str | None:
     """OpenSSL's reading of an issuerUniqueID or subjectUniqueID ([1] or [2] IMPLICIT BIT
-    STRING): a constructed one is collected, and the result must open with a count of
-    unused bits from 0 to 7."""
-    data: _Buf | bytearray | None = _collect(el) if el.constructed else el.content
-    if data is None:
-        return "a unique identifier nested too deep"
+    STRING, primitive by step 1): its content must open with a count of unused bits from 0
+    to 7."""
+    data = el.content
     if len(data) == 0 or data[0] > 7:
         return "a unique identifier that is not a BIT STRING"
     return None
@@ -614,8 +630,10 @@ def _openssl_reads(
     params: list[_Der | None],
 ) -> str | None:
     """Why OpenSSL's X.509 reader (``d2i_X509``) refuses a certificate that step 1's
-    checks accept, or ``None``: the Names, the validity's two times, what follows the
-    subjectPublicKeyInfo, and the parameters of its AlgorithmIdentifiers."""
+    checks accept, or ``None``: the Names, the validity's two times, the unique
+    identifiers that follow the subjectPublicKeyInfo (step 1 has already held what follows
+    it to a primitive [1], a primitive [2] and a constructed [3] holding one SEQUENCE), and
+    the parameters of its AlgorithmIdentifiers."""
     for p in params:
         why = _any_holds(p)
         if why is not None:
@@ -626,24 +644,11 @@ def _openssl_reads(
             return why
     if len(_elements_of(validity.content)) != 2:
         return "the validity is not two times"
-    rest = fields[after_spki:]
-    i = 0
-    for number in (1, 2):
-        el = _at(rest, i)
-        if el is not None and el.cls == 2 and el.tag == number:
-            why = _collected_bit_string_holds(el)
+    for el in fields[after_spki:]:
+        if el.tag in (1, 2):
+            why = _unique_id_holds(el)
             if why is not None:
                 return why
-            i += 1
-    el = _at(rest, i)
-    if el is not None and el.cls == 2 and el.tag == 3:
-        if not el.constructed:
-            return "the extensions' [3] tag is not constructed"
-        if len(_elements_of(el.content)) != 1:
-            return "the extensions' [3] tag holds more than one element"
-        i += 1
-    if i != len(rest):
-        return "tbsCertificate holds fields after its subjectPublicKeyInfo that are not X.509's"
     return None
 
 
@@ -887,13 +892,36 @@ _EXTENSION_TYPES: Final[dict[str, Callable[[_Der], bool]]] = {
 }
 
 
+def _extension_parts(ext: _Der) -> tuple[str, bool, _Der] | None:
+    """An Extension (RFC 5280 §4.1), a SEQUENCE of an OBJECT IDENTIFIER, an optional
+    BOOLEAN and an OCTET STRING, as its OID, whether it is critical, and its value's
+    element; ``None`` when it is not one."""
+    # Extension ::= SEQUENCE { extnID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING }
+    parts = _elements_of(ext.content) if _is_sequence(ext) else []
+    flagged = _is(_at(parts, 1), 0, 1, False)
+    value = _at(parts, 2 if flagged else 1)
+    id_el = _at(parts, 0)
+    if (
+        id_el is None
+        or not _is_oid(id_el)
+        or value is None
+        or not _is_octets(value)
+        or len(parts) != (3 if flagged else 2)
+    ):
+        return None
+    return _oid(id_el), flagged and parts[1].content[0] == 0xFF, value
+
+
 def _read_certificate(der: _Buf) -> Rfc3161Certificate:
-    """Read a DER X.509 certificate, or raise :class:`_Malformed` when it is not one:
-    version v1 to v3; the signature AlgorithmIdentifier inside tbsCertificate the same bytes
-    as the one outside it (RFC 5280 §4.1.1.2); a subjectPublicKeyInfo whose key, for an
-    algorithm in ``_KEY_ALGORITHMS``, has no unused bits and decodes; a readable validity;
-    extensions that are not repeated, each standard one of its type; and a certificate
-    OpenSSL's reader reads."""
+    """Read a DER X.509 certificate, or raise :class:`_Malformed` when it is not one
+    (Anchor §10.5 step 1): version v1 to v3; the signature AlgorithmIdentifier inside
+    tbsCertificate the same bytes as the one outside it (RFC 5280 §4.1.1.2); a validity of
+    two times, a GeneralizedTime among them with no fraction of a second; a
+    subjectPublicKeyInfo whose key, for an algorithm in ``_KEY_ALGORITHMS``, has no unused
+    bits and decodes; after it only a primitive issuerUniqueID [1], a primitive
+    subjectUniqueID [2] and a constructed extensions [3] holding one SEQUENCE, each at most
+    once and in that order; extensions that are not repeated, each standard one of its
+    type; and a certificate OpenSSL's reader reads."""
     cert = _parse_der(der)
     if not _is_sequence(cert):
         raise _Malformed("certificate is not a SEQUENCE")
@@ -956,32 +984,37 @@ def _read_certificate(der: _Buf) -> Rfc3161Certificate:
     if spki_algorithm[0] in _KEY_ALGORITHMS and spki_key.content[0] != 0:
         raise _Malformed("subjectPublicKey has unused bits")
     times = _elements_of(validity.content)
-    not_before = _time_of(_at(times, 0))
-    not_after = _time_of(_at(times, 1))
+    not_before = _time_of(_at(times, 0), False)
+    not_after = _time_of(_at(times, 1), False)
     if not_before is None or not_after is None:
         raise _Malformed("unreadable validity")
-    extensions: dict[str, tuple[bool, bytes]] = {}
-    block = next((f for f in fields[i:] if _is(f, 2, 3, True)), None)
+    # After subjectPublicKeyInfo: issuerUniqueID [1] and subjectUniqueID [2], each
+    # primitive, then extensions [3], constructed, each at most once, in that order, and
+    # nothing else.
+    after = fields[i:]
+    k = 0
+    if _is(_at(after, k), 2, 1, False):
+        k += 1
+    if _is(_at(after, k), 2, 2, False):
+        k += 1
+    block = after[k] if _is(_at(after, k), 2, 3, True) else None
     if block is not None:
-        listed = _at(_elements_of(block.content), 0)
-        if listed is None or not _is_sequence(listed):
-            raise _Malformed("extensions are not a SEQUENCE")
-        for ext in _elements_of(listed.content):
-            # Extension ::= SEQUENCE { extnID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING }
-            parts = _elements_of(ext.content) if _is_sequence(ext) else []
-            flagged = _is(_at(parts, 1), 0, 1, False)
-            critical = flagged and parts[1].content[0] == 0xFF
-            value = _at(parts, 2 if flagged else 1)
-            id_el = _at(parts, 0)
-            if (
-                id_el is None
-                or not _is_oid(id_el)
-                or value is None
-                or not _is_octets(value)
-                or len(parts) != (3 if flagged else 2)
-            ):
+        k += 1
+    if k != len(after):
+        raise _Malformed(
+            "tbsCertificate holds fields after its subjectPublicKeyInfo other than a primitive [1],"
+            " a primitive [2] and a constructed [3], in that order"
+        )
+    extensions: dict[str, tuple[bool, bytes]] = {}
+    if block is not None:
+        lists = _elements_of(block.content)
+        if len(lists) != 1 or not _is_sequence(lists[0]):
+            raise _Malformed("extensions are not one SEQUENCE")
+        for ext in _elements_of(lists[0].content):
+            parts = _extension_parts(ext)
+            if parts is None:
                 raise _Malformed("malformed extension")
-            ext_id = _oid(id_el)
+            ext_id, critical, value = parts
             if ext_id in extensions:
                 raise _Malformed("repeated extension")
             of_type = _EXTENSION_TYPES.get(ext_id)
@@ -1313,11 +1346,11 @@ def _read_token(der: bytes) -> Rfc3161Token | Rfc3161Unreadable:
             if not _is_oid(_at(parts, 0)) or not _is_set(_at(parts, 1)) or len(parts) > 2:
                 return malformed("a SignerInfo attribute is not an OBJECT IDENTIFIER and a SET")
 
+    # Every element of certificates is a certificate: a tagged CertificateChoices element
+    # (RFC 5652 §10.2.2) is not one, and makes the token malformed.
     certificates: list[Rfc3161Certificate] = []
     for choice in _elements_of(certificates_el.content) if certificates_el is not None else []:
-        # Only the Certificate choice is a certificate; the others are tagged.
-        if _is_sequence(choice):
-            certificates.append(_read_certificate(choice.raw))
+        certificates.append(_read_certificate(choice.raw))
     signer = _find_signer(sid, certificates)
     if signer is None:
         return malformed("the token does not carry the certificate its SignerInfo names")
@@ -1340,14 +1373,22 @@ def _read_token(der: bytes) -> Rfc3161Token | Rfc3161Unreadable:
 
 def _read_tst_info(data: _Buf) -> tuple[str, bytes | None, bytes, int] | str:
     """The TSTInfo in ``data`` (its imprint's algorithm, parameters and value, and its
-    genTime), or why it is not one."""
+    genTime), decoded whole by RFC 3161 §2.4.2 (Anchor §10.5 step 1), or why it is not
+    one::
+
+        TSTInfo ::= SEQUENCE { version INTEGER, policy OBJECT IDENTIFIER,
+          messageImprint, serialNumber INTEGER, genTime GeneralizedTime,
+          accuracy OPTIONAL, ordering BOOLEAN DEFAULT FALSE, nonce INTEGER OPTIONAL,
+          tsa [0] GeneralName OPTIONAL, extensions [1] IMPLICIT Extensions OPTIONAL }
+
+    genTime has the field ranges of a validity time, its year included, and may carry a
+    fraction of a second."""
     try:
         seq = _parse_der(data)
     except Exception as exc:
         return f"TSTInfo is not DER: {exc}"
     if not _is_sequence(seq):
         return "TSTInfo is not a SEQUENCE"
-    # TSTInfo ::= SEQUENCE { version, policy, messageImprint, serialNumber, genTime, ... }
     items = _elements_of(seq.content)
     version, policy, imprint, serial, gen_time = (_at(items, k) for k in range(5))
     if (
@@ -1363,11 +1404,83 @@ def _read_tst_info(data: _Buf) -> tuple[str, bytes | None, bytes, int] | str:
     hashed = _at(parts, 1)
     if algorithm is None or hashed is None or not _is_octets(hashed) or len(parts) > 2:
         return "messageImprint is not an AlgorithmIdentifier and an OCTET STRING"
-    at = _time_of(gen_time) if _is(gen_time, 0, 24, False) else None
+    at = _time_of(gen_time, True) if _is(gen_time, 0, 24, False) else None
     if at is None:
         return "genTime is not a GeneralizedTime"
+    optional = _tst_info_optional_members(items[5:])
+    if optional is not None:
+        return optional
     params = algorithm[1]
     return algorithm[0], None if params is None else bytes(params.raw), bytes(hashed.content), at
+
+
+#: The GeneralName alternatives (RFC 5280 §4.2.1.6) a constructed tag carries: otherName,
+#: x400Address, directoryName and ediPartyName.
+_GENERAL_NAME_CONSTRUCTED: Final = frozenset({0, 3, 4, 5})
+
+
+def _tst_info_optional_members(members: list[_Der]) -> str | None:
+    """Why the members after a TSTInfo's genTime are not accuracy, ordering, nonce, tsa and
+    extensions, each optional, in that order, and nothing else; ``None`` when they are."""
+    i = 0
+    accuracy = _at(members, i)
+    if accuracy is not None and _is_sequence(accuracy):
+        # Accuracy ::= SEQUENCE { seconds INTEGER OPTIONAL, millis [0] INTEGER (1..999) OPTIONAL,
+        #                         micros [1] INTEGER (1..999) OPTIONAL }
+        i += 1
+        parts = _elements_of(accuracy.content)
+        j = 0
+        if _is_integer(_at(parts, j)):
+            j += 1
+        for tag in (0, 1):
+            part = _at(parts, j)
+            if part is None or not _is(part, 2, tag, False):
+                continue
+            j += 1
+            if not _from_one_to_999(part.content):
+                return "the accuracy's millis or micros is not an INTEGER from 1 to 999"
+        if j != len(parts):
+            return "accuracy is not seconds, millis and micros, each optional, in that order"
+    if _is(_at(members, i), 0, 1, False):  # ordering
+        i += 1
+    if _is_integer(_at(members, i)):  # nonce
+        i += 1
+    tsa = _at(members, i)
+    if tsa is not None and _is(tsa, 2, 0, True):
+        # tsa [0] GeneralName: one of its alternatives, by tag and form; its contents are not read.
+        i += 1
+        names = _elements_of(tsa.content)
+        if (
+            len(names) != 1
+            or names[0].cls != 2
+            or names[0].tag > 8
+            or names[0].constructed != (names[0].tag in _GENERAL_NAME_CONSTRUCTED)
+        ):
+            return "tsa is not one GeneralName"
+    extensions = _at(members, i)
+    if extensions is not None and _is(extensions, 2, 1, True):
+        # extensions [1] IMPLICIT Extensions: one or more, their values not read.
+        i += 1
+        listed = _elements_of(extensions.content)
+        if not listed or any(_extension_parts(ext) is None for ext in listed):
+            return "the TSTInfo extensions are not one or more extensions"
+    if i != len(members):
+        return (
+            "TSTInfo holds members after genTime other than accuracy, ordering, nonce, tsa and"
+            " extensions, in that order"
+        )
+    return None
+
+
+def _from_one_to_999(content: _Buf) -> bool:
+    """Whether ``content`` is that of a DER INTEGER from 1 to 999: positive, in its
+    shortest form."""
+    if len(content) == 0 or len(content) > 2 or content[0] & 0x80:
+        return False
+    if len(content) == 2 and content[0] == 0x00 and content[1] & 0x80 == 0:
+        return False
+    value = int.from_bytes(content, "big")
+    return 1 <= value <= 999
 
 
 def _find_signer(sid: _Der, certificates: list[Rfc3161Certificate]) -> Rfc3161Certificate | None:
@@ -1421,17 +1534,27 @@ def check_signature_and_signer(
     token: Rfc3161Token,
 ) -> tuple[Literal["verification_failed", "missing_dependency"], str] | None:
     """Anchor §10.5 step 3: the signed attributes carry content-type id-ct-TSTInfo and a
-    message-digest of the TSTInfo; the signature over them verifies under the signer
-    certificate's key; a signingCertificate or signingCertificateV2 names the signer
-    certificate (each one present must); and that certificate has a critical
-    extendedKeyUsage whose only purpose is id-kp-timeStamping. ``None`` when it holds, or
-    the reason and the error."""
+    message-digest of the TSTInfo; the signature over them, as the token carries them,
+    verifies under the signer certificate's key; a signingCertificate or
+    signingCertificateV2 names the signer certificate (each one present must); and that
+    certificate has a critical extendedKeyUsage whose only purpose is id-kp-timeStamping.
+    ``None`` when it holds, or the reason and the error.
+
+    Every requirement this verifier can check decides before one it cannot (§10.5 step 5):
+    a requirement that needs a digest or signature algorithm it does not implement, the
+    signer's key left unread, or an ESSCertIDv2 hash algorithm it does not implement is set
+    aside, the others are checked, and the first that fails is ``verification_failed``.
+    Only when none fails is the first set aside ``missing_dependency``."""
 
     def failed(error: str) -> tuple[Literal["verification_failed"], str]:
         return "verification_failed", error
 
-    def missing(error: str) -> tuple[Literal["missing_dependency"], str]:
-        return "missing_dependency", error
+    #: The first requirement set aside for an algorithm or key this verifier lacks.
+    missing: list[str] = []
+
+    def set_aside(error: str) -> None:
+        if not missing:
+            missing.append(error)
 
     signer = token.signer
     if token.signed_attrs is None:
@@ -1465,33 +1588,39 @@ def check_signature_and_signer(
         return failed("the message-digest attribute is not one OCTET STRING")
     digest = _DIGESTS.get(token.digest_algorithm)
     if digest is None:
-        return missing(f"digest algorithm {token.digest_algorithm} is not supported")
-    if hashlib.new(digest, token.e_content).digest() != message_digest.content:
+        set_aside(f"digest algorithm {token.digest_algorithm} is not supported")
+    elif hashlib.new(digest, token.e_content).digest() != message_digest.content:
         return failed("the message-digest attribute is not the digest of the TSTInfo")
 
     algorithm = _SIGNATURES.get(token.signature_algorithm)
-    if algorithm is None:
-        return missing(f"signature algorithm {token.signature_algorithm} is not supported")
-    key_type, named_digest = algorithm
     key = signer.public_key
-    if key is None:
-        return missing("the signer certificate's public-key algorithm is not supported")
-    if key.ec_limit == "unimplemented":
-        return missing("the signer certificate's elliptic curve is not supported")
-    if key.type != key_type:
-        return failed(f"a {key.type} key cannot verify a {key_type} signature")
-    if key.ec_limit == "unsupported":
-        return missing("the signer certificate's elliptic curve is not supported")
-    # CMS signs the DER of the attributes as a SET OF, not as the [0] IMPLICIT tag they are carried under.
-    signed = b"\x31" + bytes(token.signed_attrs.raw[1:])
-    try:
-        verified = _verifies(key, named_digest or digest, signed, token.signature)
-    except _VerifierFault:
-        raise
-    except Exception as exc:
-        return failed(f"the signature does not verify: {exc}")
-    if not verified:
-        return failed("the signature does not verify under the signer certificate")
+    if algorithm is None:
+        set_aside(f"signature algorithm {token.signature_algorithm} is not supported")
+    elif key is None:
+        set_aside("the signer certificate's public-key algorithm is not supported")
+    elif key.ec_limit == "unimplemented":
+        set_aside("the signer certificate's elliptic curve is not supported")
+    elif key.type != algorithm[0]:
+        return failed(f"a {key.type} key cannot verify a {algorithm[0]} signature")
+    elif key.ec_limit == "unsupported":
+        set_aside("the signer certificate's elliptic curve is not supported")
+    else:
+        key_type, named_digest = algorithm
+        # A bare key OID takes the SignerInfo's digestAlgorithm, set aside above when this
+        # verifier lacks it. Ed25519 names no digest.
+        hash_name = named_digest or digest
+        if key_type == "ed25519" or hash_name is not None:
+            # CMS signs the DER of the attributes as a SET OF, not as the [0] IMPLICIT tag
+            # they are carried under.
+            signed = b"\x31" + bytes(token.signed_attrs.raw[1:])
+            try:
+                verified = _verifies(key, hash_name or "", signed, token.signature)
+            except _VerifierFault:
+                raise
+            except Exception as exc:
+                return failed(f"the signature does not verify: {exc}")
+            if not verified:
+                return failed("the signature does not verify under the signer certificate")
 
     bound = 0
     for id_, v2 in ((_OID_SIGNING_CERTIFICATE, False), (_OID_SIGNING_CERTIFICATE_V2, True)):
@@ -1501,9 +1630,9 @@ def check_signature_and_signer(
         if not isinstance(value, _Der):
             return failed("a signingCertificate attribute is repeated or has more than one value")
         binding = _binds_signer(value, v2, signer)
-        if binding is not True:
-            if binding == "missing_dependency":
-                return missing("the ESSCertIDv2 hash algorithm is not supported")
+        if binding == "missing_dependency":
+            set_aside("the ESSCertIDv2 hash algorithm is not supported")
+        elif binding is not True:
             return failed(binding)
         bound += 1
     if bound == 0:
@@ -1513,7 +1642,7 @@ def check_signature_and_signer(
         return failed(
             "the signer certificate has no critical extendedKeyUsage whose only purpose is id-kp-timeStamping"
         )
-    return None
+    return ("missing_dependency", missing[0]) if missing else None
 
 
 def _verifies(key: _PublicKey, digest: str, data: bytes, signature: bytes) -> bool:
@@ -1540,7 +1669,9 @@ def _binds_signer(value: _Der, v2: bool, signer: Rfc3161Certificate) -> Literal[
     """Whether the first certificate identifier of a SigningCertificate (ESSCertID,
     RFC 2634) or SigningCertificateV2 (ESSCertIDv2, RFC 5816) names ``signer``: its
     certHash over the certificate's DER, and its issuerSerial, when present, naming its
-    issuer and serial number. ``True``, ``"missing_dependency"``, or why not."""
+    issuer and serial number. ``True``, why not, or ``"missing_dependency"`` when
+    everything but a certHash under a hash algorithm this verifier does not implement
+    holds."""
     if not _is_sequence(value):
         return "the signingCertificate attribute is not a SEQUENCE"
     certs = _at(_elements_of(value.content), 0)
@@ -1551,21 +1682,18 @@ def _binds_signer(value: _Der, v2: bool, signer: Rfc3161Certificate) -> Literal[
         return "the signingCertificate attribute names no certificate"
     parts = _elements_of(first.content)
     i = 0
-    digest = "sha256" if v2 else "sha1"
+    digest: str | None = "sha256" if v2 else "sha1"
     if v2 and _is_sequence(_at(parts, 0)):
         algorithm = _algorithm_of(_at(parts, i))
         i += 1
         if algorithm is None:
             return "the ESSCertIDv2 hash algorithm is malformed"
-        named = _DIGESTS.get(algorithm[0])
-        if named is None:
-            return "missing_dependency"
-        digest = named
+        digest = _DIGESTS.get(algorithm[0])
     cert_hash = _at(parts, i)
     i += 1
     if cert_hash is None or not _is_octets(cert_hash):
         return "the certificate identifier has no certHash"
-    if hashlib.new(digest, signer.der).digest() != cert_hash.content:
+    if digest is not None and hashlib.new(digest, signer.der).digest() != cert_hash.content:
         return "the signingCertificate certHash names another certificate"
     issuer_serial = _at(parts, i)
     if issuer_serial is not None:
@@ -1579,7 +1707,7 @@ def _binds_signer(value: _Der, v2: bool, signer: Rfc3161Certificate) -> Literal[
             return "the issuerSerial names no directoryName"
         if name.raw != signer.issuer or serial.content != signer.serial:
             return "the signingCertificate issuerSerial names another certificate"
-    return True
+    return "missing_dependency" if digest is None else True
 
 
 def _timestamping_only(cert: Rfc3161Certificate) -> bool:

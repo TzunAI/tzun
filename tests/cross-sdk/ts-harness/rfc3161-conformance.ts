@@ -90,6 +90,20 @@ const FAULTS: Array<[string, TokenFaults]> = [
   ['signer-eku-non-critical', { signerEku: 'non-critical' }],
   ['signer-eku-tls-server', { signerEku: 'tls-server' }],
   ['signer-eku-second-purpose', { signerEku: 'second-purpose' }],
+  ['signer-key-unknown-algorithm-eku-none', { signerKey: 'unknown-key-algorithm', signerEku: 'none' }],
+  ['signer-key-unassigned-curve-eku-none', { signerKey: 'unassigned-curve', signerEku: 'none' }],
+  ['signing-certificate-v2-unknown-hash', { signingCertificate: 'v2-unknown-hash' }],
+  ['signing-certificate-v2-unknown-hash-eku-none', { signingCertificate: 'v2-unknown-hash', signerEku: 'none' }],
+  ['signing-certificate-v2-unknown-hash-other-serial', { signingCertificate: 'v2-unknown-hash-other-serial' }],
+  ['signed-attrs-reversed', { signedAttrsOrder: 'reversed' }],
+  ['tst-info-all', { tstInfoTail: 'all' }],
+  ['tst-info-member-after-extensions', { tstInfoTail: 'member-after-extensions' }],
+  ['tst-info-ordering-after-nonce', { tstInfoTail: 'ordering-after-nonce' }],
+  ['tst-info-millis-zero', { tstInfoTail: 'millis-zero' }],
+  ['tst-info-micros-1000', { tstInfoTail: 'micros-1000' }],
+  ['tst-info-tsa-empty', { tstInfoTail: 'tsa-empty' }],
+  ['tst-info-tsa-dns-name-constructed', { tstInfoTail: 'tsa-dns-name-constructed' }],
+  ['tst-info-extensions-empty', { tstInfoTail: 'extensions-empty' }],
 ];
 
 async function corpus(digest: string, nonce: string, genTime: string): Promise<Json> {

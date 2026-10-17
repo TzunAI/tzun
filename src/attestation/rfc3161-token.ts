@@ -4,10 +4,12 @@
  *
  *   1. parse (`readRfc3161Token`): base64 (RFC 4648 §4) of a DER
  *      TimeStampResp whose status is granted or grantedWithMods, carrying a
- *      CMS SignedData over a DER TSTInfo, with exactly one SignerInfo whose
- *      certificate the token carries. A constructed (BER) OCTET STRING, an
- *      indefinite or non-minimal length, a non-minimal INTEGER, or a
- *      GeneralizedTime with a trailing zero in its fraction is not DER;
+ *      CMS SignedData over a DER TSTInfo that decodes whole by RFC 3161
+ *      §2.4.2, with exactly one SignerInfo whose certificate the token
+ *      carries, and nothing but certificates in its certificates. A
+ *      constructed (BER) OCTET STRING, an indefinite or non-minimal length, a
+ *      non-minimal INTEGER, or a GeneralizedTime with a trailing zero in its
+ *      fraction is not DER;
  *   2. imprint (`imprintHolds`): SHA-256, and the expected value;
  *   3. signature and signer (`checkSignatureAndSigner`): the content-type and
  *      message-digest attributes, the CMS signature, a signingCertificate
@@ -23,7 +25,8 @@
  * hold. A step that needs an algorithm this verifier does not implement (a
  * digest, signature or public-key algorithm outside the tables below, or an
  * elliptic curve Node's OpenSSL does not implement) is `missing_dependency`
- * (tzun-anchor/1 §10.5 step 5). Nothing here throws on a token: it is
+ * (tzun-anchor/1 §10.5 step 5); at step 3, only once every requirement it can
+ * check holds. Nothing here throws on a token: it is
  * untrusted data, and every certificate is read whole, its public key
  * included, before any check uses it. A key whose algorithm or named curve
  * this verifier does not implement is left unread, and only a step that needs
@@ -145,13 +148,30 @@ interface Der {
   content: Buffer;
 }
 
+/**
+ * The decoder bounds of tzun-anchor/1 §10.5 step 1: each encoding the DER
+ * rules apply to (the TimeStampResp, the TSTInfo, each typed extension value)
+ * holds at most `MAX_ELEMENTS` elements, the outermost included, and its
+ * constructed elements, of any class, nest at most `MAX_DEPTH` deep, the
+ * outermost at depth 1. Elements inside a primitive element are not counted:
+ * the TSTInfo and the extension values, carried in OCTET STRINGs, are bounded
+ * as encodings of their own (`parseDer`).
+ */
 const MAX_DEPTH = 64;
 const MAX_ELEMENTS = 100_000;
 
-/** Universal types DER encodes only in the primitive form. */
-const PRIMITIVE_ONLY = new Set([1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]);
-/** Universal types DER encodes only in the constructed form. */
-const CONSTRUCTED_ONLY = new Set([8, 11, 16, 17]);
+/**
+ * Universal types X.690 encodes only in the primitive form: BOOLEAN, INTEGER,
+ * BIT STRING, OCTET STRING, NULL, OBJECT IDENTIFIER, ObjectDescriptor, REAL,
+ * ENUMERATED, the restricted string types, RELATIVE-OID, the time types, and
+ * OID-IRI and RELATIVE-OID-IRI (35, 36).
+ */
+const PRIMITIVE_ONLY = new Set([1, 2, 3, 4, 5, 6, 7, 9, 10, 12, 13, 14, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 33, 34, 35, 36]);
+/**
+ * Universal types X.690 encodes only in the constructed form: EXTERNAL,
+ * EMBEDDED PDV, SEQUENCE, SET, and the unrestricted CHARACTER STRING (29).
+ */
+const CONSTRUCTED_ONLY = new Set([8, 11, 16, 17, 29]);
 
 /** The element at `pos`, which must end at or before `limit`. */
 function readElement(buf: Buffer, pos: number, limit: number): Der {
@@ -209,9 +229,12 @@ const UTC_TIME_DER = /^\d{12}Z$/;
  * Whether `content` (every element in it, recursively) is DER as X.690 §10
  * and §11 define it, for what can be decided without a schema: definite,
  * minimal lengths and tags; the primitive form for strings and the other
- * primitive types; minimal INTEGERs; BOOLEAN as 00 or FF; a BIT STRING's
- * unused bits zero; and the DER forms of UTCTime and GeneralizedTime. A
- * context-specific primitive is not read inside: its type is the schema's.
+ * primitive types, and the constructed form for the constructed ones; minimal
+ * INTEGERs; BOOLEAN as 00 or FF; a BIT STRING's unused bits zero; and the DER
+ * forms of UTCTime and GeneralizedTime. A context-specific primitive is not
+ * read inside: its type is the schema's. The elements of `content` sit at
+ * depth `depth + 1`, so a constructed element at depth 65 fails, as does the
+ * 100,001st element (`MAX_DEPTH`, `MAX_ELEMENTS`).
  */
 function checkDer(content: Buffer, depth: number, count: { n: number }): void {
   if (depth > MAX_DEPTH) throw new Malformed('nested too deep');
@@ -307,8 +330,16 @@ function algorithmOf(el: Der | undefined): { oid: string; params?: Der } | null 
   return { oid: oid(id), ...(params && { params }) };
 }
 
-/** A DER UTCTime or GeneralizedTime as milliseconds since the epoch, sub-milliseconds truncated. */
-function timeOf(el: Der | undefined): number | null {
+/**
+ * A DER UTCTime or GeneralizedTime as milliseconds since the epoch,
+ * sub-milliseconds truncated, or `null` when it is neither or not a time
+ * (tzun-anchor/1 §10.5 step 1). A GeneralizedTime may carry a fraction of a
+ * second only where `fraction` allows one: in genTime, and not in a
+ * certificate's validity (RFC 5280 §4.1.2.5.2). A UTCTime's year is 19YY
+ * from 50 to 99 and 20YY from 00 to 49 (RFC 5280 §4.1.2.5.1); a
+ * GeneralizedTime's is its four digits, 0000 to 9999.
+ */
+function timeOf(el: Der | undefined, fraction: boolean): number | null {
   if (el === undefined || el.cls !== 0 || el.constructed) return null;
   const text = el.content.toString('latin1');
   let m: RegExpMatchArray | null;
@@ -317,18 +348,29 @@ function timeOf(el: Der | undefined): number | null {
     return utc(yy < 50 ? 2000 + yy : 1900 + yy, m.slice(2, 7).map(Number), '');
   }
   if (el.tag === 24 && (m = text.match(/^(\d{4})(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(?:\.(\d+))?Z$/))) {
+    if (m[7] !== undefined && !fraction) return null;
     return utc(Number(m[1]), m.slice(2, 7).map(Number), m[7] ?? '');
   }
   return null;
 }
 
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * The instant of a date and time of day, or `null` when it is not one: a
+ * month from 1 to 12, a day its month has in that year, by the Gregorian rule
+ * in every year (0000 is a leap year, 0100 is not), an hour to 23 and a minute
+ * and second to 59, so no leap second.
+ */
 function utc(year: number, [month, day, hour, minute, second]: number[], fraction: string): number | null {
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) return null;
-  const ms = Date.UTC(year, month - 1, day, hour, minute, second, Number((fraction + '000').slice(0, 3)));
-  const d = new Date(ms);
-  // Date.UTC rolls 31 February over into March; a real date does not.
-  if (d.getUTCFullYear() !== year || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
-  return ms;
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) return null;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  if (day > DAYS_IN_MONTH[month - 1] + (month === 2 && leap ? 1 : 0)) return null;
+  // Date.UTC reads a year from 0 to 99 as 1900 to 1999; setUTCFullYear takes it as it is.
+  const d = new Date(0);
+  d.setUTCFullYear(year, month - 1, day);
+  d.setUTCHours(hour, minute, second, Number((fraction + '000').slice(0, 3)));
+  return d.getTime();
 }
 
 // ---- Certificates -----------------------------------------------------------------
@@ -383,6 +425,20 @@ const EXTENSION_TYPES: Record<string, (value: Der) => boolean> = {
   '1.3.6.1.5.5.7.1.1': isSequence, // authorityInfoAccess
 };
 
+/**
+ * An Extension (RFC 5280 §4.1): a SEQUENCE of an OBJECT IDENTIFIER, an
+ * optional BOOLEAN and an OCTET STRING, as its OID, whether it is critical,
+ * and its value's element; `null` when it is not one.
+ */
+function extensionParts(ext: Der): { id: string; critical: boolean; value: Der } | null {
+  // Extension ::= SEQUENCE { extnID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING }
+  const parts = isSequence(ext) ? elementsOf(ext.content) : [];
+  const flagged = is(parts[1], 0, 1, false);
+  const value = parts[flagged ? 2 : 1];
+  if (!isOid(parts[0]) || !isOctets(value) || parts.length !== (flagged ? 3 : 2)) return null;
+  return { id: oid(parts[0]), critical: flagged && parts[1].content[0] === 0xff, value };
+}
+
 /** Whether Node's OpenSSL implements each named curve asked about, by the hex of its OID's DER. */
 const namedCurves = new Map<string, boolean>();
 
@@ -419,14 +475,17 @@ function namedCurveImplemented(curve: Der): boolean {
 }
 
 /**
- * Read a DER X.509 certificate, or throw `Malformed` when it is not one:
- * version v1 to v3; the signature AlgorithmIdentifier inside tbsCertificate
- * the same bytes as the one outside it (RFC 5280 §4.1.1.2); a
- * subjectPublicKeyInfo whose key, for an algorithm in `KEY_ALGORITHMS`, has
- * no unused bits and decodes, unless it is an EC key on a named curve Node's
- * OpenSSL does not implement, which is left unread; a readable validity; and
- * extensions that are not repeated, each standard one of its type
- * (`EXTENSION_TYPES`).
+ * Read a DER X.509 certificate, or throw `Malformed` when it is not one
+ * (tzun-anchor/1 §10.5 step 1): version v1 to v3; the signature
+ * AlgorithmIdentifier inside tbsCertificate the same bytes as the one outside
+ * it (RFC 5280 §4.1.1.2); a validity of two times, a GeneralizedTime among them
+ * with no fraction of a second; a subjectPublicKeyInfo whose key, for an
+ * algorithm in `KEY_ALGORITHMS`, has no unused bits and decodes, unless it is
+ * an EC key on a named curve Node's OpenSSL does not implement, which is left
+ * unread; after it only a primitive issuerUniqueID [1], a primitive
+ * subjectUniqueID [2] and a constructed extensions [3] holding one SEQUENCE,
+ * each at most once and in that order; and extensions that are not repeated,
+ * each standard one of its type (`EXTENSION_TYPES`).
  */
 function readCertificate(der: Buffer): Rfc3161Certificate {
   const cert = parseDer(der);
@@ -463,22 +522,28 @@ function readCertificate(der: Buffer): Rfc3161Certificate {
   }
   if (KEY_ALGORITHMS.has(spkiAlgorithm.oid) && spkiKey.content[0] !== 0) throw new Malformed('subjectPublicKey has unused bits');
   const [from, to] = elementsOf(validity.content);
-  const notBefore = timeOf(from);
-  const notAfter = timeOf(to);
+  const notBefore = timeOf(from, false);
+  const notAfter = timeOf(to, false);
   if (notBefore === null || notAfter === null) throw new Malformed('unreadable validity');
+  // After subjectPublicKeyInfo: issuerUniqueID [1] and subjectUniqueID [2],
+  // each primitive, then extensions [3], constructed, each at most once, in
+  // that order, and nothing else.
+  const after = fields.slice(i);
+  let k = 0;
+  if (is(after[k], 2, 1, false)) k++;
+  if (is(after[k], 2, 2, false)) k++;
+  const block = is(after[k], 2, 3, true) ? after[k++] : undefined;
+  if (k !== after.length) {
+    throw new Malformed('tbsCertificate holds fields after its subjectPublicKeyInfo other than a primitive [1], a primitive [2] and a constructed [3], in that order');
+  }
   const extensions = new Map<string, { critical: boolean; value: Buffer }>();
-  const block = fields.slice(i).find((f) => is(f, 2, 3, true));
   if (block) {
-    const [list] = elementsOf(block.content);
-    if (!isSequence(list)) throw new Malformed('extensions are not a SEQUENCE');
-    for (const ext of elementsOf(list.content)) {
-      // Extension ::= SEQUENCE { extnID, critical BOOLEAN DEFAULT FALSE, extnValue OCTET STRING }
-      const parts = isSequence(ext) ? elementsOf(ext.content) : [];
-      const flagged = is(parts[1], 0, 1, false);
-      const critical = flagged && parts[1].content[0] === 0xff;
-      const value = parts[flagged ? 2 : 1];
-      if (!isOid(parts[0]) || !isOctets(value) || parts.length !== (flagged ? 3 : 2)) throw new Malformed('malformed extension');
-      const id = oid(parts[0]);
+    const lists = elementsOf(block.content);
+    if (lists.length !== 1 || !isSequence(lists[0])) throw new Malformed('extensions are not one SEQUENCE');
+    for (const ext of elementsOf(lists[0].content)) {
+      const parts = extensionParts(ext);
+      if (parts === null) throw new Malformed('malformed extension');
+      const { id, critical, value } = parts;
       if (extensions.has(id)) throw new Malformed('repeated extension');
       const type = EXTENSION_TYPES[id];
       if (type !== undefined) {
@@ -773,10 +838,11 @@ export function readRfc3161Token(token: unknown): Rfc3161ReadResult {
       }
     }
 
+    // Every element of certificates is a certificate: a tagged CertificateChoices
+    // element (RFC 5652 §10.2.2) is not one, and makes the token malformed.
     const certificates: Rfc3161Certificate[] = [];
     for (const choice of certificatesEl ? elementsOf(certificatesEl.content) : []) {
-      // Only the Certificate choice is a certificate; the others are tagged.
-      if (isSequence(choice)) certificates.push(readCertificate(Buffer.from(choice.raw)));
+      certificates.push(readCertificate(Buffer.from(choice.raw)));
     }
     const signer = findSigner(sid, certificates);
     if (signer === undefined) return malformed('the token does not carry the certificate its SignerInfo names');
@@ -802,7 +868,18 @@ export function readRfc3161Token(token: unknown): Rfc3161ReadResult {
   }
 }
 
-/** The TSTInfo in `bytes`, or why it is not one. */
+/**
+ * The TSTInfo in `bytes`, decoded whole by RFC 3161 §2.4.2 (tzun-anchor/1
+ * §10.5 step 1), or why it is not one:
+ *
+ *   TSTInfo ::= SEQUENCE { version INTEGER, policy OBJECT IDENTIFIER,
+ *     messageImprint, serialNumber INTEGER, genTime GeneralizedTime,
+ *     accuracy OPTIONAL, ordering BOOLEAN DEFAULT FALSE, nonce INTEGER OPTIONAL,
+ *     tsa [0] GeneralName OPTIONAL, extensions [1] IMPLICIT Extensions OPTIONAL }
+ *
+ * genTime has the field ranges of a validity time, its year included, and may
+ * carry a fraction of a second.
+ */
 function readTstInfo(bytes: Buffer): Rfc3161Token['tstInfo'] | string {
   let seq: Der;
   try {
@@ -811,20 +888,67 @@ function readTstInfo(bytes: Buffer): Rfc3161Token['tstInfo'] | string {
     return `TSTInfo is not DER: ${(err as Error).message}`;
   }
   if (!isSequence(seq)) return 'TSTInfo is not a SEQUENCE';
-  // TSTInfo ::= SEQUENCE { version, policy, messageImprint, serialNumber, genTime, ... }
-  const [version, policy, imprint, serial, genTime] = elementsOf(seq.content);
+  const members = elementsOf(seq.content);
+  const [version, policy, imprint, serial, genTime] = members;
   if (!isInteger(version) || !isOid(policy) || !isSequence(imprint) || !isInteger(serial)) return 'TSTInfo does not have its fields';
   const [algorithmEl, hashed, ...rest] = elementsOf(imprint.content);
   const algorithm = algorithmOf(algorithmEl);
   if (algorithm === null || !isOctets(hashed) || rest.length > 0) return 'messageImprint is not an AlgorithmIdentifier and an OCTET STRING';
-  const at = is(genTime, 0, 24, false) ? timeOf(genTime) : null;
+  const at = is(genTime, 0, 24, false) ? timeOf(genTime, true) : null;
   if (at === null) return 'genTime is not a GeneralizedTime';
+  const optional = tstInfoOptionalMembers(members.slice(5));
+  if (optional !== null) return optional;
   return {
     imprintAlgorithm: algorithm.oid,
     ...(algorithm.params && { imprintParams: algorithm.params.raw }),
     hashedMessage: hashed.content,
     genTime: new Date(at),
   };
+}
+
+/**
+ * Why the members after a TSTInfo's genTime are not accuracy, ordering, nonce,
+ * tsa and extensions, each optional, in that order, and nothing else; `null`
+ * when they are.
+ */
+function tstInfoOptionalMembers(members: Der[]): string | null {
+  let i = 0;
+  if (isSequence(members[i])) {
+    // Accuracy ::= SEQUENCE { seconds INTEGER OPTIONAL, millis [0] INTEGER (1..999) OPTIONAL, micros [1] INTEGER (1..999) OPTIONAL }
+    const parts = elementsOf(members[i++].content);
+    let j = 0;
+    if (isInteger(parts[j])) j++;
+    for (const tag of [0, 1]) {
+      if (!is(parts[j], 2, tag, false)) continue;
+      if (!fromOneTo999(parts[j++].content)) return 'the accuracy\'s millis or micros is not an INTEGER from 1 to 999';
+    }
+    if (j !== parts.length) return 'accuracy is not seconds, millis and micros, each optional, in that order';
+  }
+  if (is(members[i], 0, 1, false)) i++; // ordering
+  if (isInteger(members[i])) i++; // nonce
+  if (is(members[i], 2, 0, true)) {
+    // tsa [0] GeneralName: one of its alternatives, by tag and form; its contents are not read.
+    const names = elementsOf(members[i++].content);
+    const [name] = names;
+    if (names.length !== 1 || name.cls !== 2 || name.tag > 8 || name.constructed !== [0, 3, 4, 5].includes(name.tag)) {
+      return 'tsa is not one GeneralName';
+    }
+  }
+  if (is(members[i], 2, 1, true)) {
+    // extensions [1] IMPLICIT Extensions: one or more, their values not read.
+    const list = elementsOf(members[i++].content);
+    if (list.length === 0 || !list.every((ext) => extensionParts(ext) !== null)) return 'the TSTInfo extensions are not one or more extensions';
+  }
+  if (i !== members.length) return 'TSTInfo holds members after genTime other than accuracy, ordering, nonce, tsa and extensions, in that order';
+  return null;
+}
+
+/** Whether `content` is that of a DER INTEGER from 1 to 999: positive, in its shortest form. */
+function fromOneTo999(content: Buffer): boolean {
+  if (content.length === 0 || content.length > 2 || (content[0] & 0x80) !== 0) return false;
+  if (content.length === 2 && content[0] === 0x00 && (content[1] & 0x80) === 0) return false;
+  const value = content.length === 1 ? content[0] : content[0] * 256 + content[1];
+  return value >= 1 && value <= 999;
 }
 
 /** The certificate `sid` names: by issuer and serial number, or by subjectKeyIdentifier. */
@@ -867,17 +991,25 @@ export type Rfc3161SignerResult = { ok: true } | { ok: false; reason: 'verificat
 
 /**
  * tzun-anchor/1 §10.5 step 3: the signed attributes carry content-type
- * id-ct-TSTInfo and a message-digest of the TSTInfo; the signature over them
- * verifies under the signer certificate's key; a signingCertificate or
- * signingCertificateV2 names the signer certificate (each one present must);
- * and that certificate has a critical extendedKeyUsage whose only purpose is
- * id-kp-timeStamping.
+ * id-ct-TSTInfo and a message-digest of the TSTInfo; the signature over them,
+ * as the token carries them, verifies under the signer certificate's key; a
+ * signingCertificate or signingCertificateV2 names the signer certificate
+ * (each one present must); and that certificate has a critical
+ * extendedKeyUsage whose only purpose is id-kp-timeStamping.
+ *
+ * Every requirement this verifier can check decides before one it cannot
+ * (§10.5 step 5): a requirement that needs a digest or signature algorithm it
+ * does not implement, the signer's key left unread, or an ESSCertIDv2 hash
+ * algorithm it does not implement is set aside, the others are checked, and
+ * the first that fails is `verification_failed`. Only when none fails is the
+ * first set aside `missing_dependency`.
  */
 export function checkSignatureAndSigner(token: Rfc3161Token): Rfc3161SignerResult {
   const failed = (error: string): Rfc3161SignerResult => ({ ok: false, reason: 'verification_failed', error });
-  const missing = (error: string): Rfc3161SignerResult => ({ ok: false, reason: 'missing_dependency', error });
   const { signerInfo, signer } = token;
   if (signerInfo.signedAttrs === undefined) return failed('the SignerInfo has no signed attributes');
+  /** The first requirement set aside for an algorithm or key this verifier lacks. */
+  let missing: string | undefined;
 
   const attributes = new Map<string, Der[][]>();
   for (const attr of elementsOf(signerInfo.signedAttrs.content)) {
@@ -901,33 +1033,40 @@ export function checkSignatureAndSigner(token: Rfc3161Token): Rfc3161SignerResul
   if (messageDigest === 'absent' || messageDigest === null || !isOctets(messageDigest)) {
     return failed('the message-digest attribute is not one OCTET STRING');
   }
-  const digest = DIGESTS[signerInfo.digestAlgorithm];
-  if (digest === undefined) return missing(`digest algorithm ${signerInfo.digestAlgorithm} is not supported`);
-  if (!createHash(digest).update(token.eContent).digest().equals(messageDigest.content)) {
+  const digest: string | undefined = DIGESTS[signerInfo.digestAlgorithm];
+  if (digest === undefined) {
+    missing ??= `digest algorithm ${signerInfo.digestAlgorithm} is not supported`;
+  } else if (!createHash(digest).update(token.eContent).digest().equals(messageDigest.content)) {
     return failed('the message-digest attribute is not the digest of the TSTInfo');
   }
 
   const algorithm = SIGNATURES[signerInfo.signatureAlgorithm];
-  if (algorithm === undefined) return missing(`signature algorithm ${signerInfo.signatureAlgorithm} is not supported`);
   const key = signer.publicKey;
-  if (key === null) {
-    return missing(
+  if (algorithm === undefined) {
+    missing ??= `signature algorithm ${signerInfo.signatureAlgorithm} is not supported`;
+  } else if (key === null) {
+    missing ??=
       signer.keyUnread === 'curve'
         ? "the signer certificate's elliptic curve is not supported"
-        : "the signer certificate's public-key algorithm is not supported",
-    );
+        : "the signer certificate's public-key algorithm is not supported";
+  } else if (key.asymmetricKeyType !== algorithm.key) {
+    return failed(`a ${key.asymmetricKeyType} key cannot verify a ${algorithm.key} signature`);
+  } else {
+    // A bare key OID takes the SignerInfo's digestAlgorithm, set aside above when this verifier lacks it.
+    const hash = algorithm.key === 'ed25519' ? null : (algorithm.digest ?? digest);
+    if (hash !== undefined) {
+      // CMS signs the DER of the attributes as a SET OF, not as the [0] IMPLICIT tag they are carried under.
+      const signed = Buffer.from(signerInfo.signedAttrs.raw);
+      signed[0] = 0x31;
+      let verified: boolean;
+      try {
+        verified = cryptoVerify(hash, signed, key, signerInfo.signature);
+      } catch (err) {
+        return failed(`the signature does not verify: ${(err as Error).message}`);
+      }
+      if (!verified) return failed('the signature does not verify under the signer certificate');
+    }
   }
-  if (key.asymmetricKeyType !== algorithm.key) return failed(`a ${key.asymmetricKeyType} key cannot verify a ${algorithm.key} signature`);
-  // CMS signs the DER of the attributes as a SET OF, not as the [0] IMPLICIT tag they are carried under.
-  const signed = Buffer.from(signerInfo.signedAttrs.raw);
-  signed[0] = 0x31;
-  let verified: boolean;
-  try {
-    verified = cryptoVerify(algorithm.key === 'ed25519' ? null : (algorithm.digest ?? digest), signed, key, signerInfo.signature);
-  } catch (err) {
-    return failed(`the signature does not verify: ${(err as Error).message}`);
-  }
-  if (!verified) return failed('the signature does not verify under the signer certificate');
 
   let bound = 0;
   for (const [id, v2] of [
@@ -938,7 +1077,8 @@ export function checkSignatureAndSigner(token: Rfc3161Token): Rfc3161SignerResul
     if (value === 'absent') continue;
     if (value === null) return failed('a signingCertificate attribute is repeated or has more than one value');
     const binding = bindsSigner(value, v2, signer);
-    if (binding !== true) return binding === 'missing_dependency' ? missing('the ESSCertIDv2 hash algorithm is not supported') : failed(binding);
+    if (binding === 'missing_dependency') missing ??= 'the ESSCertIDv2 hash algorithm is not supported';
+    else if (binding !== true) return failed(binding);
     bound++;
   }
   if (bound === 0) return failed('no signingCertificate or signingCertificateV2 attribute binds the signer certificate');
@@ -946,14 +1086,16 @@ export function checkSignatureAndSigner(token: Rfc3161Token): Rfc3161SignerResul
   if (!timestampingOnly(signer)) {
     return failed('the signer certificate has no critical extendedKeyUsage whose only purpose is id-kp-timeStamping');
   }
-  return { ok: true };
+  return missing === undefined ? { ok: true } : { ok: false, reason: 'missing_dependency', error: missing };
 }
 
 /**
  * Whether the first certificate identifier of a SigningCertificate (ESSCertID,
  * RFC 2634) or SigningCertificateV2 (ESSCertIDv2, RFC 5816) names `signer`:
  * its certHash over the certificate's DER, and its issuerSerial, when present,
- * naming its issuer and serial number. `true`, `'missing_dependency'`, or why not.
+ * naming its issuer and serial number. `true`, why not, or
+ * `'missing_dependency'` when everything but a certHash under a hash algorithm
+ * this verifier does not implement holds.
  */
 function bindsSigner(value: Der, v2: boolean, signer: Rfc3161Certificate): true | 'missing_dependency' | string {
   if (!isSequence(value)) return 'the signingCertificate attribute is not a SEQUENCE';
@@ -963,17 +1105,15 @@ function bindsSigner(value: Der, v2: boolean, signer: Rfc3161Certificate): true 
   if (!isSequence(first)) return 'the signingCertificate attribute names no certificate';
   const parts = elementsOf(first.content);
   let i = 0;
-  let digest = v2 ? 'sha256' : 'sha1';
+  let digest: string | undefined = v2 ? 'sha256' : 'sha1';
   if (v2 && isSequence(parts[0])) {
     const algorithm = algorithmOf(parts[i++]);
     if (algorithm === null) return 'the ESSCertIDv2 hash algorithm is malformed';
-    const named = DIGESTS[algorithm.oid];
-    if (named === undefined) return 'missing_dependency';
-    digest = named;
+    digest = DIGESTS[algorithm.oid];
   }
   const certHash = parts[i++];
   if (!isOctets(certHash)) return 'the certificate identifier has no certHash';
-  if (!createHash(digest).update(signer.der).digest().equals(certHash.content)) {
+  if (digest !== undefined && !createHash(digest).update(signer.der).digest().equals(certHash.content)) {
     return 'the signingCertificate certHash names another certificate';
   }
   const issuerSerial = parts[i];
@@ -987,7 +1127,7 @@ function bindsSigner(value: Der, v2: boolean, signer: Rfc3161Certificate): true 
       return 'the signingCertificate issuerSerial names another certificate';
     }
   }
-  return true;
+  return digest === undefined ? 'missing_dependency' : true;
 }
 
 /** Whether `cert` has a critical extendedKeyUsage whose only purpose is id-kp-timeStamping (RFC 3161 §2.3). */

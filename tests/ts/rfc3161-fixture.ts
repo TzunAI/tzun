@@ -121,9 +121,44 @@ export interface TokenFaults {
    * Step 3: the signer binding. Default `'v2'`, a signingCertificateV2
    * (ESSCertIDv2, SHA-256); `'v1'` a signingCertificate (ESSCertID, SHA-1);
    * `'none'` neither; `'other-certificate'` a signingCertificateV2 whose
-   * certHash names the root instead of the signer.
+   * certHash names the root instead of the signer. `'v2-unknown-hash'` an
+   * ESSCertIDv2 whose hash algorithm is 2.16.840.1.101.3.4.2.127, which no
+   * verifier implements, so its certHash cannot be checked: when every other
+   * requirement of step 3 holds, `missing_dependency` (§10.5 step 5).
+   * `'v2-unknown-hash-other-serial'` the same, its issuerSerial naming another
+   * serial number: a requirement the verifier can check fails first,
+   * `verification_failed`.
    */
-  signingCertificate?: 'v2' | 'v1' | 'none' | 'other-certificate';
+  signingCertificate?: 'v2' | 'v1' | 'none' | 'other-certificate' | 'v2-unknown-hash' | 'v2-unknown-hash-other-serial';
+  /**
+   * The members after genTime (RFC 3161 §2.4.2), the nonce among them
+   * wherever the shape puts it. `'all'` is not a fault: every optional
+   * member, each as RFC 3161 has it (accuracy of seconds 1, millis 999 and
+   * micros 1, ordering written out as FALSE, the nonce, tsa as a
+   * directoryName, one extension), meets every rule of tzun-anchor/1 §10.5
+   * step 1. Each other shape breaks one: `'member-after-extensions'` every
+   * member, then a NULL; `'ordering-after-nonce'` ordering after the nonce;
+   * `'millis-zero'` and `'micros-1000'` an accuracy outside 1 to 999;
+   * `'tsa-empty'` a tsa holding no GeneralName; `'tsa-dns-name-constructed'`
+   * a dNSName in the constructed form; `'extensions-empty'` extensions
+   * holding none.
+   */
+  tstInfoTail?:
+    | 'all'
+    | 'member-after-extensions'
+    | 'ordering-after-nonce'
+    | 'millis-zero'
+    | 'micros-1000'
+    | 'tsa-empty'
+    | 'tsa-dns-name-constructed'
+    | 'extensions-empty';
+  /**
+   * Not a fault: the signed attributes in the reverse of DER SET OF order,
+   * signed as carried. Step 1 does not require that order, and the signature
+   * is verified over the attributes as the token carries them (tzun-anchor/1
+   * §10.5 step 3, RFC 5652 §5.4), so every step holds.
+   */
+  signedAttrsOrder?: 'reversed';
   /**
    * Step 3: the signer certificate's extendedKeyUsage. Default
    * `'timestamping'` (critical, id-kp-timeStamping only); `'none'` no
@@ -284,11 +319,50 @@ function buildTstInfo(opts: {
     new asn1js.Integer({ value: opts.serial }),
     opts.faults?.nonDerGenTime ? new asn1js.GeneralizedTime({ valueDate: opts.genTime }) : derGeneralizedTime(opts.genTime),
   ];
+  const shape = opts.faults?.tstInfoTail;
+  if (shape !== undefined) {
+    const members = [...value.map((v) => Buffer.from(v.toBER(false))), ...tstInfoTail(shape, opts.nonce ?? null)];
+    const der = derElement(0x30, Buffer.concat(members));
+    return der.buffer.slice(der.byteOffset, der.byteOffset + der.length) as ArrayBuffer;
+  }
   if (opts.nonce) {
     // TSTInfo ::= SEQUENCE { ..., genTime, accuracy?, ordering?, nonce?, ... }
     value.push(new asn1js.Integer({ valueHex: positiveDerInteger(opts.nonce) }));
   }
   return new asn1js.Sequence({ value }).toBER(false);
+}
+
+/** The DER of the members after genTime that `shape` names (`TokenFaults.tstInfoTail`), echoing `nonce`. */
+function tstInfoTail(shape: NonNullable<TokenFaults['tstInfoTail']>, nonce: Buffer | null): Buffer[] {
+  const hex = (h: string) => Buffer.from(h, 'hex');
+  const echoed = nonce ? [derElement(0x02, positiveDerInteger(nonce))] : [];
+  const nonceAnyway = echoed.length > 0 ? echoed : [hex('020401020304')];
+  // Accuracy ::= SEQUENCE { seconds 1, millis [0] 999, micros [1] 1 }
+  const accuracy = hex('300a020101800203e7810101');
+  const ordering = hex('010100');
+  const tsaName = new pkijs.RelativeDistinguishedNames({ typesAndValues: [cnTypeAndValue('Acme Timestamping Authority')] });
+  // tsa [0] GeneralName: directoryName [4] EXPLICIT Name.
+  const tsa = derElement(0xa0, derElement(0xa4, Buffer.from(tsaName.toSchema().toBER(false))));
+  // extensions [1] IMPLICIT Extensions: one, SEQUENCE { OID 1.2.3.4, OCTET STRING { NULL } }.
+  const extensions = derElement(0xa1, hex('300906032a0304040205' + '00'));
+  switch (shape) {
+    case 'all':
+      return [accuracy, ordering, ...nonceAnyway, tsa, extensions];
+    case 'member-after-extensions':
+      return [accuracy, ordering, ...nonceAnyway, tsa, extensions, hex('0500')];
+    case 'ordering-after-nonce':
+      return [...nonceAnyway, ordering];
+    case 'millis-zero':
+      return [hex('3003800100'), ...echoed];
+    case 'micros-1000':
+      return [hex('3004810203e8'), ...echoed];
+    case 'tsa-empty':
+      return [...echoed, hex('a000')];
+    case 'tsa-dns-name-constructed':
+      return [...echoed, derElement(0xa0, derElement(0xa2, derElement(0x16, Buffer.from('tsa.example', 'latin1'))))];
+    case 'extensions-empty':
+      return [...echoed, hex('a100')];
+  }
 }
 
 /** DER INTEGER content for an unsigned value: leading zeros trimmed, 0x00 prefixed when the top bit is set. */
@@ -304,20 +378,37 @@ function positiveDerInteger(raw: Buffer): Buffer {
  * SigningCertificateV2 whose one ESSCertIDv2 is SHA-256 over `named`'s DER,
  * with the default hash algorithm left out as DER requires, and an
  * issuerSerial naming the signer; or, for `'v1'`, a SigningCertificate whose
- * ESSCertID is SHA-1 over it.
+ * ESSCertID is SHA-1 over it. With `unknownHash`, the ESSCertIDv2 names the
+ * hash algorithm 2.16.840.1.101.3.4.2.127 (its certHash still SHA-256); with
+ * `otherSerial`, its issuerSerial names another serial number, the signer's
+ * with its last bit flipped.
  */
-function signingCertificateAttribute(signer: IssuedCert, named: IssuedCert, version: 'v1' | 'v2'): pkijs.Attribute {
+function signingCertificateAttribute(
+  signer: IssuedCert,
+  named: IssuedCert,
+  version: 'v1' | 'v2',
+  unknownHash = false,
+  otherSerial = false,
+): pkijs.Attribute {
+  const serial = Buffer.from(signer.cert.serialNumber.valueBlock.valueHexView);
+  if (otherSerial) serial[serial.length - 1] ^= 0x01;
   const issuerSerial = new asn1js.Sequence({
     value: [
       new asn1js.Sequence({
         // GeneralNames: one directoryName, [4] EXPLICIT Name.
         value: [new asn1js.Constructed({ idBlock: { tagClass: 3, tagNumber: 4 }, value: [signer.cert.issuer.toSchema()] })],
       }),
-      new asn1js.Integer({ valueHex: signer.cert.serialNumber.valueBlock.valueHexView }),
+      new asn1js.Integer({ valueHex: serial }),
     ],
   });
   const certHash = createHash(version === 'v1' ? 'sha1' : 'sha256').update(named.der).digest();
-  const essCertId = new asn1js.Sequence({ value: [new asn1js.OctetString({ valueHex: certHash }), issuerSerial] });
+  const essCertId = new asn1js.Sequence({
+    value: [
+      ...(unknownHash ? [new asn1js.Sequence({ value: [new asn1js.ObjectIdentifier({ value: '2.16.840.1.101.3.4.2.127' })] })] : []),
+      new asn1js.OctetString({ valueHex: certHash }),
+      issuerSerial,
+    ],
+  });
   return new pkijs.Attribute({
     type: version === 'v1' ? OID_SIGNING_CERTIFICATE : OID_SIGNING_CERTIFICATE_V2,
     values: [new asn1js.Sequence({ value: [new asn1js.Sequence({ value: [essCertId] })] })],
@@ -359,7 +450,15 @@ async function signTimeStampResp(
     }),
     ...(binding === 'none'
       ? []
-      : [signingCertificateAttribute(signer, binding === 'other-certificate' ? root : signer, binding === 'v1' ? 'v1' : 'v2')]),
+      : [
+          signingCertificateAttribute(
+            signer,
+            binding === 'other-certificate' ? root : signer,
+            binding === 'v1' ? 'v1' : 'v2',
+            binding === 'v2-unknown-hash' || binding === 'v2-unknown-hash-other-serial',
+            binding === 'v2-unknown-hash-other-serial',
+          ),
+        ]),
   ];
   const signedData = new pkijs.SignedData({
     version: 3,
@@ -377,7 +476,10 @@ async function signTimeStampResp(
               issuer: signer.cert.issuer,
               serialNumber: signer.cert.serialNumber,
             }),
-        signedAttrs: new pkijs.SignedAndUnsignedAttributes({ type: 0, attributes: derSorted(attributes) }),
+        signedAttrs: new pkijs.SignedAndUnsignedAttributes({
+          type: 0,
+          attributes: faults.signedAttrsOrder === 'reversed' ? derSorted(attributes).reverse() : derSorted(attributes),
+        }),
       }),
     ],
   });

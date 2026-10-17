@@ -118,9 +118,11 @@ should read the list below. No digest, record or stored value changes.
     constructed `extensions` `[3]` holding one SEQUENCE, each at most once, in
     that order. The reader took the first constructed `[3]` from anywhere
     after the key, and left the rest to OpenSSL's X.509 reader (and the Python
-    reader to its model of it), which read a constructed unique identifier, so
-    a certificate whose `[3]` was retagged as a constructed `[2]` was read with
-    no extensions.
+    reader to its model of it), which read a constructed `issuerUniqueID` or
+    `subjectUniqueID` (BIT STRING segments, say), so a certificate with one was
+    read; it is now malformed. A certificate whose `[3]` is retagged as a
+    constructed `[2]` was already refused by that reader, and is now refused by
+    this rule at step 1.
   - Step 1 now has the unrestricted CHARACTER STRING (universal 29)
     constructed, and OID-IRI and RELATIVE-OID-IRI (35, 36) primitive, as X.690
     encodes them. 29 was required primitive, and 35 and 36 were read in either

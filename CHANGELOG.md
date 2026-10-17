@@ -28,9 +28,11 @@ The verifiers follow the specification as revised on 17 October 2026
 ([spec.tzun.ai](https://spec.tzun.ai)): an `rfc3161/1` publication by
 tzun-anchor/1 §10.5 steps 1 to 4 with only the reasons of §10.1, the
 `custody.ledger` row of Verification §4.3, the null slots of Bundle §3.1, and
-item 13 of tzun-anchor/1 §10.4. The minor version moves because reason strings
-and verdicts change: a caller that matches on them should read the list below.
-No digest, record or stored value changes.
+item 13 of tzun-anchor/1 §10.4. The RFC 3161 token checks also follow
+tzun-anchor/1 §10.5 steps 1 and 3 as revised, which settle the token rules step
+1 left open and which requirement of step 3 decides first. The minor version
+moves because reason strings and verdicts change: a caller that matches on them
+should read the list below. No digest, record or stored value changes.
 
 ### Changed
 
@@ -85,6 +87,60 @@ No digest, record or stored value changes.
   - A publication's `rfc3161` member (`{ genTime, tsaSubject }`) is read from
     the token once step 1 holds, whatever the outcome, in both SDKs. Only a
     `true` publication's `genTime` counts toward `existedBy`, as before.
+- **RFC 3161 tokens: tzun-anchor/1 §10.5 steps 1 and 3 as revised.** Both
+  SDKs' token checks (`readRfc3161Token` and `checkSignatureAndSigner`, and
+  their Python twins in `_rfc3161_steps`) hold every token to them: the
+  record's own token (`ts.record.token`), an `rfc3161/1` publication's
+  (`anchor.tsa.token[i]`), `verifyTimestampToken`, the timestamp of
+  `verifyAttestation`, and the capture check (`timestampConformance`,
+  `timestamp_conformance`). A token that fails step 1 is `malformed_token`,
+  `malformed_publication`, `unparseable_token` or, at capture, `malformed`, as
+  before. What changes:
+  - Step 1 now refuses a token whose `certificates` hold an element that is
+    not a certificate, a tagged `CertificateChoices` of RFC 5652 §10.2.2; it
+    was skipped.
+  - Step 1 now decodes the `TSTInfo` whole (RFC 3161 §2.4.2): after `genTime`,
+    only `accuracy`, `ordering`, `nonce`, `tsa` and `extensions`, each
+    optional, in that order. `millis` and `micros` are each an INTEGER from 1
+    to 999, `tsa` is one GeneralName (its tag and form only), and `extensions`
+    holds at least one extension. Nothing after `genTime` was read, so a token
+    with anything else there, or one of these out of its shape, is now
+    malformed.
+  - Step 1 now refuses a fraction of a second in a certificate's validity
+    (RFC 5280 §4.1.2.5.2); `genTime` keeps its fraction.
+  - Step 1 now reads a year from 0000 to 0099 in a `GeneralizedTime`, in a
+    validity and in `genTime`, with leap years by the Gregorian rule in every
+    year. The TypeScript reader took such a year as 1900 to 1999 and refused the
+    date, and the Python reader refused it to match, so such a token was
+    malformed.
+  - Step 1 now holds what follows a certificate's `subjectPublicKeyInfo` to a
+    primitive `issuerUniqueID` `[1]`, a primitive `subjectUniqueID` `[2]` and a
+    constructed `extensions` `[3]` holding one SEQUENCE, each at most once, in
+    that order. The reader took the first constructed `[3]` from anywhere
+    after the key, and left the rest to OpenSSL's X.509 reader (and the Python
+    reader to its model of it), which read a constructed unique identifier, so
+    a certificate whose `[3]` was retagged as a constructed `[2]` was read with
+    no extensions.
+  - Step 1 now has the unrestricted CHARACTER STRING (universal 29)
+    constructed, and OID-IRI and RELATIVE-OID-IRI (35, 36) primitive, as X.690
+    encodes them. 29 was required primitive, and 35 and 36 were read in either
+    form.
+  - Step 3: a requirement the verifier can check now decides before one that
+    needs what it lacks. A token whose signer key is left unread (a key
+    algorithm or curve the verifier does not implement), or whose
+    `digestAlgorithm`, `signatureAlgorithm` or `ESSCertIDv2` hash algorithm it
+    does not implement, is `verification_failed` when its signature (under an
+    algorithm the verifier implements), its signer binding or its
+    timestamping-only extendedKeyUsage fails. It was `missing_dependency`, and
+    stays so when every requirement the verifier can check holds.
+  - Unchanged, and now tested at their edges in both SDKs: the decoder bounds
+    of step 1 (constructed elements nested at most 64 deep and at most 100,000
+    elements, in the `TimeStampResp`, the `TSTInfo` and each typed extension
+    value, each on its own), and the signature verified over the signed
+    attributes as the token carries them, never a re-encoding.
+
+  Every stored public authority's token, and every token in `vectors/`, reads
+  as before.
 - **`custody.ledger`** (`verifyBundle()`). This version verifies no custody
   material, and the row is never `checked-correct` (Verification §4.3,
   Bundle §6): the report no longer vouches for custody rows, as the

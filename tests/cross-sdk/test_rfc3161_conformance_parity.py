@@ -807,7 +807,21 @@ def _revised_rule_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
             "TSTInfo accuracy millis 0": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("00"))])), accuracy),
             "TSTInfo accuracy millis not minimal": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("0001"))])), accuracy),
             "TSTInfo accuracy micros 1000": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x81", h("03e8"))])), accuracy),
+            "TSTInfo accuracy millis -1": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("ff"))])), accuracy),
             "TSTInfo tsa empty": (_tst_info_tail(_El(b"\xa0", children=[])), no_general_name),
+            "TSTInfo tsa two GeneralNames": (
+                _tst_info_tail(_El(b"\xa0", children=[_El(b"\x82", b"\x00"), _El(b"\x82", b"\x00")])),
+                no_general_name,
+            ),
+            # Not of the context-specific class, with a tag number from 0 to 8 and the form that
+            # alternative has.
+            "TSTInfo tsa INTEGER": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x02", h("01"))])), no_general_name),
+            "TSTInfo tsa BOOLEAN": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x01", h("ff"))])), no_general_name),
+            "TSTInfo tsa APPLICATION [2]": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x42", h("00"))])), no_general_name),
+            "TSTInfo tsa PRIVATE [0] constructed": (
+                _tst_info_tail(_El(b"\xa0", children=[_El(b"\xe0", children=[])])),
+                no_general_name,
+            ),
             "TSTInfo tsa dNSName constructed": (
                 _tst_info_tail(_El(b"\xa0", children=[_El(b"\xa2", children=[_El(b"\x16", b"tsa.example")])])),
                 no_general_name,

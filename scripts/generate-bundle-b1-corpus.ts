@@ -18,7 +18,9 @@
  * token that breaks or tests one of those rules: a key on a curve no
  * verifier implements (the OID 1.2.840.10045.3.1.99, assigned to no curve)
  * where a step needs it and where none does, and the signer subjects that
- * shape the `authority` fact among them. The namespace is a `test.`
+ * shape the `authority` fact among them. The `anchor-token-*` cases add to the
+ * record's anchor an `rfc3161/1` publication of its P from a second throwaway
+ * authority under a root of its own (tzun-anchor/1 §10.5). The namespace is a `test.`
  * namespace: nothing here is a real key or freezes anything (tzun-anchor/1 §2).
  *
  * anvil's clock is set an hour behind the wall clock before anything is
@@ -276,6 +278,8 @@ interface Given {
   trust: boolean;
   /** The header source's finalized height is below every publication's block. */
   notFinal?: boolean;
+  /** Roots supplied beside the corpus authority's, with `trust`. */
+  moreRoots?: string[];
 }
 
 /** The EVM rows of one publication of `epoch` under `given`, and whether the publication is `true` (tzun-anchor/1 §10.4). */
@@ -405,9 +409,12 @@ function summary(e: Expected): Record<string, unknown> {
   };
 }
 
+/** SHA-256 of a root's DER, lowercase hex: the fingerprint a report's inputs list. */
+const fingerprintOf = (pem: string) => new X509Certificate(pem).fingerprint256.replace(/:/g, '').toLowerCase();
+
 function reportInputs(ctx: Ctx, given: Given): Record<string, unknown> {
   return {
-    trustAnchors: given.trust ? [ctx.caFingerprint] : [],
+    trustAnchors: given.trust ? [...new Set([ctx.caFingerprint, ...(given.moreRoots ?? []).map(fingerprintOf)])].sort() : [],
     evmHeaderSources: given.headerSource ? [{ chain: CHAIN, finality: 'finalized' }] : [],
     publisherManifest: given.manifest ? ctx.manifestDigest : null,
     frameOrigins: null,
@@ -430,7 +437,7 @@ function inputsFile(ctx: Ctx, given: Given, regime: Partial<Inputs['regime']> = 
           },
         }
       : {},
-    trustAnchorsPem: given.trust ? [ctx.caPem] : [],
+    trustAnchorsPem: given.trust ? [ctx.caPem, ...(given.moreRoots ?? [])] : [],
     regime: { require: [], requireRung: [], allowUnchecked: false, ...regime },
   };
 }
@@ -655,7 +662,7 @@ async function main(): Promise<void> {
       manifest,
       manifestDigest: sha256(canonicalSerialize(manifest as unknown as Record<string, unknown>, Object.keys(manifest))),
       caPem: tsa.caPem,
-      caFingerprint: new X509Certificate(tsa.caPem).fingerprint256.replace(/:/g, '').toLowerCase(),
+      caFingerprint: fingerprintOf(tsa.caPem),
       signerCN: tsa.signerCN,
       epochs: [...epochs, forgedEpoch],
       finalized: await node.finalized(),
@@ -809,6 +816,67 @@ async function main(): Promise<void> {
           rows: e.rows.map((r) => (r.id === 'ts.record.trust' ? nc(r.id, 'no_matching_trust_anchor') : r)),
           proven: e.proven.filter((p) => p.check !== 'ts.record.trust'),
         }, 4);
+    }
+
+    // ---- An rfc3161/1 publication of the record's P (tzun-anchor/1 §10.5) ------------
+    // A second authority, under a root of its own, timestamps P, the SHA-256 of
+    // the record's anchor checkpoint body (Anchor §6), at the record token's
+    // genTime. Its token joins the envelope's artifact at index 1, and the
+    // anchor-log checkpoint entry that carries the record's P (Bundle §7.4).
+    // The artifact sits outside the record's digest, so only the anchor rows
+    // show it; anchor.newer, whose checkpoint keeps its own publications, does
+    // not. Steps 1 to 3 need no root; step 4 needs the authority's.
+    {
+      const anchorTsa = await makeSigningTsa({ signerCN: 'Tzun Corpus Anchor Timestamping Authority', caCN: 'Tzun Corpus Anchor Test Root CA' });
+      const ownCheckpoint = bundleA1.envelope.nonRepudiation.anchor!.anchorCheckpoint;
+      const anchorP = sha256(ownCheckpoint);
+      const withAnchorToken = async (digestHex: string, faults?: Parameters<SigningTsa['issue']>[3]): Promise<ProofBundle> => {
+        const publication = { kind: 'rfc3161/1' as const, token: (await anchorTsa.issue(digestHex, null, new Date(a1Time), faults)).toString('base64') };
+        const b = json(bundleA1);
+        b.envelope.nonRepudiation.anchor!.publications.push(publication);
+        const entry = b.anchoring[anchorOrigin].checkpoints.find((c) => c.body === ownCheckpoint)!;
+        entry.publications = [...(entry.publications ?? []), publication as never];
+        return b;
+      };
+      const both: Given = { ...full, moreRoots: [anchorTsa.caPem] };
+      const withTokenRows = (e: Expected, token: Row, trust: Row): Expected => {
+        const at = e.rows.findIndex((r) => r.id === 'anchor.evm.canonical[0]') + 1;
+        return { ...e, rows: [...e.rows.slice(0, at), ok('anchor.publication[1]'), token, trust, ...e.rows.slice(at)] };
+      };
+      // A token refused at steps 1 to 3 makes the publication, and so the record's
+      // anchor, false: one false publication shows the artifact untrue, and it
+      // yields no fact (Anchor §10.6). The EVM publication keeps its own rows,
+      // anchor.newer holds, and the carried bodies only the record's anchor would
+      // authenticate wait for it.
+      const anchorFails = (reason: 'imprint_mismatch' | 'malformed_publication'): Expected => {
+        const e = genuineA1(both);
+        return withTokenRows(
+          {
+            ...e,
+            rows: e.rows.map((r) =>
+              r.id === 'anchor'
+                ? wrong('anchor', reason)
+                : r.id === 'anchor.origin'
+                  ? ok(r.id, { originAuthenticated: false, namespace: 'test', chainChecked: true })
+                  : consistencyIds.includes(r.id)
+                    ? nc(r.id, 'blocked_by:anchor')
+                    : r,
+            ),
+            proven: e.proven.filter((p) => p.check !== 'anchor'),
+          },
+          wrong('anchor.tsa.token[1]', reason),
+          nc('anchor.tsa.trust[1]', 'blocked_by:anchor.tsa.token[1]'),
+        );
+      };
+      const genuineToken = await withAnchorToken(anchorP);
+      add('anchor-token-trusted', 'The record\'s anchor with a second publication: an rfc3161/1 token over its P from a second authority, whose root the auditor supplies beside the record authority\'s. Steps 1 to 3 hold on anchor.tsa.token[1], and step 4 on anchor.tsa.trust[1], with genTime and authority. The EVM block time is earlier, so existedBy stays the EVM publication\'s (tzun-anchor/1 §10.5, §10.6). Exit 0.',
+        genuineToken, both, withTokenRows(genuineA1(both), ok('anchor.tsa.token[1]'), ok('anchor.tsa.trust[1]', { genTime: a1Time, authority: anchorTsa.signerCN })), 0);
+      add('anchor-token-no-roots', 'The same bundle with no RFC 3161 root supplied: steps 1 to 3 need none, so anchor.tsa.token[1] holds; no path reaches a supplied root, so anchor.tsa.trust[1] is not checked, no_matching_trust_anchor, and the publication is null. The anchor holds by its EVM publication (tzun-anchor/1 §10.5). Exit 4.',
+        genuineToken, untrusted, withTokenRows(genuineA1(untrusted), ok('anchor.tsa.token[1]'), nc('anchor.tsa.trust[1]', 'no_matching_trust_anchor')), 4);
+      add('anchor-token-other-value', 'The second authority\'s token over the record\'s digest instead of the anchor\'s P, its root supplied: anchor.tsa.token[1] checked-wrong, imprint_mismatch, anchor.tsa.trust[1] blocked by it, whatever root the token chains to. One false publication makes the record\'s anchor false, with no fact from it; anchor.newer holds (tzun-anchor/1 §10.5 step 2, §10.6). Exit 1.',
+        await withAnchorToken(bundleA1.subject.canonicalDigest), both, anchorFails('imprint_mismatch'), 1);
+      add('anchor-token-not-der', 'The second authority\'s token over the anchor\'s P with its TSTInfo in a constructed (BER) OCTET STRING, which is not DER: anchor.tsa.token[1] checked-wrong, malformed_publication, anchor.tsa.trust[1] blocked by it, and the record\'s anchor false (tzun-anchor/1 §10.5 step 1, §10.6). Exit 1.',
+        await withAnchorToken(anchorP, { berTstInfo: true }), both, anchorFails('malformed_publication'), 1);
     }
 
     // ---- A record anchored in the newest epoch --------------------------------

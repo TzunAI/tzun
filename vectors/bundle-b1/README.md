@@ -22,7 +22,11 @@ string type (names match byte for byte), a key on the curve OID
 1.2.840.10045.3.1.99, which is assigned to no curve and so is
 `missing_dependency` in every verifier where a step needs it (the signer, an
 intermediate) and not examined where none does, and the signer subjects that
-shape the trust check's `authority` fact. The
+shape the trust check's `authority` fact. The `anchor-token-*` cases give the
+record's anchor a second publication, an `rfc3161/1` token over its P from a
+second throwaway authority (tzun-anchor/1 §10.5): with that authority's root
+supplied beside the first, with no root (steps 1 to 3 still hold), over another
+value (`imprint_mismatch`), and not DER (`malformed_publication`). The
 expected reports are stated in that script from Verification, Bundle and
 tzun-anchor/1 §10, row by row; the values in them (digests, origins,
 transaction ids, block times, the timestamp's genTime) are the run's own. The

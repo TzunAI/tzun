@@ -133,6 +133,26 @@
       "description": "The record's RFC 3161 token signed by a certificate the supplied root did issue, whose issuer name writes the root's CN as a UTF8String where the root's subject writes a PrintableString. Names match byte for byte, so no path reaches the root: ts.record.token checked-correct, ts.record.trust not checked, no_matching_trust_anchor (tzun-anchor/1 §10.5 step 4). Exit 4."
     },
     {
+      "name": "anchor-token-trusted",
+      "exit": 0,
+      "description": "The record's anchor with a second publication: an rfc3161/1 token over its P from a second authority, whose root the auditor supplies beside the record authority's. Steps 1 to 3 hold on anchor.tsa.token[1], and step 4 on anchor.tsa.trust[1], with genTime and authority. The EVM block time is earlier, so existedBy stays the EVM publication's (tzun-anchor/1 §10.5, §10.6). Exit 0."
+    },
+    {
+      "name": "anchor-token-no-roots",
+      "exit": 4,
+      "description": "The same bundle with no RFC 3161 root supplied: steps 1 to 3 need none, so anchor.tsa.token[1] holds; no path reaches a supplied root, so anchor.tsa.trust[1] is not checked, no_matching_trust_anchor, and the publication is null. The anchor holds by its EVM publication (tzun-anchor/1 §10.5). Exit 4."
+    },
+    {
+      "name": "anchor-token-other-value",
+      "exit": 1,
+      "description": "The second authority's token over the record's digest instead of the anchor's P, its root supplied: anchor.tsa.token[1] checked-wrong, imprint_mismatch, anchor.tsa.trust[1] blocked by it, whatever root the token chains to. One false publication makes the record's anchor false, with no fact from it; anchor.newer holds (tzun-anchor/1 §10.5 step 2, §10.6). Exit 1."
+    },
+    {
+      "name": "anchor-token-not-der",
+      "exit": 1,
+      "description": "The second authority's token over the anchor's P with its TSTInfo in a constructed (BER) OCTET STRING, which is not DER: anchor.tsa.token[1] checked-wrong, malformed_publication, anchor.tsa.trust[1] blocked by it, and the record's anchor false (tzun-anchor/1 §10.5 step 1, §10.6). Exit 1."
+    },
+    {
       "name": "anchored-latest-epoch",
       "exit": 0,
       "description": "A record anchored in the newest epoch: one checkpoint per log, no newer anchor and no consistency check (Bundle §7.3). Exit 0."

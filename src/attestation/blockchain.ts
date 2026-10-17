@@ -257,13 +257,21 @@ export interface EvmPublicationFacts {
   blockHash?: string;
   /** What placed the transaction in the block: a verified trie proof, or the header source's own lookup. */
   inclusion?: 'tx_proof' | 'header_source';
-  /** Set only when `valid` is `true`: the manifest entry's CAIP-2 chain. */
+  /*
+   * `chain`, `namespace`, `network` and `blockTime` are set only when the
+   * canonical check is checked-correct (tzun-anchor/1 §10.4 item 14): when
+   * `valid` is `true`, and when no matching entry is valid at the block time
+   * the header source confirmed, which makes the publication `false`,
+   * `evm_sender_mismatch` (item 13). Only a `true` publication's facts count
+   * as proven.
+   */
+  /** The matching entries' CAIP-2 chain. */
   chain?: string;
-  /** Set only when `valid` is `true`: the manifest entry's namespace, or `null` if matching entries disagree. */
+  /** The namespace of the matching entries valid at the block time; `null` when they disagree or none is valid. */
   namespace?: 'production' | 'test' | null;
-  /** Set only when `valid` is `true`: from the manifest entry's chain through the verifier's registry. */
+  /** From the matching entries' chain through the verifier's registry. */
   network?: EvmNetwork | null;
-  /** Set only when `valid` is `true`: the block time the header source confirmed, ISO 8601. */
+  /** The block time the header source confirmed, ISO 8601. */
   blockTime?: string;
   /**
    * What the header source counts as final, as it declares it: set once the
@@ -1232,28 +1240,30 @@ export async function verifyEvmPublication(input: EvmPublicationInput): Promise<
     if (inclusion === null) return notCanonical(noInclusion);
     facts.inclusion = inclusion;
 
-    // The validity window, at the block time the header source confirmed.
+    // Items 13 and 14: the source has confirmed the block, so the canonical
+    // check is decided, with its facts, whatever the validity window says.
     const valid = candidates.filter((e) => validAt(e, blockTime));
-    if (valid.length === 0) {
-      return {
-        valid: false,
-        reason: 'evm_sender_mismatch',
-        checks: { tx: check(TX_CHECK, 'checked-wrong', 'evm_sender_mismatch'), canonical: blocked },
-        facts,
-      };
-    }
-
     const namespaces = new Set(valid.map((e) => e.namespace));
     const networks = { ...DEFAULT_EVM_NETWORKS, ...(input.networks ?? {}) };
     facts.chain = chain;
     facts.namespace = namespaces.size === 1 ? valid[0].namespace : null;
     facts.network = Object.prototype.hasOwnProperty.call(networks, chain) ? networks[chain] : null;
     facts.blockTime = new Date(blockTime * 1000).toISOString();
-    return {
-      valid: true,
-      checks: { tx: check(TX_CHECK, 'checked-correct'), canonical: check(CANONICAL_CHECK, 'checked-correct') },
-      facts,
-    };
+    const canonical = check(CANONICAL_CHECK, 'checked-correct');
+    // Item 13: no matching entry is valid at the block time the source
+    // confirmed. The failure is the sender's, reported once, on the tx check;
+    // the canonical check stays checked-correct, its namespace null. With a
+    // header, item 6 has already decided at the same time (the source's block
+    // time equals the header's, item 11), so only a bundle without one gets here.
+    if (valid.length === 0) {
+      return {
+        valid: false,
+        reason: 'evm_sender_mismatch',
+        checks: { tx: check(TX_CHECK, 'checked-wrong', 'evm_sender_mismatch'), canonical },
+        facts,
+      };
+    }
+    return { valid: true, checks: { tx: check(TX_CHECK, 'checked-correct'), canonical }, facts };
   } catch {
     // Every expected failure returns above. This keeps an unforeseen one
     // undecided rather than an exception or a verdict.

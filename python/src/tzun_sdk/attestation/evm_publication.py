@@ -154,11 +154,18 @@ class EvmPublicationFacts(TypedDict, total=False):
     blockHash: str
     #: What placed the transaction in the block.
     inclusion: Literal["tx_proof", "header_source"]
-    #: Set only when ``valid`` is true: the manifest entry's CAIP-2 chain.
+    # ``chain``, ``namespace``, ``network`` and ``blockTime`` are set only when the canonical
+    # check is checked-correct (tzun-anchor/1 §10.4 item 14): when ``valid`` is true, and when
+    # no matching entry is valid at the block time the header source confirmed, which makes
+    # the publication false, ``evm_sender_mismatch`` (item 13). Only a true publication's
+    # facts count as proven.
+    #: The matching entries' CAIP-2 chain.
     chain: str
+    #: The namespace of the matching entries valid at the block time; ``None`` when they
+    #: disagree or none is valid.
     namespace: Literal["production", "test"] | None
     network: Any
-    #: Set only when ``valid`` is true: the confirmed block time, ISO 8601.
+    #: The block time the header source confirmed, ISO 8601.
     blockTime: str
     #: The header source's declared finality, once it has been asked for its finalized height.
     finality: EvmFinalityValue
@@ -969,19 +976,9 @@ async def verify_evm_publication(
             return not_canonical(no_inclusion)
         facts["inclusion"] = inclusion
 
-        # The validity window, at the block time the header source confirmed.
+        # Items 13 and 14: the source has confirmed the block, so the canonical
+        # check is decided, with its facts, whatever the validity window says.
         valid = [e for e in candidates if _valid_at(e, block_time)]
-        if not valid:
-            return {
-                "valid": False,
-                "reason": "evm_sender_mismatch",
-                "checks": {
-                    "tx": _check(TX_CHECK, "checked-wrong", "evm_sender_mismatch"),
-                    "canonical": blocked,
-                },
-                "facts": facts,
-            }
-
         namespaces = {e.namespace for e in valid}
         registry: dict[Any, Any] = dict(DEFAULT_EVM_NETWORKS)
         if isinstance(networks, Mapping):
@@ -990,12 +987,25 @@ async def verify_evm_publication(
         facts["namespace"] = valid[0].namespace if len(namespaces) == 1 else None
         facts["network"] = registry.get(chain) if chain in registry else None
         facts["blockTime"] = iso_from_millis(block_time * 1000)
+        canonical = _check(CANONICAL_CHECK, "checked-correct")
+        # Item 13: no matching entry is valid at the block time the source
+        # confirmed. The failure is the sender's, reported once, on the tx check;
+        # the canonical check stays checked-correct, its namespace None. With a
+        # header, item 6 has already decided at the same time (the source's block
+        # time equals the header's, item 11), so only a bundle without one gets here.
+        if not valid:
+            return {
+                "valid": False,
+                "reason": "evm_sender_mismatch",
+                "checks": {
+                    "tx": _check(TX_CHECK, "checked-wrong", "evm_sender_mismatch"),
+                    "canonical": canonical,
+                },
+                "facts": facts,
+            }
         return {
             "valid": True,
-            "checks": {
-                "tx": _check(TX_CHECK, "checked-correct"),
-                "canonical": _check(CANONICAL_CHECK, "checked-correct"),
-            },
+            "checks": {"tx": _check(TX_CHECK, "checked-correct"), "canonical": canonical},
             "facts": facts,
         }
     except Exception:

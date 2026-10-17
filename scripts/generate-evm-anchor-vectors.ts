@@ -136,11 +136,15 @@ function expectFor(window: Window, mode: Mode): Expect {
   if (window === 'malformed') {
     return { valid: null, reason: 'publication_not_checked', tx: { outcome: 'not-checked', reason: 'input_not_supplied:publisher_manifest' }, canonical: blocked };
   }
-  // Item 6 (the bundle's header) or item 13 (the block time the source
-  // confirmed): no matching entry valid at the block time. Reported on
-  // anchor.evm.tx, once.
+  // No matching entry valid at the block time: reported on anchor.evm.tx, once.
+  // With the header (header, offline), item 6 decides at the header's time,
+  // before the source is asked, and anchor.evm.canonical is blocked. Without
+  // it (noHeader), item 13 decides at the block time the source confirmed,
+  // and anchor.evm.canonical, having decided what it checks, stays
+  // checked-correct.
   if (window === 'excludes') {
-    return { valid: false, reason: 'evm_sender_mismatch', tx: { outcome: 'checked-wrong', reason: 'evm_sender_mismatch' }, canonical: blocked };
+    const canonical: Check = mode === 'noHeader' ? { outcome: 'checked-correct' } : blocked;
+    return { valid: false, reason: 'evm_sender_mismatch', tx: { outcome: 'checked-wrong', reason: 'evm_sender_mismatch' }, canonical };
   }
   // Offline, the header can make the publication fail but never pass.
   if (mode === 'offline') {

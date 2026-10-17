@@ -20,6 +20,7 @@ requires both SDKs to give every case the same whole verdict.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import json
 import os
 import pathlib
@@ -162,6 +163,48 @@ def test_every_case_gets_its_stated_verdict(case: dict[str, Any], mode: str) -> 
         "canonical": e["canonical"],
         "inclusion": e.get("inclusion"),
     }
+
+
+def test_a_window_that_excludes_the_confirmed_block_time_decides_the_canonical_check() -> None:
+    """tzun-anchor/1 §10.4 items 13 and 14: without the header, a window that excludes the
+    block time the source confirmed fails the publication on ``anchor.evm.tx``, and
+    ``anchor.evm.canonical``, having decided what it checks, is checked-correct with its
+    facts: the chain, a ``None`` namespace (no matching entry is valid at the block time),
+    the network, the block time and the inclusion. With the header, item 6 decides first
+    and the canonical check is blocked. The facts are what the TypeScript verifier gives."""
+    _needs_anchor_extra()
+    from tzun_sdk.attestation.evm_publication import verify_evm_publication
+
+    excluded = [c for c in CASES if c["window"] == "excludes"]
+    assert len(excluded) == 15
+    for case in excluded:
+        assert case["expect"]["noHeader"]["canonical"] == {"outcome": "checked-correct"}
+        assert case["expect"]["header"]["canonical"]["reason"] == "blocked_by:anchor.evm.tx"
+        i = _input(case, "noHeader")
+        v = asyncio.run(
+            verify_evm_publication(
+                i["publication"],
+                p=i["p"],
+                anchor_origin=i["anchor_origin"],
+                manifest=i["manifest"],
+                header_sources=i["header_sources"],
+            )
+        )
+        assert v["checks"]["canonical"] == {
+            "id": "anchor.evm.canonical",
+            "outcome": "checked-correct",
+            "value": True,
+        }
+        facts = v["facts"]
+        assert {k: facts.get(k, "missing") for k in ("chain", "namespace", "blockTime", "inclusion")} == {
+            "chain": VECTORS["chain"],
+            "namespace": None,
+            "blockTime": datetime.datetime.fromtimestamp(VECTORS["blockTime"], datetime.UTC)
+            .isoformat(timespec="milliseconds")
+            .replace("+00:00", "Z"),
+            "inclusion": "header_source",
+        }
+        assert "network" in facts
 
 
 def test_the_transaction_cases_break_each_rule_and_meet_each_at_its_edge() -> None:

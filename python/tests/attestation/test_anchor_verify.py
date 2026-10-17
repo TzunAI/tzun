@@ -534,8 +534,9 @@ def _response_with_status(status_content: bytes) -> str:
 
 
 class TestTimestampTokenStatus:
-    """The PKIStatus as the TypeScript reader reads it: asn1js reads an INTEGER of
-    four or more bytes as 0, so a padded status of any value reads as granted."""
+    """The PKIStatus as the TypeScript client's lenient reader reads it: asn1js reads an
+    INTEGER of four or more bytes as 0, so a padded status of any value reads as granted.
+    The anchor verifier holds a status to DER (tzun-anchor/1 §10.5 step 1) instead."""
 
     @pytest.mark.parametrize(
         "content", ["00", "01", "0000", "000001", "00000002", "0000000003", "ffffffff", "7f" * 9]

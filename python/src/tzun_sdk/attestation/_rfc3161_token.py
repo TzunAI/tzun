@@ -1,15 +1,13 @@
 # HAND-MAINTAINED. NOT generated.
 """Reading an RFC 3161 token as the TypeScript SDK's lenient reader reads it.
 
-The TypeScript SDK reads a token with ``parseTimestampResponse`` and
-``extractTSTInfo`` (src/attestation/rfc3161-verify.ts): Node's lenient base64,
+The TypeScript SDK's client reads a token it fetched with ``parseTimestampResponse``
+and ``extractTSTInfo`` (src/attestation/rfc3161-verify.ts): Node's lenient base64,
 asn1js ``fromBER``, pkijs ``ContentInfo`` and ``SignedData``, then the TSTInfo
-through asn1js. Its anchor verifier decides by them whether an ``rfc3161/1``
-publication's token is readable (:func:`read_timestamp_token`), and its client
-whether a token it fetched is one it can check, by which status
-(:func:`read_pki_status`), and by which imprint, genTime and nonce
-(:func:`read_tst_info`): the Python client's reader. This module reads a token as
-they do, with:
+through asn1js. By them it decides whether a token is one it can check, by which
+status (:func:`read_pki_status`), and by which imprint, genTime and nonce
+(:func:`read_tst_info`): the Python client's reader. :func:`read_timestamp_token`
+reads a token's genTime the same way. This module reads a token as they do, with:
 
 - :func:`~tzun_sdk.attestation._ecmascript.node_base64_decode`, which reads a
   character above U+00FF by the low byte of its UTF-16 code unit, as Node does;
@@ -36,17 +34,17 @@ they do, with:
 What pkijs checks of the certificates and signer infos inside the SignedData
 (each certificate against the X.509 schema, each signer info against the CMS
 one) is not repeated here. A token corrupted only there is unreadable to the
-TypeScript SDK and readable here: ``malformed_publication`` there, and
-``publication_not_checked`` here; at capture, the TypeScript client refuses it,
-and the Python client keeps it and reports it as not meeting tzun-anchor/1
-§10.5. ``tests/cross-sdk/test_anchor_verify_parity.py`` holds this reader to the
-TypeScript one on every other token it builds: each byte flipped, the status at
-each width from one to nine bytes, and base64 with characters above U+00FF;
-``tests/cross-sdk/test_rfc3161_conformance_parity.py`` holds the two clients to
-the same tokens kept, BER forms and each byte flipped.
+TypeScript client and readable here: at capture, the TypeScript client refuses
+it, and the Python client keeps it and reports it as not meeting tzun-anchor/1
+§10.5. ``tests/cross-sdk/test_anchor_verify_parity.py`` holds this reader's
+base64 and its ``UTCTime`` and ``GeneralizedTime`` readings to the TypeScript
+ones; ``tests/cross-sdk/test_rfc3161_conformance_parity.py`` holds the two
+clients to the same tokens kept, BER forms and each byte flipped.
 
-Both this reader and the TypeScript one are to be replaced by the rules of
-tzun-anchor/1 §10.5 step 1. Private to :mod:`tzun_sdk.attestation`.
+No verifier reads a token this way: the anchor verifiers of both SDKs, like a
+bundle's record token, hold an ``rfc3161/1`` token to tzun-anchor/1 §10.5
+(:mod:`tzun_sdk.attestation._rfc3161_steps`). Private to
+:mod:`tzun_sdk.attestation`.
 """
 
 from __future__ import annotations
@@ -365,8 +363,7 @@ def _tst_info(der: bytes) -> tuple[bytes, list[_Element]]:
     # The status, when it reads as one, must be granted (0) or grantedWithMods (1).
     # asn1js decodes an INTEGER of four or more bytes to 0 ("Too big Integer for
     # decoding, hex only"), so the TypeScript reader reads such a status, whatever
-    # its value, as granted. It is read the same way here, until the rules of
-    # tzun-anchor/1 §10.5 step 1 replace both readers.
+    # its value, as granted. It is read the same way here.
     if response and response[0].is_(16):
         status_info = _children(response[0])
         if status_info and _integer(status_info[0]):

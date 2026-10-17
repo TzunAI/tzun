@@ -747,7 +747,7 @@ async function main(): Promise<void> {
       await withRecordToken({ signerEku: 'none' }), full, recordTokenFails('verification_failed'), 1);
     add('record-token-digest-algorithms-malformed', 'The record\'s RFC 3161 token, validly signed, whose SignedData.digestAlgorithms holds a bare OBJECT IDENTIFIER where a SET OF AlgorithmIdentifier belongs. The set is not signed, so anyone can change it: ts.record.token checked-wrong, malformed_token (tzun-anchor/1 §10.5 step 1). Exit 1.',
       await withRecordToken({ digestAlgorithms: 'bare-oid' }), full, recordTokenFails('malformed_token'), 1);
-    add('record-token-unreadable-certificate', 'The record\'s genuine RFC 3161 token with one certificate added to its unsigned certificates set: a CA certificate of the root\'s name whose public key is not a point on its curve. A certificate whose key does not decode is not a certificate, so ts.record.token checked-wrong, malformed_token, and every other check is still reported (tzun-anchor/1 §10.1, §10.5 step 1). Exit 1.',
+    add('record-token-unreadable-certificate', 'The record\'s genuine RFC 3161 token with one certificate added to its unsigned certificates set: a CA certificate of the root\'s name whose public key is not a point on its curve. A certificate whose key does not decode is not a certificate, so ts.record.token checked-wrong, malformed_token, and every other check is still reported (tzun-anchor/1 §10.5 step 1; Verification §4.4). Exit 1.',
       await withRecordToken({ issuerCopy: 'bad-key' }), full, recordTokenFails('malformed_token'), 1);
     // A key whose curve this verifier does not implement is read with the key
     // left unread (tzun-anchor/1 §10.5 step 1); a step that needs it is not
@@ -1033,7 +1033,7 @@ async function main(): Promise<void> {
         authenticated: withSource,
       };
     };
-    add('fabricated-header-offline', 'A validly signed transaction under a self-consistent, back-dated header (its hash written into the envelope and the bundle), with no header source: anchor.evm.tx holds, anchor.evm.canonical is not checked, the publication is null, and no existedBy comes from it (Anchor §10.4). Exit 4.', fabricated, noSource, fabricatedRows(noSource), 4);
+    add('fabricated-header-offline', 'A validly signed transaction under a self-consistent, back-dated header (its hash written into the envelope and the bundle), with no header source: anchor.evm.tx holds, anchor.evm.canonical is not checked, the publication is null, and no existedBy comes from it (Anchor §10.4, §10.6). Exit 4.', fabricated, noSource, fabricatedRows(noSource), 4);
     add('fabricated-header-with-source', 'The same bundle against the auditor\'s header source: the block at that height has another hash, anchor_not_found_on_chain. Exit 1.', fabricated, full, fabricatedRows(full), 1);
 
     const publicationFails = (reason: string): Expected => ({

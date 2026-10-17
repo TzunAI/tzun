@@ -93,13 +93,18 @@ export type AttestationAnchorReason =
   | 'anchor_proof_invalid'
   // ---- step 6: the publications of P ------------------------------------------
   /**
-   * An `rfc3161/1` token's certificate path validates to a supplied root, but
-   * its imprint is not `{SHA-256, P}`: another value, or P's bytes under
-   * another algorithm's OID. `false`.
+   * An `rfc3161/1` token whose imprint is not SHA-256 over P: another value,
+   * or P's bytes under another algorithm's OID (tzun-anchor/1 §10.5 step 2).
+   * `false`, whether or not the token chains to a supplied root.
    */
-  | 'rfc3161_imprint_mismatch'
-  /** An `rfc3161/1` token's path validates to a supplied root, but its CMS signature does not verify. `false`. */
-  | 'rfc3161_signature_invalid'
+  | 'imprint_mismatch'
+  /**
+   * An `rfc3161/1` token whose signature, signer binding or timestamping-only
+   * extendedKeyUsage fails (tzun-anchor/1 §10.5 step 3), or whose signer
+   * certificate reaches a supplied root by some path on which none holds
+   * (step 4). `false`.
+   */
+  | 'verification_failed'
   /** An unforeseen failure inside `verifyAnchor`: a bug to report, never a verdict. `null`. */
   | 'anchor_verifier_error'
   /**

@@ -41,21 +41,21 @@ its kind's checks, each suffixed with the publication's index.
 ``publication_not_checked``, with ``missing_dependency`` on ``anchor.evm.tx[i]``
 and no facts.
 
-``rfc3161/1`` publications are read by :mod:`tzun_sdk.attestation._rfc3161_token`,
-which makes the TypeScript reader's decision (not by
-:func:`tzun_sdk.attestation.rfc3161.extract_tst_info`): an unreadable token is
-``False``, ``malformed_publication``. This SDK has no CMS signature or
-certificate-path verifier, so a readable token is never ``True``: with no trust
+``rfc3161/1`` publications are checked by Anchor §10.5 steps 1 to 3
+(:mod:`tzun_sdk.attestation._rfc3161_steps`, the twin of the TypeScript steps),
+whether or not trust anchors are supplied: a token that is not the DER of a
+readable timestamp is ``False``, ``malformed_publication``; one over another value
+``False``, ``imprint_mismatch``; one whose signature or signer fails ``False``,
+``verification_failed``, each on ``anchor.tsa.token[i]``, with the trust check
+blocked by it, as in the TypeScript SDK. This SDK has no certificate-path
+verifier, so a token that holds steps 1 to 3 is never ``True``: with no trust
 anchors supplied it is ``None``, ``no_matching_trust_anchor`` on
 ``anchor.tsa.trust[i]``, as in the TypeScript SDK; with trust anchors supplied it
-is ``None``, ``missing_dependency`` on ``anchor.tsa.token[i]``.
-
-Two cases therefore get a different anchor verdict from the TypeScript SDK's
-when a ``True`` publication sits beside the token: a token corrupted only inside
-its certificates or signer infos (TypeScript refuses it; this reader does not
-parse them), and, with trust anchors supplied, a token TypeScript decides
-``False``. There TypeScript's ``anchorValid`` is ``False`` and this one's
-``True``. Both readers are to be replaced by tzun-anchor/1 §10.5 step 1.
+is ``None``, ``missing_dependency`` on ``anchor.tsa.trust[i]`` (Anchor §10.5 step
+5), where the TypeScript SDK decides step 4. That is the one case whose anchor
+verdict differs from the TypeScript SDK's: with roots supplied, beside a ``True``
+publication, a token whose path TypeScript finds invalid makes its anchor
+``False``, and this one's stays ``True``.
 
 Never raises on the artifact: every input may be hostile JSON. Trust the caller
 supplies, or the environment names, that cannot be read is refused with
@@ -74,9 +74,12 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any, Final, Literal, NotRequired, TypedDict
 
-from tzun_sdk.attestation._ecmascript import js_safe_int, js_trim, millis_from_iso
-from tzun_sdk.attestation._rfc3161_steps import UnreadableTrustAnchorError
-from tzun_sdk.attestation._rfc3161_token import UnreadableToken, read_timestamp_token
+from tzun_sdk.attestation._ecmascript import iso_from_millis, js_safe_int, js_trim, millis_from_iso
+from tzun_sdk.attestation._rfc3161_steps import (
+    VERIFIER_FAILED,
+    UnreadableTrustAnchorError,
+    verify_rfc3161_steps,
+)
 from tzun_sdk.attestation._tsa_trust import check_trust_configuration
 from tzun_sdk.attestation.checkpoint import (
     Checkpoint,
@@ -809,7 +812,7 @@ async def _verify_publications(
         if kind == "evm-calldata/1":
             decided = await _verify_evm(index, pub, p, anchor_origin, options, deadline)
         elif kind == "rfc3161/1":
-            decided = _verify_rfc3161(index, pub, options)
+            decided = _verify_rfc3161(index, pub, p, options)
         else:
             out.append(
                 {
@@ -985,66 +988,88 @@ def _tsa_trust_supplied(options: dict[str, Any]) -> bool:
 
 
 def _verify_rfc3161(
-    index: int, pub: Mapping[str, Any], options: dict[str, Any]
+    index: int, pub: Mapping[str, Any], p: str, options: dict[str, Any]
 ) -> AnchorPublicationVerdict:
-    """An ``rfc3161/1`` publication, as far as this SDK can check one.
+    """An ``rfc3161/1`` publication (Anchor §10.5). Its checks are ``anchor.tsa.token[i]``,
+    steps 1 to 3, and ``anchor.tsa.trust[i]``, step 4, ``i`` being ``index``.
 
-    - ``False``, ``malformed_publication``: the token is not a non-empty string, or
-      does not read as an RFC 3161 TimeStampResp carrying a TSTInfo.
-    - ``None``, ``publication_not_checked``, with ``no_matching_trust_anchor`` on
-      ``anchor.tsa.trust[i]``: no trust anchors were supplied, so no path can reach
-      a supplied root.
-    - ``None``, ``publication_not_checked``, with ``missing_dependency`` on
-      ``anchor.tsa.token[i]``: trust anchors were supplied, and the CMS signature
-      and certificate path cannot be checked here.
+    Steps 1 to 3 run whether or not trust anchors were supplied, by
+    :func:`~tzun_sdk.attestation._rfc3161_steps.verify_rfc3161_steps`, the twin of the
+    TypeScript steps; the earliest that fails settles the outcome, and the trust check is
+    then blocked by the token check:
 
-    Its checks are ``anchor.tsa.token[i]`` and ``anchor.tsa.trust[i]``, ``i`` being
-    ``index``.
+    - step 1: ``False``, ``malformed_publication``;
+    - step 2: ``False``, ``imprint_mismatch``;
+    - step 3: ``False``, ``verification_failed``;
+    - step 5, an algorithm, or a key's algorithm or curve, this verifier does not
+      implement: ``None``, ``publication_not_checked``, ``missing_dependency`` on the token
+      check.
+
+    With steps 1 to 3 held, step 4: with no trust anchors supplied no path can reach a
+    supplied root, so the trust check is ``no_matching_trust_anchor``, as in the
+    TypeScript SDK. With trust anchors supplied, this SDK, which has no certificate-path
+    verifier, cannot carry out step 4: ``missing_dependency`` on the trust check (step 5),
+    where the TypeScript SDK decides it. Either way the publication is ``None``,
+    ``publication_not_checked``, and never ``True``.
+
+    An unforeseen failure of the steps raises, and :func:`verify_anchor` reports
+    ``anchor_verifier_error``: the verifier's failure, never a verdict on the token.
     """
-    base: dict[str, Any] = {"index": index, "kind": "rfc3161/1"}
     token_check = _at("anchor.tsa.token", index)
     trust_check = _at("anchor.tsa.trust", index)
+    steps = verify_rfc3161_steps(pub.get("token"), p)
+    if (
+        steps.token == "missing_dependency"
+        and steps.error is not None
+        and steps.error.startswith(VERIFIER_FAILED)
+    ):
+        raise RuntimeError(steps.error)
 
-    def unreadable() -> AnchorPublicationVerdict:
-        return {
-            **base,  # type: ignore[typeddict-item]
-            "valid": False,
-            "reason": "malformed_publication",
-            "checks": [
-                _check(token_check, "checked-wrong", "malformed_publication"),
-                _check(trust_check, "not-checked", f"blocked_by:{token_check}"),
-            ],
-        }
+    def decided(
+        valid: bool | None, reason: str | None, checks: list[AnchorCheckResult]
+    ) -> AnchorPublicationVerdict:
+        verdict: dict[str, Any] = {"index": index, "kind": "rfc3161/1", "valid": valid}
+        if reason is not None:
+            verdict["reason"] = reason
+        verdict["checks"] = checks
+        # Read from the token once step 1 holds; proven only for a True publication.
+        if steps.token != "malformed":
+            facts: dict[str, Any] = {}
+            if steps.gen_time is not None:
+                facts["genTime"] = iso_from_millis(steps.gen_time)
+            if steps.authority is not None:
+                facts["tsaSubject"] = steps.authority
+            verdict["rfc3161"] = facts
+        return verdict  # type: ignore[return-value]
 
-    token = pub.get("token")
-    if not isinstance(token, str) or token == "":
-        return unreadable()
-    try:
-        gen_time = read_timestamp_token(token)
-    except UnreadableToken:
-        return unreadable()
-
-    if not _tsa_trust_supplied(options):
-        return {
-            **base,  # type: ignore[typeddict-item]
-            "valid": None,
-            "reason": "publication_not_checked",
-            "checks": [
-                _check(token_check, "not-checked", f"blocked_by:{trust_check}"),
-                _check(trust_check, "not-checked", "no_matching_trust_anchor"),
-            ],
-            "rfc3161": {"genTime": gen_time} if gen_time is not None else {},
-        }
-    return {
-        **base,  # type: ignore[typeddict-item]
-        "valid": None,
-        "reason": "publication_not_checked",
-        "checks": [
-            _check(token_check, "not-checked", "missing_dependency"),
-            _check(trust_check, "not-checked", f"blocked_by:{token_check}"),
+    blocked = _check(trust_check, "not-checked", f"blocked_by:{token_check}")
+    if steps.token == "malformed":
+        return decided(
+            False,
+            "malformed_publication",
+            [_check(token_check, "checked-wrong", "malformed_publication"), blocked],
+        )
+    if steps.token in ("imprint_mismatch", "verification_failed"):
+        return decided(
+            False, steps.token, [_check(token_check, "checked-wrong", steps.token), blocked]
+        )
+    if steps.token == "missing_dependency":
+        return decided(
+            None,
+            "publication_not_checked",
+            [_check(token_check, "not-checked", "missing_dependency"), blocked],
+        )
+    trust_reason = (
+        "missing_dependency" if _tsa_trust_supplied(options) else "no_matching_trust_anchor"
+    )
+    return decided(
+        None,
+        "publication_not_checked",
+        [
+            _check(token_check, "checked-correct"),
+            _check(trust_check, "not-checked", trust_reason),
         ],
-        "rfc3161": {},
-    }
+    )
 
 
 __all__ = (

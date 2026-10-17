@@ -12,6 +12,7 @@ import { Transaction, Wallet } from 'ethers';
 import { verifyAnchor, type AnchorVerifyOptions } from '../../src/attestation/anchor-verify';
 import { verifyAttestation } from '../../src/attestation/verify-attestation';
 import * as rfc3161Verify from '../../src/attestation/rfc3161-verify';
+import * as rfc3161Token from '../../src/attestation/rfc3161-token';
 import { MERKLE_SPEC, merkleLeafHash } from '../../src/attestation/merkle';
 import type {
   EvmHeaderSource,
@@ -196,12 +197,12 @@ describe('rfc3161/1 publications', () => {
     }
   });
 
-  it('no trust anchors supplied → null, publication_not_checked: the built-in default roots are not a trust input', async () => {
+  it('no trust anchors supplied → steps 1 to 3 still run; null, publication_not_checked: the built-in default roots are not a trust input', async () => {
     const r = anchoredRecord();
     const tsa = await tsaPublication(r.p);
     // With no trust input, the token is not judged against the SDK's default
     // store (FreeTSA and Sectigo) either: Anchor §10.2 needs a root the caller supplied.
-    const resolveSpy = jest.spyOn(rfc3161Verify, 'verifyTimestampToken');
+    const resolveSpy = jest.spyOn(rfc3161Verify, 'readTrustAnchors');
     try {
       const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest);
       expect(resolveSpy).not.toHaveBeenCalled();
@@ -209,17 +210,19 @@ describe('rfc3161/1 publications', () => {
       expect(v.publications[0]).toMatchObject({
         valid: null,
         reason: 'publication_not_checked',
-        rfc3161: { genTime: tsa.genTime.toISOString() },
+        rfc3161: { genTime: tsa.genTime.toISOString(), tsaSubject: 'Acme Timestamping Authority' },
       });
+      // Steps 1 to 3 need nothing from the verifier's configuration (tzun-anchor/1 §10.5).
       expect(v.publications[0].checks).toEqual([
         { id: 'anchor.publication[0]', outcome: 'checked-correct', value: true },
-        { id: 'anchor.tsa.token[0]', outcome: 'not-checked', value: null, reason: 'blocked_by:anchor.tsa.trust[0]' },
+        { id: 'anchor.tsa.token[0]', outcome: 'checked-correct', value: true },
         { id: 'anchor.tsa.trust[0]', outcome: 'not-checked', value: null, reason: 'no_matching_trust_anchor' },
       ]);
 
       for (const empty of [{ trustAnchorsPem: [] }, { authorities: [] }]) {
         const w = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, empty);
         expect(w).toMatchObject({ anchorValid: null, anchorReason: 'publication_not_checked' });
+        expect(w.publications[0].checks).toEqual(v.publications[0].checks);
       }
     } finally {
       resolveSpy.mockRestore();
@@ -245,123 +248,124 @@ describe('rfc3161/1 publications', () => {
     expect(v.existedBy).toBeNull();
     expect(v.publications[0].checks).toEqual([
       { id: 'anchor.publication[0]', outcome: 'checked-correct', value: true },
-      { id: 'anchor.tsa.token[0]', outcome: 'not-checked', value: null, reason: 'blocked_by:anchor.tsa.trust[0]' },
+      { id: 'anchor.tsa.token[0]', outcome: 'checked-correct', value: true },
       { id: 'anchor.tsa.trust[0]', outcome: 'not-checked', value: null, reason: 'no_matching_trust_anchor' },
     ]);
     // Undecided, so the position is still reported, unauthenticated.
     expect(v.anchorPosition).toMatchObject({ authenticated: false });
   });
 
-  it('an untrusted token over the wrong imprint is still null: nothing trusted vouched for it', async () => {
+  it('a token over another value → false, imprint_mismatch, whether or not it chains to a supplied root, and nothing is reported as fact (tzun-anchor/1 §10.5 step 2)', async () => {
     const r = anchoredRecord();
     const tsa = await tsaPublication(sha256('another P'));
     const other = await makeTsaFixture({ caCN: 'Another Test Root CA' });
-    const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, { trustAnchorsPem: [other.caPem] });
-    expect(v).toMatchObject({ anchorValid: null, anchorReason: 'publication_not_checked' });
-    expect(v.publications[0].checks[2]).toMatchObject({ id: 'anchor.tsa.trust[0]', reason: 'no_matching_trust_anchor' });
+    for (const options of [{}, { trustAnchorsPem: [other.caPem] }, { trustAnchorsPem: [tsa.caPem] }]) {
+      const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, options);
+      expect(v.anchorValid).toBe(false);
+      expect(v.anchorReason).toBe('imprint_mismatch');
+      expect(v.merkleProofValid).toBe(true);
+      expect(v.anchorPosition).toBeNull();
+      expect(v.existedBy).toBeNull();
+      expect(v.anchorPublication).toBeNull();
+      expect(v.publications[0]).toMatchObject({ valid: false, reason: 'imprint_mismatch' });
+      // The earliest step that fails settles the outcome; the trust check is blocked by it.
+      expect(v.publications[0].checks).toEqual([
+        { id: 'anchor.publication[0]', outcome: 'checked-correct', value: true },
+        { id: 'anchor.tsa.token[0]', outcome: 'checked-wrong', value: false, reason: 'imprint_mismatch' },
+        { id: 'anchor.tsa.trust[0]', outcome: 'not-checked', value: null, reason: 'blocked_by:anchor.tsa.token[0]' },
+      ]);
+    }
   });
 
-  // The two cases below reach a supplied root and then fail on it. D-13 reads
-  // them as false; the chain result verifyTimestampToken returns does not say
-  // which link failed, so they read as null, publication_not_checked, with
-  // no_matching_trust_anchor on the trust check.
-  it('a TSA certificate expired at genTime, under a supplied root → null, no_matching_trust_anchor on the trust check', async () => {
+  it("a token over P's bytes under another hash algorithm's OID → false, imprint_mismatch", async () => {
+    const r = anchoredRecord();
+    const sha512Oid = '2.16.840.1.101.3.4.2.3';
+    const tsa = await makeTsaFixture({ digestHex: r.p, genTime: new Date('2026-09-20T12:00:00Z'), imprintAlgorithmOid: sha512Oid });
+    for (const options of [{}, { trustAnchorsPem: [tsa.caPem] }]) {
+      const v = await verifyAnchor(withPublications(r, [{ kind: 'rfc3161/1', token: tsa.tokenBase64 }]), r.digest, options);
+      expect(v).toMatchObject({ anchorValid: false, anchorReason: 'imprint_mismatch', existedBy: null });
+      expect(v.publications[0].checks[1]).toMatchObject({ id: 'anchor.tsa.token[0]', outcome: 'checked-wrong', reason: 'imprint_mismatch' });
+    }
+  });
+
+  it.each<[string, TokenFaults]>([
+    ['no signingCertificate or signingCertificateV2', { signingCertificate: 'none' }],
+    ['a message-digest attribute over other bytes', { messageDigest: 'other' }],
+    ['a content-type attribute other than id-ct-TSTInfo', { contentType: 'data' }],
+    ['a signer certificate with no timestamping extendedKeyUsage', { signerEku: 'none' }],
+  ])('a token whose signature or signer fails (%s) → false, verification_failed, with or without roots (tzun-anchor/1 §10.5 step 3)', async (_name, faults) => {
+    const r = anchoredRecord();
+    const tsa = await makeTsaFixture({ digestHex: r.p, genTime: new Date('2026-09-20T12:00:00Z'), faults });
+    for (const options of [{}, { trustAnchorsPem: [tsa.caPem] }]) {
+      const v = await verifyAnchor(withPublications(r, [{ kind: 'rfc3161/1', token: tsa.tokenBase64 }]), r.digest, options);
+      expect(v).toMatchObject({ anchorValid: false, anchorReason: 'verification_failed', existedBy: null });
+      expect(v.publications[0].checks.slice(1)).toEqual([
+        { id: 'anchor.tsa.token[0]', outcome: 'checked-wrong', value: false, reason: 'verification_failed' },
+        { id: 'anchor.tsa.trust[0]', outcome: 'not-checked', value: null, reason: 'blocked_by:anchor.tsa.token[0]' },
+      ]);
+    }
+  });
+
+  // The two cases below reach a supplied root and then fail on it: false,
+  // verification_failed, on the trust check (tzun-anchor/1 §10.5 step 4).
+  it('a TSA certificate expired at genTime, under a supplied root → false, verification_failed on the trust check', async () => {
     const r = anchoredRecord();
     const genTime = new Date('2026-09-20T12:00:00Z');
     const expired = await makeTsaFixture({ digestHex: r.p, genTime, signerNotAfter: new Date('2025-01-01T00:00:00Z') });
-    const direct = await rfc3161Verify.verifyTimestampToken(expired.tokenBase64, r.p, { trustAnchorsPem: [expired.caPem] });
-    expect(direct).toMatchObject({ valid: false, reason: 'untrusted_chain', certificateChainValid: false });
-    expect(direct.error).toMatch(/not valid at the timestamp's genTime/);
-
     const v = await verifyAnchor(
       withPublications(r, [{ kind: 'rfc3161/1', token: expired.tokenBase64 }]),
       r.digest,
       { trustAnchorsPem: [expired.caPem] },
     );
-    expect(v).toMatchObject({ anchorValid: null, anchorReason: 'publication_not_checked', existedBy: null });
-    expect(v.publications[0].checks[2]).toMatchObject({ id: 'anchor.tsa.trust[0]', reason: 'no_matching_trust_anchor' });
+    expect(v).toMatchObject({ anchorValid: false, anchorReason: 'verification_failed', existedBy: null, anchorPosition: null });
+    expect(v.publications[0].checks.slice(1)).toEqual([
+      { id: 'anchor.tsa.token[0]', outcome: 'checked-correct', value: true },
+      { id: 'anchor.tsa.trust[0]', outcome: 'checked-wrong', value: false, reason: 'verification_failed' },
+    ]);
+    // With no root supplied, nothing is reached: not checked.
+    const offline = await verifyAnchor(withPublications(r, [{ kind: 'rfc3161/1', token: expired.tokenBase64 }]), r.digest);
+    expect(offline.publications[0].checks[2]).toMatchObject({ outcome: 'not-checked', reason: 'no_matching_trust_anchor' });
   });
 
-  it("a certificate naming a supplied root as issuer, signed by another key → null, no_matching_trust_anchor on the trust check", async () => {
+  it("a certificate naming a supplied root as issuer, signed by another key → false, verification_failed on the trust check", async () => {
     const r = anchoredRecord();
     const trusted = await makeTsaFixture();
     // The same CA name, a different key: the path finds the trusted root by
     // name, and the signature does not verify under it.
     const impostor = await makeTsaFixture({ digestHex: r.p, genTime: new Date('2026-09-20T12:00:00Z') });
-    const direct = await rfc3161Verify.verifyTimestampToken(impostor.tokenBase64, r.p, { trustAnchorsPem: [trusted.caPem] });
-    expect(direct.error).toMatch(/signature does not verify against the trusted CA public key/);
-
     const v = await verifyAnchor(
       withPublications(r, [{ kind: 'rfc3161/1', token: impostor.tokenBase64 }]),
       r.digest,
       { trustAnchorsPem: [trusted.caPem] },
     );
-    expect(v).toMatchObject({ anchorValid: null, anchorReason: 'publication_not_checked' });
-    expect(v.publications[0].checks[2]).toMatchObject({ id: 'anchor.tsa.trust[0]', reason: 'no_matching_trust_anchor' });
+    expect(v).toMatchObject({ anchorValid: false, anchorReason: 'verification_failed' });
+    expect(v.publications[0].checks[2]).toEqual({ id: 'anchor.tsa.trust[0]', outcome: 'checked-wrong', value: false, reason: 'verification_failed' });
   });
 
-  it('a trusted token over another value → false, rfc3161_imprint_mismatch, and nothing is reported as fact', async () => {
-    const r = anchoredRecord();
-    const tsa = await tsaPublication(sha256('another P'));
-    const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, { trustAnchorsPem: [tsa.caPem] });
-    expect(v.anchorValid).toBe(false);
-    expect(v.anchorReason).toBe('rfc3161_imprint_mismatch');
-    expect(v.merkleProofValid).toBe(true);
-    expect(v.anchorPosition).toBeNull();
-    expect(v.existedBy).toBeNull();
-    expect(v.anchorPublication).toBeNull();
-    expect(v.publications[0].checks).toEqual([
-      { id: 'anchor.publication[0]', outcome: 'checked-correct', value: true },
-      { id: 'anchor.tsa.token[0]', outcome: 'checked-wrong', value: false, reason: 'rfc3161_imprint_mismatch' },
-      { id: 'anchor.tsa.trust[0]', outcome: 'checked-correct', value: true, facts: expect.objectContaining({ genTime: expect.any(String) }) },
-    ]);
-  });
-
-  it("a trusted token over P's bytes under another hash algorithm's OID → false, rfc3161_imprint_mismatch", async () => {
-    const r = anchoredRecord();
-    const sha512Oid = '2.16.840.1.101.3.4.2.3';
-    const tsa = await makeTsaFixture({ digestHex: r.p, genTime: new Date('2026-09-20T12:00:00Z'), imprintAlgorithmOid: sha512Oid });
-    // The shared token verifier holds the imprint to SHA-256 (tzun-anchor/1 §10.5 step 2).
-    const direct = await rfc3161Verify.verifyTimestampToken(tsa.tokenBase64, r.p, { trustAnchorsPem: [tsa.caPem] });
-    expect(direct).toMatchObject({ valid: false, reason: 'verification_failed', digestMatch: false, signatureValid: true, certificateChainValid: true });
-
-    const v = await verifyAnchor(withPublications(r, [{ kind: 'rfc3161/1', token: tsa.tokenBase64 }]), r.digest, {
-      trustAnchorsPem: [tsa.caPem],
-    });
-    expect(v).toMatchObject({ anchorValid: false, anchorReason: 'rfc3161_imprint_mismatch', existedBy: null });
-    expect(v.publications[0].checks[1]).toMatchObject({ id: 'anchor.tsa.token[0]', outcome: 'checked-wrong', reason: 'rfc3161_imprint_mismatch' });
-  });
-
-  it('a trusted token whose CMS signature fails → false, rfc3161_signature_invalid', async () => {
+  it('a step that wants a dependency → null, publication_not_checked, missing_dependency on that step\'s check', async () => {
     const r = anchoredRecord();
     const tsa = await tsaPublication(r.p);
-    const spy = jest.spyOn(rfc3161Verify, 'verifyTimestampToken').mockResolvedValueOnce({
-      valid: false,
-      reason: 'verification_failed',
-      digestMatch: true,
-      signatureValid: false,
-      certificateChainValid: true,
-      genTime: new Date('2026-09-20T12:00:00Z'),
-    });
-    try {
-      const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, { trustAnchorsPem: [tsa.caPem] });
-      expect(v).toMatchObject({ anchorValid: false, anchorReason: 'rfc3161_signature_invalid', existedBy: null });
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it('a verifier that cannot run CMS → null, publication_not_checked', async () => {
-    const r = anchoredRecord();
-    const tsa = await tsaPublication(r.p);
-    const spy = jest
-      .spyOn(rfc3161Verify, 'verifyTimestampToken')
-      .mockResolvedValueOnce({ valid: false, reason: 'missing_dependency' });
+    const spy = jest.spyOn(rfc3161Token, 'verifyRfc3161Steps').mockReturnValueOnce({ token: 'missing_dependency', error: 'an algorithm this verifier does not implement' });
     try {
       const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, { trustAnchorsPem: [tsa.caPem] });
       expect(v).toMatchObject({ anchorValid: null, anchorReason: 'publication_not_checked' });
       expect(v.publications[0].checks[1]).toMatchObject({ id: 'anchor.tsa.token[0]', outcome: 'not-checked', reason: 'missing_dependency' });
       expect(v.publications[0].checks[2]).toMatchObject({ id: 'anchor.tsa.trust[0]', reason: 'blocked_by:anchor.tsa.token[0]' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('an unforeseen failure of the steps is the verifier\'s: anchor_verifier_error, never a verdict on the token (tzun-anchor/1 §10.1)', async () => {
+    const r = anchoredRecord();
+    const tsa = await tsaPublication(r.p);
+    const spy = jest
+      .spyOn(rfc3161Token, 'verifyRfc3161Steps')
+      .mockReturnValueOnce({ token: 'missing_dependency', error: `${rfc3161Token.VERIFIER_FAILED}: boom` });
+    try {
+      const v = await verifyAnchor(withPublications(r, [tsa.publication]), r.digest, { trustAnchorsPem: [tsa.caPem] });
+      expect(v).toMatchObject({ anchorValid: null, anchorReason: 'anchor_verifier_error', publications: [] });
+      expect(v.checks.slice(1).every((c) => c.outcome === 'not-checked' && c.reason === 'anchor_verifier_error')).toBe(true);
     } finally {
       spy.mockRestore();
     }
@@ -1060,7 +1064,7 @@ describe('the check catalogue (tzun-anchor/1 §10.7)', () => {
       ['anchor.tsa.trust[1]', 'checked-correct', undefined],
       // Two tokens from two authorities are told apart by their index.
       ['anchor.publication[2]', 'checked-correct', undefined],
-      ['anchor.tsa.token[2]', 'not-checked', 'blocked_by:anchor.tsa.trust[2]'],
+      ['anchor.tsa.token[2]', 'checked-correct', undefined],
       ['anchor.tsa.trust[2]', 'not-checked', 'no_matching_trust_anchor'],
       ['anchor.publication[3]', 'checked-wrong', 'malformed_publication'],
     ]);

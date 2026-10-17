@@ -678,3 +678,141 @@ async def test_an_authority_that_cannot_be_read_is_refused(authorities: object, 
 )
 async def test_an_authority_is_named_by_its_key_or_its_url(selector: str) -> None:
     assert (await verify_anchor({}, "x", authorities=[selector]))["anchorPresent"] is False
+
+
+# ---- rfc3161/1 publications: Anchor §10.5 steps 1 to 3, whether or not roots are supplied ----
+
+STORED_TOKENS: dict[str, dict[str, Any]] = json.loads(
+    (REPO_ROOT / "tests" / "ts" / "fixtures" / "tsa-tokens.json").read_text(encoding="utf-8")
+)
+_FREETSA_ROOT = (REPO_ROOT / "src" / "attestation" / "certs" / "freetsa-ca.pem").read_text("utf-8")
+
+
+async def _with_token(token: object, monkeypatch: pytest.MonkeyPatch, **options: Any) -> Any:
+    """The anvil record with an ``rfc3161/1`` publication of ``token`` after its EVM one."""
+    for name in ("TZUN_TSA_TRUST_ANCHORS", "TZUN_TSA_AUTHORITIES"):
+        monkeypatch.delenv(name, raising=False)
+    artifacts = json.loads(json.dumps(RECORD["envelope"]["nonRepudiation"]))
+    artifacts["anchor"]["publications"].append({"kind": "rfc3161/1", "token": token})
+    return await verify_anchor(
+        artifacts,
+        RECORD["envelope"]["integrity"]["canonicalDigest"],
+        sequence_number=RECORD["envelope"]["payload"]["sequenceNumber"],
+        chain_id=RECORD["chainId"],
+        **options,
+    )
+
+
+@pytest.mark.parametrize("token", ["", "not-a-token", 42, None, " " + STORED_TOKENS["freetsa"]["tokenBase64"]])
+@pytest.mark.parametrize("roots", [None, [_FREETSA_ROOT]], ids=["no-roots", "roots"])
+async def test_an_unreadable_token_is_malformed_with_or_without_roots(
+    token: object, roots: list[str] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verdict = await _with_token(token, monkeypatch, trust_anchors_pem=roots)
+    pub = verdict["publications"][1]
+    assert pub == {
+        "index": 1,
+        "kind": "rfc3161/1",
+        "valid": False,
+        "reason": "malformed_publication",
+        "checks": [
+            {"id": "anchor.publication[1]", "outcome": "checked-correct", "value": True},
+            {"id": "anchor.tsa.token[1]", "outcome": "checked-wrong", "value": False, "reason": "malformed_publication"},
+            {"id": "anchor.tsa.trust[1]", "outcome": "not-checked", "value": None, "reason": "blocked_by:anchor.tsa.token[1]"},
+        ],
+    }
+    assert (verdict["anchorValid"], verdict["anchorReason"]) == (False, "malformed_publication")
+
+
+@pytest.mark.parametrize("roots", [None, [_FREETSA_ROOT]], ids=["no-roots", "roots"])
+async def test_a_token_over_another_value_is_imprint_mismatch_with_or_without_roots(
+    roots: list[str] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A genuine FreeTSA token, over its own digest and not this anchor's P (§10.5 step 2).
+    stored = STORED_TOKENS["freetsa"]
+    verdict = await _with_token(stored["tokenBase64"], monkeypatch, trust_anchors_pem=roots)
+    pub = verdict["publications"][1]
+    assert (pub["valid"], pub["reason"]) == (False, "imprint_mismatch")
+    assert pub["checks"][1:] == [
+        {"id": "anchor.tsa.token[1]", "outcome": "checked-wrong", "value": False, "reason": "imprint_mismatch"},
+        {"id": "anchor.tsa.trust[1]", "outcome": "not-checked", "value": None, "reason": "blocked_by:anchor.tsa.token[1]"},
+    ]
+    assert pub["rfc3161"]["tsaSubject"] == stored["signerCommonName"]
+    assert (verdict["anchorValid"], verdict["anchorReason"], verdict["existedBy"]) == (False, "imprint_mismatch", None)
+
+
+@pytest.mark.parametrize(
+    ("roots", "trust"),
+    [(None, "no_matching_trust_anchor"), ([_FREETSA_ROOT], "missing_dependency")],
+    ids=["no-roots", "roots"],
+)
+async def test_a_token_that_holds_steps_1_to_3_is_never_true_here(
+    roots: list[str] | None, trust: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without roots no path reaches a supplied root (§10.5 step 4); with roots this SDK,
+    which has no certificate-path verifier, cannot carry out step 4 (step 5)."""
+    from tzun_sdk.attestation import anchor_verify
+    from tzun_sdk.attestation._rfc3161_steps import Rfc3161StepsVerdict
+
+    gen_time = millis_from_iso("2026-09-20T12:00:00.123Z")
+    monkeypatch.setattr(
+        anchor_verify,
+        "verify_rfc3161_steps",
+        lambda _token, _p: Rfc3161StepsVerdict("held", None, "Acme Timestamping Authority", gen_time),
+    )
+    verdict = await _with_token("held", monkeypatch, trust_anchors_pem=roots)
+    pub = verdict["publications"][1]
+    assert pub == {
+        "index": 1,
+        "kind": "rfc3161/1",
+        "valid": None,
+        "reason": "publication_not_checked",
+        "checks": [
+            {"id": "anchor.publication[1]", "outcome": "checked-correct", "value": True},
+            {"id": "anchor.tsa.token[1]", "outcome": "checked-correct", "value": True},
+            {"id": "anchor.tsa.trust[1]", "outcome": "not-checked", "value": None, "reason": trust},
+        ],
+        "rfc3161": {"genTime": "2026-09-20T12:00:00.123Z", "tsaSubject": "Acme Timestamping Authority"},
+    }
+    assert verdict["existedBy"] is None
+
+
+@pytest.mark.parametrize("reason", ["verification_failed", "missing_dependency"])
+async def test_a_failing_or_undecided_step_3_blocks_the_trust_check(reason: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tzun_sdk.attestation import anchor_verify
+    from tzun_sdk.attestation._rfc3161_steps import Rfc3161StepsVerdict
+
+    monkeypatch.setattr(
+        anchor_verify,
+        "verify_rfc3161_steps",
+        lambda _token, _p: Rfc3161StepsVerdict(reason, "why", "Acme", 0),  # type: ignore[arg-type]
+    )
+    pub = (await _with_token("x", monkeypatch, trust_anchors_pem=[_FREETSA_ROOT]))["publications"][1]
+    token = (
+        {"id": "anchor.tsa.token[1]", "outcome": "checked-wrong", "value": False, "reason": reason}
+        if reason == "verification_failed"
+        else {"id": "anchor.tsa.token[1]", "outcome": "not-checked", "value": None, "reason": reason}
+    )
+    assert pub["checks"][1:] == [
+        token,
+        {"id": "anchor.tsa.trust[1]", "outcome": "not-checked", "value": None, "reason": "blocked_by:anchor.tsa.token[1]"},
+    ]
+    assert (pub["valid"], pub["reason"]) == (
+        (False, "verification_failed") if reason == "verification_failed" else (None, "publication_not_checked")
+    )
+
+
+async def test_an_unforeseen_failure_of_the_steps_is_anchor_verifier_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Anchor §10.1: an unforeseen failure on the RFC 3161 path is the verifier's, reported
+    as ``anchorReason`` and on every step check, never a verdict on the token."""
+    from tzun_sdk.attestation import anchor_verify
+    from tzun_sdk.attestation._rfc3161_steps import VERIFIER_FAILED, Rfc3161StepsVerdict
+
+    monkeypatch.setattr(
+        anchor_verify,
+        "verify_rfc3161_steps",
+        lambda _token, _p: Rfc3161StepsVerdict("missing_dependency", f"{VERIFIER_FAILED}: boom"),
+    )
+    verdict = await _with_token("x", monkeypatch)
+    assert (verdict["anchorValid"], verdict["anchorReason"], verdict["publications"]) == (None, "anchor_verifier_error", [])
+    assert all(c["reason"] == "anchor_verifier_error" for c in verdict["checks"][1:])

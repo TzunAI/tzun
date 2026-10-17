@@ -19,8 +19,8 @@ every check, reason and fact:
   be refused for the same rule in both;
 - the block-header reader and the transactions-trie walk, over two real Sepolia
   blocks, the anvil vectors and tries the TypeScript trie builder makes;
-- Node's base64 and asn1js's ``UTCTime`` and ``GeneralizedTime``, which decide
-  whether an ``rfc3161/1`` token is readable;
+- Node's base64 and asn1js's ``UTCTime`` and ``GeneralizedTime``, as the
+  lenient reader the TypeScript client reads a fetched token with;
 - ``verifyEvmPublication``, over about 240 publications with scripted header
   sources (``ScriptedSource``: the JSON both sides build a source from), and
   over every validity case of ``evm-anchor-vectors.json`` in each of its modes,
@@ -31,15 +31,14 @@ every check, reason and fact:
   high ``s`` (``withLowS``, tzun-anchor/1 §7.2 rule 3): the Python decoder reads
   each with the same sender.
 
-Two differences are designed, and those cases are held to them, not to equality:
-
-- with RFC 3161 trust anchors supplied, the TypeScript SDK checks the token's CMS
-  signature and certificate path, and the Python SDK, which has no verifier for
-  them, reports ``missing_dependency``;
-- a token corrupted only inside its certificates or signer infos, which pkijs
-  parses and the Python reader does not, is ``malformed_publication`` in
-  TypeScript and ``publication_not_checked`` in Python; beside a true EVM
-  publication, TypeScript's anchor is false and Python's true.
+Both SDKs check an ``rfc3161/1`` publication by tzun-anchor/1 §10.5 steps 1 to 3
+with their twin strict readers, whether or not trust anchors are supplied, so a
+token corrupted anywhere, inside its certificates and signer infos included,
+gets the same verdict from both. One difference is designed, and those cases are
+held to it, not to equality: with RFC 3161 trust anchors supplied, the
+TypeScript SDK carries out step 4, the certificate path, and the Python SDK,
+which has no path verifier, reports ``missing_dependency`` on
+``anchor.tsa.trust[i]`` once steps 1 to 3 hold.
 
 Skipped without Node. Without the ``anchor`` extra the module is skipped, except
 under CI, where it fails: the job must install ``pip install -e '.[anchor]'``.
@@ -1085,13 +1084,7 @@ def _in_pkijs_only_region(case: Mapping[str, Any], regions: list[tuple[int, int]
 def test_every_anchor_scenario_gets_the_same_verdict(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:
-    good = next(c for c in anchor_scenarios if c["name"] == "RFC 3161: no trust supplied")
-    regions = pkijs_only_regions(good["artifacts"]["anchor"]["publications"][0]["token"])
-    compared = [
-        c
-        for c in anchor_scenarios
-        if not _trust_supplied(c) and not _in_pkijs_only_region(c, regions)
-    ]
+    compared = [c for c in anchor_scenarios if not _trust_supplied(c)]
     diverged = [
         (c["name"], c["verdict"], p) for c in compared if (p := py_verify_anchor(c)) != c["verdict"]
     ]
@@ -1100,10 +1093,14 @@ def test_every_anchor_scenario_gets_the_same_verdict(
     assert (True, None) in outcomes
     assert (False, "malformed_publication") in outcomes
     assert (None, "publication_not_checked") in outcomes
-    # The RFC 3161 corpus reaches both decisions: readable tokens and unreadable ones.
+    # The RFC 3161 corpus reaches every step of tzun-anchor/1 §10.5 without roots: tokens
+    # that hold steps 1 to 3, and tokens refused at steps 1, 2 and 3.
     tsa = [c for c in compared if c["name"].startswith("RFC 3161:")]
-    readable = [c for c in tsa if c["verdict"]["publications"][0]["valid"] is None]
-    assert len(readable) >= 5 and len(tsa) - len(readable) >= 20
+    held = [c for c in tsa if c["verdict"]["publications"][0]["valid"] is None]
+    assert len(held) >= 3
+    reasons = {c["verdict"]["publications"][0].get("reason") for c in tsa}
+    assert {"malformed_publication", "imprint_mismatch", "verification_failed"} <= reasons
+    assert len(tsa) - len(held) >= 20
 
 
 def test_a_legacy_publication_whose_v_is_27_or_28_reports_no_signed_chain_id(
@@ -1383,67 +1380,56 @@ def test_an_authority_is_known_to_both_by_the_same_spellings() -> None:
     assert "http://rfc316\u2488ai.moda" not in known
 
 
-def test_inside_certificates_and_signer_infos_python_never_refuses_what_typescript_reads(
+def test_inside_certificates_and_signer_infos_both_sdks_decide_alike(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:
-    """A corruption pkijs's X.509 or SignerInfo schema refuses is not refused by the
-    Python reader (``_rfc3161_token``'s docstring). Either the verdicts are equal,
-    or the TypeScript verdict is ``malformed_publication`` and the Python one
-    ``publication_not_checked``; never the reverse."""
+    """A corruption inside the token's certificates or signer infos, where pkijs's
+    schemas decided what the old lenient readers took, is decided by tzun-anchor/1
+    §10.5 steps 1 to 3 in both SDKs: the same verdict, and some of them refused."""
     good = next(c for c in anchor_scenarios if c["name"] == "RFC 3161: no trust supplied")
     regions = pkijs_only_regions(good["artifacts"]["anchor"]["publications"][0]["token"])
     cases = [c for c in anchor_scenarios if _in_pkijs_only_region(c, regions)]
     assert len(cases) > 100
-    equal = 0
-    for case in cases:
-        py = py_verify_anchor(case)
-        if py == case["verdict"]:
-            equal += 1
-            continue
-        assert (case["verdict"]["anchorReason"], py["anchorReason"]) == (
-            "malformed_publication",
-            "publication_not_checked",
-        ), case["name"]
-        assert py["publications"][0]["checks"][2]["reason"] == "no_matching_trust_anchor", case[
-            "name"
-        ]
-    assert equal > len(cases) // 2
+    diverged = [c["name"] for c in cases if py_verify_anchor(c) != c["verdict"]]
+    assert not diverged, f"{len(diverged)} of {len(cases)} differ; first: {diverged[0]!r}"
+    assert any(c["verdict"]["anchorValid"] is False for c in cases)
 
 
-def test_with_trust_anchors_supplied_python_reports_missing_dependency(
+def test_with_trust_anchors_supplied_python_reports_missing_dependency_on_the_trust_check(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:
+    """tzun-anchor/1 §10.5: steps 1 to 3 decide the token check alike in both SDKs. Once
+    they hold, the TypeScript SDK carries out step 4 and the Python SDK, which has no
+    certificate-path verifier, reports ``missing_dependency`` on the trust check (step 5)."""
     cases = [c for c in anchor_scenarios if _trust_supplied(c)]
     assert cases
+    decided_by_step_4 = 0
     for case in cases:
         py = py_verify_anchor(case)
         ts_pub = case["verdict"]["publications"][0]
         py_pub = py["publications"][0]
-        if ts_pub.get("reason") == "malformed_publication":
-            # An unreadable token is refused the same way on both sides.
+        ts_token = ts_pub["checks"][1]
+        # The dispatch and the token check agree whatever the publication.
+        assert py_pub["checks"][:2] == ts_pub["checks"][:2], case["name"]
+        if ts_token["outcome"] != "checked-correct":
+            # A token refused, or undecided, at steps 1 to 3 is reported the same way.
             assert py == case["verdict"], case["name"]
             continue
+        decided_by_step_4 += 1
         assert py["anchorValid"] is None and py["anchorReason"] == "publication_not_checked", case[
             "name"
         ]
-        assert py_pub["checks"] == [
-            {"id": "anchor.publication[0]", "outcome": "checked-correct", "value": True},
-            {
-                "id": "anchor.tsa.token[0]",
-                "outcome": "not-checked",
-                "value": None,
-                "reason": "missing_dependency",
-            },
-            {
-                "id": "anchor.tsa.trust[0]",
-                "outcome": "not-checked",
-                "value": None,
-                "reason": "blocked_by:anchor.tsa.token[0]",
-            },
-        ], case["name"]
+        assert py_pub["checks"][2] == {
+            "id": "anchor.tsa.trust[0]",
+            "outcome": "not-checked",
+            "value": None,
+            "reason": "missing_dependency",
+        }, case["name"]
+        assert py_pub["rfc3161"] == ts_pub["rfc3161"], case["name"]
         # Steps 1 and 2 agree whatever the publication (checks[0] is `anchor`).
         assert py["checks"][1:3] == case["verdict"]["checks"][1:3]
         assert py["merkleProofValid"] == case["verdict"]["merkleProofValid"]
+    assert decided_by_step_4 >= 2
 
 
 def _hostile_anchor_cases() -> list[dict[str, Any]]:
@@ -1517,9 +1503,10 @@ def _with_status(token: str, status: bytes) -> str:
 def test_the_status_at_every_width_gets_the_same_verdict(
     anchor_scenarios: list[dict[str, Any]],
 ) -> None:
-    """asn1js reads a PKIStatus INTEGER of four or more bytes as 0, so the TypeScript
-    reader takes such a status, whatever its value, as granted. The
-    Python reader reads it the same way."""
+    """tzun-anchor/1 §10.5 step 1: the status is ``granted`` (0) or ``grantedWithMods``
+    (1), and an INTEGER is DER, in its shortest form. Both SDKs read a status of one
+    byte, and refuse every wider one, whatever value it holds (the lenient reader of
+    asn1js took one of four or more bytes as 0, granted)."""
     good = next(c for c in anchor_scenarios if c["name"] == "RFC 3161: no trust supplied")
     token = good["artifacts"]["anchor"]["publications"][0]["token"]
     cases = []
@@ -1542,9 +1529,7 @@ def test_the_status_at_every_width_gets_the_same_verdict(
         for c, t in zip(cases, ts, strict=True)
         if t["publications"][0]["valid"] is None
     ]
-    assert readable == [
-        (c["width"], c["value"]) for c in cases if c["width"] >= 4 or c["value"] in (0, 1)
-    ]
+    assert readable == [(1, 0), (1, 1)]
 
 
 def _proto_case(anchor_scenarios: list[dict[str, Any]], variant: str) -> dict[str, Any]:

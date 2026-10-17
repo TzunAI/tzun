@@ -15,8 +15,8 @@ import {
   type EvmPublicationFacts,
   type PublisherManifest,
 } from './blockchain';
-import { extractTSTInfo, parseTimestampResponse, readTrustAnchors, verifyTimestampToken } from './rfc3161-verify';
-import { UnreadableTrustAnchorError } from './rfc3161-token';
+import { readTrustAnchors } from './rfc3161-verify';
+import { UnreadableTrustAnchorError, VERIFIER_FAILED, verifyRfc3161Steps, type Rfc3161Certificate } from './rfc3161-token';
 import type { AttestationAnchorReason } from './verify-attestation';
 import type { AnchorExistedBy, Rfc3161AnchorPublication } from '@tzun/engine';
 
@@ -107,12 +107,13 @@ export interface AnchorVerifyOptions {
    */
   publicationMaterial?: unknown[];
   /**
-   * Trust anchors for `rfc3161/1` publications, as for record timestamps.
-   * With neither this nor `authorities` (nor `TZUN_TSA_TRUST_ANCHORS` or
-   * `TZUN_TSA_AUTHORITIES` in the environment), no RFC 3161 publication can
-   * be `true`: the SDK's built-in default roots are not a trust input. One
-   * that cannot be read is refused: `verifyAnchor` throws
-   * `UnreadableTrustAnchorError`.
+   * Trust anchors for `rfc3161/1` publications, as for record timestamps:
+   * the roots of tzun-anchor/1 §10.5 step 4. With neither this nor
+   * `authorities` (nor `TZUN_TSA_TRUST_ANCHORS` or `TZUN_TSA_AUTHORITIES` in
+   * the environment), no RFC 3161 publication can be `true`: the SDK's
+   * built-in default roots are not a trust input. Steps 1 to 3 need none of
+   * them, and run either way. One that cannot be read is refused:
+   * `verifyAnchor` throws `UnreadableTrustAnchorError`.
    */
   trustAnchorsPem?: string[];
   /** Timestamp authorities to trust, by registry key or URL, as for record timestamps. */
@@ -169,10 +170,11 @@ export type AnchorNotCheckedReason =
    */
   | 'missing_dependency'
   /**
-   * `anchor.tsa.trust`: the token's certificate path does not validate to a
-   * supplied root (tzun-anchor/1 §10.5 step 4): no roots were supplied, no
-   * path finds an issuer among them, or a path finds a root and then fails on
-   * it. The publication is `null`, `publication_not_checked`.
+   * `anchor.tsa.trust`: no path from the token's signer certificate reaches a
+   * supplied root (tzun-anchor/1 §10.5 step 4): no roots were supplied, or
+   * no chain of names leads to one, or the search stopped at its bounds. The
+   * publication is `null`, `publication_not_checked`. A path that reaches a
+   * supplied root and holds on none is `false`, `verification_failed`.
    */
   | 'no_matching_trust_anchor';
 
@@ -472,17 +474,21 @@ export async function verifyAnchor(
 ): Promise<AnchorVerification> {
   const opts = isRecord(options) ? (options as AnchorVerifyOptions) : {};
   const given = (value: unknown) => value !== undefined && !(Array.isArray(value) && value.length === 0);
-  if (tsaTrustSupplied(opts) || given(opts.trustAnchorsPem) || given(opts.authorities)) {
-    readTrustAnchors({
-      ...(given(opts.trustAnchorsPem) && { trustAnchorsPem: opts.trustAnchorsPem }),
-      ...(given(opts.authorities) && { authorities: opts.authorities }),
-    });
-  }
+  // The RFC 3161 roots the caller supplied, read: the only trust anchors of
+  // step 4 (tzun-anchor/1 §10.5). With none supplied there are none: the
+  // SDK's default trust store is never an auditor's input.
+  const roots: Rfc3161Certificate[] =
+    tsaTrustSupplied(opts) || given(opts.trustAnchorsPem) || given(opts.authorities)
+      ? readTrustAnchors({
+          ...(given(opts.trustAnchorsPem) && { trustAnchorsPem: opts.trustAnchorsPem }),
+          ...(given(opts.authorities) && { authorities: opts.authorities }),
+        })
+      : [];
   let present = false;
   try {
     const bag = isRecord(artifacts) ? artifacts : {};
     present = isPresent(bag.anchor) || isPresent(bag.blockchainAnchor);
-    return withCatalogue(await decide(bag, digest, opts));
+    return withCatalogue(await decide(bag, digest, opts, roots));
   } catch (err) {
     if (err instanceof UnreadableTrustAnchorError) throw err;
     // Every expected failure returns a verdict. This keeps an unforeseen one
@@ -502,6 +508,7 @@ async function decide(
   bag: Record<string, unknown>,
   digest: string,
   options: AnchorVerifyOptions,
+  roots: Rfc3161Certificate[],
 ): Promise<AnchorVerification> {
   // ---- Step 1: the tags ------------------------------------------------------
   if (!isPresent(bag.anchor)) {
@@ -621,7 +628,7 @@ async function decide(
   checks.push(check('anchor.anchorInclusion', 'checked-correct'));
 
   // ---- Step 6: each publication against P ------------------------------------
-  const pubs = await verifyPublications(a.publications as unknown[], p, anchor.origin, options);
+  const pubs = await verifyPublications(a.publications as unknown[], p, anchor.origin, options, roots);
 
   // tzun-anchor/1 §10.6: `false` when any publication is; `true` when one is;
   // otherwise `null`, with `publication_not_checked` when any publication was
@@ -744,6 +751,7 @@ async function verifyPublications(
   p: string,
   anchorOrigin: string,
   options: AnchorVerifyOptions,
+  roots: Rfc3161Certificate[],
 ): Promise<AnchorPublicationVerdict[]> {
   const requested = options.evmTimeoutMs;
   const timeoutMs =
@@ -769,7 +777,7 @@ async function verifyPublications(
     if (kind === 'evm-calldata/1') {
       decided = await verifyEvm(index, pub, p, anchorOrigin, options, deadline);
     } else if (kind === 'rfc3161/1') {
-      decided = await verifyRfc3161(index, pub, p, options);
+      decided = verifyRfc3161(index, pub, p, roots);
     } else {
       out.push({
         index,
@@ -886,9 +894,6 @@ function pick(facts: EvmPublicationFacts, keys: ReadonlyArray<keyof EvmPublicati
   return out;
 }
 
-/** How `extractTSTInfo` names the SHA-256 imprint algorithm (OID 2.16.840.1.101.3.4.2.1). */
-const SHA256_IMPRINT = 'SHA-256';
-
 /**
  * Whether the verifier was given TSA trust anchors of its own: `trustAnchorsPem`
  * or `authorities` in the options, or `TZUN_TSA_TRUST_ANCHORS` or
@@ -915,133 +920,74 @@ function isoTime(value: unknown): string | undefined {
 }
 
 /**
- * An `rfc3161/1` publication (tzun-anchor/1 §10.5), at index `index`:
- * its checks are `anchor.tsa.token[index]` and `anchor.tsa.trust[index]`.
+ * An `rfc3161/1` publication (tzun-anchor/1 §10.5), at index `index`: its
+ * checks are `anchor.tsa.token[index]`, steps 1 to 3, and
+ * `anchor.tsa.trust[index]`, step 4. The steps run in order, whether or not
+ * roots were supplied, by `verifyRfc3161Steps`, the same path as the record's
+ * own token (Verification §4.4); the earliest that fails settles the outcome,
+ * and the other check reports `blocked_by`:
  *
- * - `true` when the token's certificate path reaches a root the caller
- *   supplied, its imprint is `{SHA-256, P}`, its CMS signature verifies, a
- *   signingCertificate(V2) binds its signer certificate, and that certificate
- *   has a critical extendedKeyUsage whose only purpose is timestamping
- *   (`verifyTimestampToken`, tzun-anchor/1 §10.5 steps 1 to 4).
- * - `false` for an unreadable token (with trust anchors supplied, one that is
- *   not DER is unreadable), and for a token whose path to a supplied root
- *   validates in full and whose imprint (algorithm or value), CMS signature,
- *   signer binding or extendedKeyUsage then fails.
- * - `null`, `publication_not_checked`, when a step needs an algorithm this
- *   verifier does not implement (tzun-anchor/1 §10.5 step 5), with
- *   `missing_dependency` on the check of that step: `anchor.tsa.token[i]` for
- *   the signer's key or the token's signature, and `anchor.tsa.trust[i]`,
- *   the token check correct, for the key of a certificate that issues
- *   another on the path to a supplied root.
- * - `null`, `publication_not_checked`, with `no_matching_trust_anchor` on
- *   `anchor.tsa.trust[i]` (tzun-anchor/1 §10.1), when the caller supplied no
- *   trust anchors (no path can reach a supplied root) and for every other
- *   path failure. That covers a path that finds no issuer among the supplied
- *   roots, and also one that finds a root and then fails on it: a certificate outside
- *   its validity window at genTime, or a certificate that names a supplied
- *   root as issuer but whose signature does not verify under that root's key.
- *   The chain result `verifyTimestampToken` returns does not say which link
- *   failed, so those cases cannot yet be told apart and reported as `false`.
+ * - step 1, the token is not the base64 of a DER TimeStampResp carrying a
+ *   readable timestamp and its signer certificate: `false`,
+ *   `malformed_publication`;
+ * - step 2, its imprint is not SHA-256 over P: `false`, `imprint_mismatch`;
+ * - step 3, its signature, signer binding or timestamping-only EKU fails:
+ *   `false`, `verification_failed`;
+ * - step 4, with steps 1 to 3 held: some path to a supplied root valid,
+ *   `true`, with the trust check's facts `genTime` and `authority`; a path
+ *   that reaches a supplied root and holds on none, `false`,
+ *   `verification_failed`; no path to a supplied root (none supplied
+ *   included), `null`, `publication_not_checked`, with
+ *   `no_matching_trust_anchor` on the trust check;
+ * - step 5, a step this verifier cannot carry out for want of an algorithm,
+ *   or a key's algorithm or curve: `null`, `publication_not_checked`, with
+ *   `missing_dependency` on that step's check.
+ *
+ * Every reason is one of tzun-anchor/1 §10.1. An unforeseen failure of the
+ * steps is the verifier's (`anchor_verifier_error`, raised to `verifyAnchor`),
+ * never a verdict on the token.
  */
-async function verifyRfc3161(
-  index: number,
-  pub: Record<string, unknown>,
-  p: string,
-  options: AnchorVerifyOptions,
-): Promise<AnchorPublicationVerdict> {
-  const base = { index, kind: 'rfc3161/1' as const };
+function verifyRfc3161(index: number, pub: Record<string, unknown>, p: string, roots: Rfc3161Certificate[]): AnchorPublicationVerdict {
   const TOKEN = at('anchor.tsa.token', index);
   const TRUST = at('anchor.tsa.trust', index);
-  const unreadable = (): AnchorPublicationVerdict => ({
-    ...base,
-    valid: false,
-    reason: 'malformed_publication',
-    checks: [
-      check(TOKEN, 'checked-wrong', 'malformed_publication'),
-      check(TRUST, 'not-checked', `blocked_by:${TOKEN}`),
-    ],
+  const verdict = verifyRfc3161Steps(pub.token, p, roots);
+  if (verdict.token === 'missing_dependency' && verdict.error?.startsWith(VERIFIER_FAILED)) {
+    throw new Error(verdict.error);
+  }
+  const genTime = isoTime(verdict.genTime);
+  // Read from the token once step 1 holds; counted as proven only for a `true` publication.
+  const read =
+    verdict.token === 'malformed'
+      ? {}
+      : { rfc3161: { ...(genTime !== undefined && { genTime }), ...(verdict.authority !== undefined && { tsaSubject: verdict.authority }) } };
+  const decided = (valid: boolean | null, reason: AttestationAnchorReason | undefined, checks: AnchorCheckResult[]): AnchorPublicationVerdict => ({
+    index,
+    kind: 'rfc3161/1',
+    valid,
+    ...(reason !== undefined && { reason }),
+    checks,
+    ...read,
   });
-  if (typeof pub.token !== 'string' || pub.token.length === 0) return unreadable();
-
-  let imprintAlgorithm: string;
-  let tokenGenTime: string | undefined;
-  try {
-    const tstInfo = extractTSTInfo(parseTimestampResponse(pub.token));
-    imprintAlgorithm = tstInfo.messageImprint.hashAlgorithm;
-    tokenGenTime = isoTime(tstInfo.genTime);
-  } catch {
-    return unreadable();
+  const blocked = check(TRUST, 'not-checked', `blocked_by:${TOKEN}`);
+  switch (verdict.token) {
+    case 'malformed':
+      return decided(false, 'malformed_publication', [check(TOKEN, 'checked-wrong', 'malformed_publication'), blocked]);
+    case 'imprint_mismatch':
+    case 'verification_failed':
+      return decided(false, verdict.token, [check(TOKEN, 'checked-wrong', verdict.token), blocked]);
+    case 'missing_dependency':
+      return decided(null, 'publication_not_checked', [check(TOKEN, 'not-checked', 'missing_dependency'), blocked]);
   }
-
-  if (!tsaTrustSupplied(options)) {
-    return {
-      ...base,
-      valid: null,
-      reason: 'publication_not_checked',
-      checks: [
-        check(TOKEN, 'not-checked', `blocked_by:${TRUST}`),
-        check(TRUST, 'not-checked', 'no_matching_trust_anchor'),
-      ],
-      rfc3161: tokenGenTime !== undefined ? { genTime: tokenGenTime } : {},
-    };
+  const token = check(TOKEN, 'checked-correct');
+  switch (verdict.trust) {
+    case 'valid':
+      // tzun-anchor/1 §10.7: `authority` is always a fact of a trust check that holds, the empty string included.
+      return decided(true, undefined, [token, check(TRUST, 'checked-correct', undefined, { ...(genTime !== undefined && { genTime }), authority: verdict.authority ?? '' })]);
+    case 'reached':
+      return decided(false, 'verification_failed', [token, check(TRUST, 'checked-wrong', 'verification_failed')]);
+    case 'missing_dependency':
+      return decided(null, 'publication_not_checked', [token, check(TRUST, 'not-checked', 'missing_dependency')]);
+    default:
+      return decided(null, 'publication_not_checked', [token, check(TRUST, 'not-checked', 'no_matching_trust_anchor')]);
   }
-
-  const result = await verifyTimestampToken(pub.token, p, {
-    ...(options.trustAnchorsPem ? { trustAnchorsPem: options.trustAnchorsPem } : {}),
-    ...(options.authorities ? { authorities: options.authorities } : {}),
-  });
-  if (result.reason === 'unparseable_token') return unreadable();
-
-  const genTime = isoTime(result.genTime);
-  const facts = {
-    ...(genTime !== undefined && { genTime }),
-    ...(result.tsaSubject !== undefined && { tsaSubject: result.tsaSubject }),
-  };
-  if (result.reason === 'missing_dependency') {
-    // tzun-anchor/1 §10.5 step 5: on the check whose step needs what this
-    // verifier lacks. Steps 1 to 3 held when only the path's signatures
-    // could not be checked.
-    const trustStep = result.signatureValid === true && result.digestMatch === true;
-    return {
-      ...base,
-      valid: null,
-      reason: 'publication_not_checked',
-      checks: trustStep
-        ? [check(TOKEN, 'checked-correct'), check(TRUST, 'not-checked', 'missing_dependency')]
-        : [check(TOKEN, 'not-checked', 'missing_dependency'), check(TRUST, 'not-checked', `blocked_by:${TOKEN}`)],
-      rfc3161: facts,
-    };
-  }
-  if (result.certificateChainValid !== true) {
-    return {
-      ...base,
-      valid: null,
-      reason: 'publication_not_checked',
-      checks: [
-        check(TOKEN, 'not-checked', `blocked_by:${TRUST}`),
-        check(TRUST, 'not-checked', 'no_matching_trust_anchor'),
-      ],
-      rfc3161: facts,
-    };
-  }
-  // tzun-anchor/1 §10.7: the trust check's facts, when it holds. `authority` is
-  // always one of them, the empty string included.
-  const trust = check(TRUST, 'checked-correct', undefined, {
-    ...(genTime !== undefined && { genTime }),
-    authority: result.tsaSubject ?? '',
-  });
-  // tzun-anchor/1 §7.3, §10.5 step 2: the imprint is {sha256, P}. The same 32
-  // bytes under another algorithm's OID is not a timestamp of P.
-  const imprintMatches = result.digestMatch === true && imprintAlgorithm === SHA256_IMPRINT;
-  if (result.valid === true && imprintMatches) {
-    return { ...base, valid: true, checks: [check(TOKEN, 'checked-correct'), trust], rfc3161: facts };
-  }
-  const reason: AttestationAnchorReason = !imprintMatches ? 'rfc3161_imprint_mismatch' : 'rfc3161_signature_invalid';
-  return {
-    ...base,
-    valid: false,
-    reason,
-    checks: [check(TOKEN, 'checked-wrong', reason), trust],
-    rfc3161: facts,
-  };
 }

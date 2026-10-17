@@ -1604,11 +1604,14 @@ def _timestamping_only(cert: Rfc3161Certificate) -> bool:
 @dataclass(frozen=True, slots=True)
 class Rfc3161StepsVerdict:
     """Steps 1 to 3: ``held``, or the reason of the first that did not, with its error, and
-    once step 1 holds the signer certificate's :func:`authority_of`."""
+    once step 1 holds the signer certificate's :func:`authority_of` and the TSTInfo's
+    genTime, in milliseconds since the epoch (sub-milliseconds truncated, as the TypeScript
+    verifier's ``Date``)."""
 
     token: Literal["held"] | Rfc3161StepReason
     error: str | None = None
     authority: str | None = None
+    gen_time: int | None = None
 
 
 def verify_rfc3161_steps(token: object, imprint_hex: object) -> Rfc3161StepsVerdict:
@@ -1630,14 +1633,18 @@ def _steps(token: object, imprint_hex: object) -> Rfc3161StepsVerdict:
     if isinstance(read, Rfc3161Unreadable):
         return Rfc3161StepsVerdict("malformed", read.error)
     authority = authority_of(read.signer)
+    gen_time = read.gen_time
     if not imprint_holds(read, imprint_hex):
         return Rfc3161StepsVerdict(
-            "imprint_mismatch", "the imprint is not SHA-256 over the expected value", authority
+            "imprint_mismatch",
+            "the imprint is not SHA-256 over the expected value",
+            authority,
+            gen_time,
         )
     signer = check_signature_and_signer(read)
     if signer is not None:
-        return Rfc3161StepsVerdict(signer[0], signer[1], authority)
-    return Rfc3161StepsVerdict("held", None, authority)
+        return Rfc3161StepsVerdict(signer[0], signer[1], authority, gen_time)
+    return Rfc3161StepsVerdict("held", None, authority, gen_time)
 
 
 __all__ = (

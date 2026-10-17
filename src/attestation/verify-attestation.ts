@@ -93,13 +93,18 @@ export type AttestationAnchorReason =
   | 'anchor_proof_invalid'
   // ---- step 6: the publications of P ------------------------------------------
   /**
-   * An `rfc3161/1` token's certificate path validates to a supplied root, but
-   * its imprint is not `{SHA-256, P}`: another value, or P's bytes under
-   * another algorithm's OID. `false`.
+   * An `rfc3161/1` token whose imprint is not SHA-256 over P: another value,
+   * or P's bytes under another algorithm's OID (tzun-anchor/1 §10.5 step 2).
+   * `false`, whether or not the token chains to a supplied root.
    */
-  | 'rfc3161_imprint_mismatch'
-  /** An `rfc3161/1` token's path validates to a supplied root, but its CMS signature does not verify. `false`. */
-  | 'rfc3161_signature_invalid'
+  | 'imprint_mismatch'
+  /**
+   * An `rfc3161/1` token whose signature, signer binding or timestamping-only
+   * extendedKeyUsage fails (tzun-anchor/1 §10.5 step 3), or whose signer
+   * certificate reaches a supplied root by some path on which none holds
+   * (step 4). `false`.
+   */
+  | 'verification_failed'
   /** An unforeseen failure inside `verifyAnchor`: a bug to report, never a verdict. `null`. */
   | 'anchor_verifier_error'
   /**
@@ -1156,7 +1161,9 @@ interface AnchorCheck {
  * trust anchors as the record's own token (`trustAnchorsPem`, `authorities`,
  * or `TZUN_TSA_TRUST_ANCHORS` / `TZUN_TSA_AUTHORITIES`). Unlike the record's
  * token, with none supplied they are not judged against the built-in default
- * roots: they stay `null`, `publication_not_checked`.
+ * roots. Steps 1 to 3 of §10.5 still decide each token: one that fails them is
+ * `false`, and the anchor with it; one that holds stays `null`,
+ * `publication_not_checked`, with `anchor.tsa.trust[i]` `no_matching_trust_anchor`.
  */
 async function verifyAnchorArtifact(
   artifacts: AttestationArtifacts,

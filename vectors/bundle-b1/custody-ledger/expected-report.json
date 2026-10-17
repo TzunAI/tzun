@@ -39,7 +39,8 @@
     },
     {
       "id": "custody.ledger",
-      "outcome": "checked-correct"
+      "outcome": "abstain",
+      "reason": "unsupported_artifact"
     },
     {
       "id": "ts.record.token",
@@ -196,10 +197,10 @@
     "anchorNamespace": "test",
     "anchorOriginAuthenticated": true,
     "outcomes": {
-      "checked-correct": 22,
+      "checked-correct": 21,
       "checked-wrong": 0,
       "not-checked": 5,
-      "abstain": 0
+      "abstain": 1
     }
   }
 }

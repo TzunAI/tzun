@@ -55,7 +55,7 @@
     {
       "name": "record-token-unreadable-certificate",
       "exit": 1,
-      "description": "The record's genuine RFC 3161 token with one certificate added to its unsigned certificates set: a CA certificate of the root's name whose public key is not a point on its curve. A certificate whose key does not decode is not a certificate, so ts.record.token checked-wrong, malformed_token, and every other check is still reported (tzun-anchor/1 §10.1, §10.5 step 1). Exit 1."
+      "description": "The record's genuine RFC 3161 token with one certificate added to its unsigned certificates set: a CA certificate of the root's name whose public key is not a point on its curve. A certificate whose key does not decode is not a certificate, so ts.record.token checked-wrong, malformed_token, and every other check is still reported (tzun-anchor/1 §10.5 step 1; Verification §4.4). Exit 1."
     },
     {
       "name": "record-token-signer-off-curve",
@@ -133,6 +133,26 @@
       "description": "The record's RFC 3161 token signed by a certificate the supplied root did issue, whose issuer name writes the root's CN as a UTF8String where the root's subject writes a PrintableString. Names match byte for byte, so no path reaches the root: ts.record.token checked-correct, ts.record.trust not checked, no_matching_trust_anchor (tzun-anchor/1 §10.5 step 4). Exit 4."
     },
     {
+      "name": "anchor-token-trusted",
+      "exit": 0,
+      "description": "The record's anchor with a second publication: an rfc3161/1 token over its P from a second authority, whose root the auditor supplies beside the record authority's. Steps 1 to 3 hold on anchor.tsa.token[1], and step 4 on anchor.tsa.trust[1], with genTime and authority. The EVM block time is earlier, so existedBy stays the EVM publication's (tzun-anchor/1 §10.5, §10.6). Exit 0."
+    },
+    {
+      "name": "anchor-token-no-roots",
+      "exit": 4,
+      "description": "The same bundle with no RFC 3161 root supplied: steps 1 to 3 need none, so anchor.tsa.token[1] holds; no path reaches a supplied root, so anchor.tsa.trust[1] is not checked, no_matching_trust_anchor, and the publication is null. The anchor holds by its EVM publication (tzun-anchor/1 §10.5). Exit 4."
+    },
+    {
+      "name": "anchor-token-other-value",
+      "exit": 1,
+      "description": "The second authority's token over the record's digest instead of the anchor's P, its root supplied: anchor.tsa.token[1] checked-wrong, imprint_mismatch, anchor.tsa.trust[1] blocked by it, whatever root the token chains to. One false publication makes the record's anchor false, with no fact from it; anchor.newer holds (tzun-anchor/1 §10.5 step 2, §10.6). Exit 1."
+    },
+    {
+      "name": "anchor-token-not-der",
+      "exit": 1,
+      "description": "The second authority's token over the anchor's P with its TSTInfo in a constructed (BER) OCTET STRING, which is not DER: anchor.tsa.token[1] checked-wrong, malformed_publication, anchor.tsa.trust[1] blocked by it, and the record's anchor false (tzun-anchor/1 §10.5 step 1, §10.6). Exit 1."
+    },
+    {
       "name": "anchored-latest-epoch",
       "exit": 0,
       "description": "A record anchored in the newest epoch: one checkpoint per log, no newer anchor and no consistency check (Bundle §7.3). Exit 0."
@@ -195,7 +215,7 @@
     {
       "name": "fabricated-header-offline",
       "exit": 4,
-      "description": "A validly signed transaction under a self-consistent, back-dated header (its hash written into the envelope and the bundle), with no header source: anchor.evm.tx holds, anchor.evm.canonical is not checked, the publication is null, and no existedBy comes from it (Anchor §10.4). Exit 4."
+      "description": "A validly signed transaction under a self-consistent, back-dated header (its hash written into the envelope and the bundle), with no header source: anchor.evm.tx holds, anchor.evm.canonical is not checked, the publication is null, and no existedBy comes from it (Anchor §10.4, §10.6). Exit 4."
     },
     {
       "name": "fabricated-header-with-source",
@@ -334,8 +354,8 @@
     },
     {
       "name": "custody-ledger",
-      "exit": 0,
-      "description": "A record with a custody row an operator recorded after capture: the row and the envelope's hashed mirror of it agree, custody.ledger holds. Exit 0."
+      "exit": 4,
+      "description": "A record with a custody row an operator recorded after capture, and the envelope's hashed mirror of it: this version verifies no custody material, so custody.ledger abstains, unsupported_artifact, and never vouches for the row (Verification §4.3, Bundle §6). Exit 4."
     },
     {
       "name": "custody-row-removed",
@@ -345,7 +365,7 @@
     {
       "name": "custody-row-and-mirror-removed",
       "exit": 0,
-      "description": "The row and its hashed mirror entry both left out: nothing in the bundle commits to the ledger, so custody.ledger proves the rows consistent, never complete, and has nothing to measure (not_applicable). Exit 0."
+      "description": "The row and its hashed mirror entry both left out: the slot holds no row and the envelope names none, so custody.ledger is not_applicable. Nothing in the bundle commits to the ledger, so a row removed with its mirror entry leaves no trace (Verification §4.3). Exit 0."
     },
     {
       "name": "artifact-not-filled",

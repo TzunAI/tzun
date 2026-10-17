@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from tests.attestation.mock_tsa import build_timestamp_response, mock_tsa_transport
 from tzun_sdk.attestation import _rfc3161_steps
+from tzun_sdk.attestation._ecmascript import iso_from_millis
 from tzun_sdk.attestation._rfc3161_steps import (
     VERIFIER_FAILED,
     UnreadableTrustAnchorError,
@@ -145,6 +146,414 @@ def test_no_input_makes_it_raise() -> None:
         for mask in (0x01, 0x80, 0xFF):
             verdict = verify_rfc3161_steps(_flipped(FREETSA["tokenBase64"], i, mask), FREETSA["digestHex"])
             assert verdict.token in ("held", "malformed", "imprint_mismatch", "verification_failed", "missing_dependency")
+
+
+# ---- Steps 1 and 3 as tzun-anchor/1 §10.5 now states them ------------------------------------------
+
+
+class _Node:
+    """A DER element to edit and write back: its identifier octets, and its content or, when
+    constructed, its elements."""
+
+    def __init__(self, ident: bytes, content: bytes = b"", children: list[_Node] | None = None) -> None:
+        self.ident = ident
+        self.content = content
+        self.children = children
+
+    def der(self) -> bytes:
+        body = b"".join(c.der() for c in self.children) if self.children is not None else self.content
+        n = len(body)
+        if n < 0x80:
+            return self.ident + bytes([n]) + body
+        size = n.to_bytes((n.bit_length() + 7) // 8, "big")
+        return self.ident + bytes([0x80 | len(size)]) + size + body
+
+
+def _tree(der: bytes) -> _Node:
+    """``der``, one definite-length element, as a ``_Node`` tree."""
+
+    def one(pos: int) -> tuple[_Node, int]:
+        at = pos + 1
+        if der[pos] & 0x1F == 0x1F:
+            while der[at] & 0x80:
+                at += 1
+            at += 1
+        ident = der[pos:at]
+        length = der[at]
+        at += 1
+        if length & 0x80:
+            n = length & 0x7F
+            length = int.from_bytes(der[at : at + n], "big")
+            at += n
+        if der[pos] & 0x20 == 0:
+            return _Node(ident, der[at : at + length]), at + length
+        children, p = [], at
+        while p < at + length:
+            child, p = one(p)
+            children.append(child)
+        return _Node(ident, children=children), at + length
+
+    node, end = one(0)
+    assert end == len(der)
+    return node
+
+
+def _leaf(ident: int | bytes, content: bytes = b"") -> _Node:
+    return _Node(bytes([ident]) if isinstance(ident, int) else ident, content)
+
+
+def _node(ident: int | bytes, *children: _Node) -> _Node:
+    return _Node(bytes([ident]) if isinstance(ident, int) else ident, children=list(children))
+
+
+def _edited(edit: Any, token: str | None = None) -> str:
+    """The FreeTSA token (or ``token``) with its SignedData's members edited by ``edit``."""
+    resp = _tree(base64.b64decode(token or FREETSA["tokenBase64"]))
+    edit(resp.children[1].children[1].children[0].children)  # type: ignore[index]
+    return base64.b64encode(resp.der()).decode("ascii")
+
+
+def _signer_info(signed_data: list[_Node]) -> list[_Node]:
+    return signed_data[-1].children[0].children  # type: ignore[index,return-value]
+
+
+def _with_unsigned_attribute(values: list[_Node]) -> str:
+    """The FreeTSA token with an unsigned attribute of ``values`` added, which no signature
+    covers: it holds whenever step 1 does."""
+
+    def edit(signed_data: list[_Node]) -> None:
+        attribute = _node(0x30, _leaf(0x06, bytes.fromhex("2a0304")), _node(0x31, *values))
+        _signer_info(signed_data).append(_node(0xA1, attribute))
+
+    return _edited(edit)
+
+
+def _with_tst_info(edit_members: Any) -> str:
+    """The FreeTSA token with its TSTInfo's members edited: the message-digest attribute no
+    longer matches, so a TSTInfo step 1 accepts fails at step 3."""
+
+    def edit(signed_data: list[_Node]) -> None:
+        octets = signed_data[2].children[1].children[0]  # type: ignore[index]
+        tst_info = _tree(octets.content)
+        edit_members(tst_info.children)
+        octets.content = tst_info.der()
+
+    return _edited(edit)
+
+
+def _with_certificate(cert: _Node) -> str:
+    """The FreeTSA token with ``cert`` added to its certificates, which no signature covers."""
+
+    def edit(signed_data: list[_Node]) -> None:
+        signed_data[3].children.append(cert)  # type: ignore[union-attr]
+
+    return _edited(edit)
+
+
+def _signer_copy(edit: Any) -> _Node:
+    """The FreeTSA signer certificate with serial number 7, its tbsCertificate's members
+    edited by ``edit`` (and where its serial number is): a certificate no path names, its
+    signature no longer verifying."""
+    signer = read_rfc3161_token(FREETSA["tokenBase64"])
+    assert not isinstance(signer, _rfc3161_steps.Rfc3161Unreadable)
+    cert = _tree(signer.signer.der)
+    fields = cert.children[0].children  # type: ignore[index]
+    at = 1 if fields[0].ident == b"\xa0" else 0  # type: ignore[index]
+    fields[at] = _leaf(0x02, b"\x07")  # type: ignore[index]
+    edit(fields, at)
+    return cert
+
+
+def _steps(token: str) -> tuple[str, str | None]:
+    verdict = verify_rfc3161_steps(token, FREETSA["digestHex"])
+    return verdict.token, verdict.error
+
+
+def test_an_element_of_certificates_that_is_not_the_certificate_choice_is_malformed() -> None:
+    for tag in (0xA0, 0xA1, 0xA2, 0xA3):
+        choice = _node(tag, _leaf(0x06, bytes.fromhex("2a0304")), _leaf(0x05))
+        assert (tag, _steps(_with_certificate(choice))) == (tag, ("malformed", "certificate is not a SEQUENCE"))
+
+
+def test_universal_types_29_35_and_36_are_in_the_form_x690_gives_them() -> None:
+    assert _steps(_with_unsigned_attribute([_node(0x3D, _leaf(0x02, b"\x01"))]))[0] == "held"
+    assert _steps(_with_unsigned_attribute([_leaf(b"\x1f\x23", b"/tzun")]))[0] == "held"
+    assert _steps(_with_unsigned_attribute([_leaf(b"\x1f\x24", b"tzun")]))[0] == "held"
+    assert _steps(_with_unsigned_attribute([_leaf(0x1D, b"\x00")])) == ("malformed", "primitive form of universal type 29")
+    assert _steps(_with_unsigned_attribute([_node(b"\x3f\x23")])) == ("malformed", "constructed form of universal type 35")
+    assert _steps(_with_unsigned_attribute([_node(b"\x3f\x24")])) == ("malformed", "constructed form of universal type 36")
+
+
+def _shape(der: bytes) -> tuple[int, int]:
+    """How deep the constructed elements of ``der`` nest (the outermost at depth 1), and how
+    many elements it holds, neither looking inside a primitive element."""
+    deepest, count = 0, 0
+
+    def walk(node: _Node, depth: int) -> None:
+        nonlocal deepest, count
+        count += 1
+        if node.children is None:
+            return
+        deepest = max(deepest, depth)
+        for child in node.children:
+            walk(child, depth + 1)
+
+    walk(_tree(der), 1)
+    return deepest, count
+
+
+def test_the_decoder_bounds_are_64_levels_and_100000_elements_each_encoding_on_its_own() -> None:
+    def nested(levels: int) -> _Node:
+        inner = _node(0x30)
+        for _ in range(levels - 1):
+            inner = _node(0x30, inner)
+        return inner
+
+    # An attribute's values sit at depth 10: TimeStampResp, ContentInfo, [0], SignedData,
+    # signerInfos, SignerInfo, unsignedAttrs [1], Attribute, its SET.
+    for depth, verdict in ((64, ("held", None)), (65, ("malformed", "nested too deep"))):
+        token = _with_unsigned_attribute([nested(depth - 9)])
+        assert _shape(base64.b64decode(token))[0] == depth
+        assert _steps(token) == verdict
+    base = _shape(base64.b64decode(_with_unsigned_attribute([])))[1]
+    for count, verdict in ((100_000, ("held", None)), (100_001, ("malformed", "too many elements"))):
+        token = _with_unsigned_attribute([_leaf(0x05) for _ in range(count - base)])
+        assert _shape(base64.b64decode(token))[1] == count
+        assert _steps(token) == verdict
+
+    # The TSTInfo, in an OCTET STRING, is bounded on its own: a tsa whose otherName holds
+    # SEQUENCEs nested down to depth 64 passes step 1, and to 65 does not.
+    def tsa_down_to(depth: int) -> Any:
+        def edit(members: list[_Node]) -> None:
+            inner = _node(0x30)
+            for _ in range(depth - 4):
+                inner = _node(0x30, inner)
+            members[5:] = [_node(0xA0, _node(0xA0, inner))]
+            assert _shape(_node(0x30, *members).der())[0] == depth
+
+        return edit
+
+    assert _steps(_with_tst_info(tsa_down_to(64)))[0] == "verification_failed"
+    assert _steps(_with_tst_info(tsa_down_to(65))) == ("malformed", "TSTInfo is not DER: nested too deep")
+
+
+_AFTER_GEN_TIME = (
+    "TSTInfo holds members after genTime other than accuracy, ordering, nonce, tsa and extensions, in that order"
+)
+_ACCURACY = "the accuracy's millis or micros is not an INTEGER from 1 to 999"
+_ACCURACY_SHAPE = "accuracy is not seconds, millis and micros, each optional, in that order"
+
+
+def test_the_tst_info_decodes_whole() -> None:
+    def tail(*members: _Node) -> str | None:
+        def edit(tst: list[_Node]) -> None:
+            tst[5:] = list(members)
+
+        token, error = _steps(_with_tst_info(edit))
+        return error if token == "malformed" else "step 1 holds"
+
+    h = bytes.fromhex
+    extension = _node(0x30, _leaf(0x06, h("2a0304")), _leaf(0x01, h("ff")), _leaf(0x04, h("0500")))
+    name = _node(0x30, _node(0x31, _node(0x30, _leaf(0x06, h("550403")), _leaf(0x0C, b"TSA"))))
+    every = [
+        _node(0x30, _leaf(0x02, h("0102030405060708ff")), _leaf(0x80, h("03e7")), _leaf(0x81, h("01"))),
+        _leaf(0x01, h("00")),
+        _leaf(0x02, h("01")),
+        _node(0xA0, _node(0xA4, name)),
+        _node(0xA1, extension, extension),
+    ]
+    assert tail(*every) == "step 1 holds"
+    assert tail() == "step 1 holds"
+    assert [tail(_node(0xA0, _node(0xA0 + n))) for n in (0, 3, 4, 5)] == ["step 1 holds"] * 4
+    assert [tail(_node(0xA0, _leaf(0x80 + n, b"\x00"))) for n in (1, 2, 6, 7, 8)] == ["step 1 holds"] * 5
+    assert [
+        tail(*every, _leaf(0x05)),
+        tail(_leaf(0x02, h("01")), _leaf(0x01, h("00"))),
+        tail(_node(0x30, _leaf(0x80, h("00")))),
+        tail(_node(0x30, _leaf(0x80, h("0001")))),
+        tail(_node(0x30, _leaf(0x80, h("ff")))),
+        tail(_node(0x30, _leaf(0x81, h("03e8")))),
+        tail(_node(0x30, _leaf(0x81, h("01")), _leaf(0x80, h("01")))),
+        tail(_node(0xA0)),
+        tail(_node(0xA0, _leaf(0x82, b"\x00"), _leaf(0x82, b"\x00"))),
+        tail(_node(0xA0, _node(0xA2, _leaf(0x16, b"tsa.example")))),
+        tail(_node(0xA0, _leaf(0x84, b"\x00"))),
+        tail(_node(0xA0, _leaf(0x89, b"\x00"))),
+        # Not of the context-specific class, with a tag number from 0 to 8 and the form that
+        # alternative has.
+        tail(_node(0xA0, _leaf(0x02, h("01")))),
+        tail(_node(0xA0, _leaf(0x01, h("ff")))),
+        tail(_node(0xA0, _leaf(0x42, h("00")))),
+        tail(_node(0xA0, _node(0xE0))),
+        tail(_node(0xA1)),
+        tail(_node(0xA1, _node(0x30, _leaf(0x06, h("2a0304"))))),
+    ] == [
+        _AFTER_GEN_TIME,
+        _AFTER_GEN_TIME,
+        _ACCURACY,
+        _ACCURACY,
+        _ACCURACY,
+        _ACCURACY,
+        _ACCURACY_SHAPE,
+        *["tsa is not one GeneralName"] * 9,
+        "the TSTInfo extensions are not one or more extensions",
+        "the TSTInfo extensions are not one or more extensions",
+    ]
+
+
+def test_gen_time_has_the_ranges_of_a_validity_time_and_keeps_its_fraction() -> None:
+    def at(text: str) -> tuple[str, str | None]:
+        def edit(tst: list[_Node]) -> None:
+            tst[4] = _leaf(0x18, text.encode("latin-1"))
+
+        return _steps(_with_tst_info(edit))
+
+    for text in ("00000229120000Z", "20240229120000.5Z", "99991231235959Z", "00500101000000Z"):
+        assert (text, at(text)[0]) == (text, "verification_failed")
+    for text in (
+        "20261301120000Z",
+        "20260001120000Z",
+        "20260631120000Z",
+        "20230229120000Z",
+        "01000229120000Z",
+        "20260601240000Z",
+        "20260601126000Z",
+        "20260601120060Z",
+    ):
+        assert (text, at(text)) == (text, ("malformed", "genTime is not a GeneralizedTime"))
+
+
+def _validity(not_before: str, not_after: str) -> _Node:
+    def time(text: str) -> _Node:
+        return _leaf(0x17 if len(text) == 13 else 0x18, text.encode("latin-1"))
+
+    def edit(fields: list[_Node], at: int) -> None:
+        fields[at + 3] = _node(0x30, time(not_before), time(not_after))
+
+    return _signer_copy(edit)
+
+
+def test_a_validity_time_has_no_fraction_any_year_and_the_gregorian_calendar() -> None:
+    def read(not_before: str, not_after: str) -> tuple[str, str] | None:
+        try:
+            cert = _rfc3161_steps._read_certificate(_validity(not_before, not_after).der())
+        except _rfc3161_steps._Malformed:
+            return None
+        return iso_from_millis(cert.not_before), iso_from_millis(cert.not_after)
+
+    assert read("500101000000Z", "491231235959Z") == ("1950-01-01T00:00:00.000Z", "2049-12-31T23:59:59.000Z")
+    assert read("00000229000000Z", "99991231235959Z") == ("0000-02-29T00:00:00.000Z", "9999-12-31T23:59:59.000Z")
+    assert read("00500101000000Z", "00991231235959Z") == ("0050-01-01T00:00:00.000Z", "0099-12-31T23:59:59.000Z")
+    assert read("20000229000000Z", "24000229000000Z") == ("2000-02-29T00:00:00.000Z", "2400-02-29T00:00:00.000Z")
+    for not_before, not_after in (
+        ("01000229000000Z", "20400101000000Z"),
+        ("260101000000Z", "21000229000000Z"),
+        ("230229000000Z", "400101000000Z"),
+        ("260431000000Z", "400101000000Z"),
+        ("20260101000000.5Z", "20400101000000Z"),
+        ("260101000000Z", "20400101000000.25Z"),
+        ("20261301000000Z", "20400101000000Z"),
+        ("260101240000Z", "400101000000Z"),
+        ("260101006000Z", "400101000000Z"),
+        ("260101000060Z", "400101000000Z"),
+    ):
+        assert (not_before, not_after, read(not_before, not_after)) == (not_before, not_after, None)
+    # In a token, a certificate no step needs: the year 0050 reads, a fraction does not.
+    assert _steps(_with_certificate(_validity("00500101000000Z", "20400101000000Z")))[0] == "held"
+    assert _steps(_with_certificate(_validity("20260101000000.5Z", "20400101000000Z"))) == (
+        "malformed",
+        "unreadable validity",
+    )
+
+
+_NOT_X509_AFTER_KEY = (
+    "tbsCertificate holds fields after its subjectPublicKeyInfo other than a primitive [1], a primitive [2]"
+    " and a constructed [3], in that order"
+)
+
+
+def test_what_follows_the_subject_public_key_info() -> None:
+    def after(make: Any) -> _Node:
+        def edit(fields: list[_Node], at: int) -> None:
+            fields[at + 6 :] = make(fields[at + 6])
+
+        return _signer_copy(edit)
+
+    def uid(tag: int) -> _Node:
+        return _leaf(tag, b"\x00\xab")
+
+    def retagged(x: _Node) -> _Node:
+        return _Node(b"\xa2", children=x.children)
+
+    held = [
+        lambda x: [uid(0x81), uid(0x82), x],
+        lambda x: [uid(0x82), x],
+        lambda x: [uid(0x81)],
+        lambda x: [],
+    ]
+    assert [_steps(_with_certificate(after(make)))[0] for make in held] == ["held"] * 4
+    refused = [
+        lambda x: [retagged(x)],
+        lambda x: [_node(0xA1, _leaf(0x03, b"\x00\xab")), x],
+        lambda x: [_leaf(0x83, x.children[0].der())],
+        lambda x: [uid(0x82), uid(0x81), x],
+        lambda x: [uid(0x81), uid(0x81), x],
+        lambda x: [x, x],
+        lambda x: [x, _leaf(0x05)],
+        lambda x: [_leaf(0x84, b"\x00"), x],
+    ]
+    assert [_steps(_with_certificate(after(make))) for make in refused] == [("malformed", _NOT_X509_AFTER_KEY)] * 8
+    assert _steps(_with_certificate(after(lambda x: [_node(0xA3, *x.children, _node(0x30))]))) == (
+        "malformed",
+        "extensions are not one SEQUENCE",
+    )
+    assert _steps(_with_certificate(after(lambda x: [_node(0xA3)]))) == ("malformed", "extensions are not one SEQUENCE")
+
+
+def test_a_requirement_of_step_3_it_can_check_decides_before_one_it_cannot() -> None:
+    unknown_digest = _node(0x30, _leaf(0x06, bytes.fromhex("60864801650304027f")))  # 2.16.840.1.101.3.4.2.127
+    unknown_signature = _node(0x30, _leaf(0x06, bytes.fromhex("2a8648ce3d04037f")))  # 1.2.840.10045.4.3.127
+
+    def signer_info(edit: Any) -> Any:
+        return lambda signed_data: edit(_signer_info(signed_data))
+
+    def set_digest(si: list[_Node]) -> None:
+        si[2] = unknown_digest
+
+    def set_signature(si: list[_Node]) -> None:
+        si[4] = unknown_signature
+
+    def flip_signature(si: list[_Node]) -> None:
+        si[5] = _leaf(0x04, si[5].content[:-1] + bytes([si[5].content[-1] ^ 0x01]))
+
+    def flip_cert_hash(si: list[_Node]) -> None:
+        # The signingCertificate attribute's first ESSCertID: its certHash, one bit flipped.
+        attribute = next(a for a in si[3].children if a.children[0].content == bytes.fromhex("2a864886f70d010910020c"))  # type: ignore[union-attr,index]
+        cert_hash = attribute.children[1].children[0].children[0].children[0].children[0]  # type: ignore[index]
+        cert_hash.content = cert_hash.content[:-1] + bytes([cert_hash.content[-1] ^ 0x01])
+
+    # FreeTSA signs with ecdsa-with-SHA512, so its signature is checked whatever the
+    # SignerInfo's digestAlgorithm names.
+    digest_unknown = _edited(signer_info(set_digest))
+    assert _steps(digest_unknown) == ("missing_dependency", "digest algorithm 2.16.840.1.101.3.4.2.127 is not supported")
+    assert _steps(_edited(signer_info(flip_signature), digest_unknown))[0] == "verification_failed"
+    # A signature algorithm it does not implement, and a signer binding that fails.
+    signature_unknown = _edited(signer_info(set_signature))
+    assert _steps(signature_unknown) == ("missing_dependency", "signature algorithm 1.2.840.10045.4.3.127 is not supported")
+    assert _steps(_edited(signer_info(flip_cert_hash), signature_unknown)) == (
+        "verification_failed",
+        "the signingCertificate certHash names another certificate",
+    )
+    # A signer key of an algorithm it does not implement: the binding, over the signer as
+    # it was, fails first.
+    def unknown_key(signed_data: list[_Node]) -> None:
+        signer_der = read_rfc3161_token(FREETSA["tokenBase64"]).signer.der  # type: ignore[union-attr]
+        for i, cert in enumerate(signed_data[3].children):  # type: ignore[arg-type]
+            if cert.der() == signer_der:
+                patched = signer_der.replace(bytes.fromhex("06072a8648ce3d0201"), bytes.fromhex("06072a8648ce3d0209"), 1)
+                signed_data[3].children[i] = _tree(patched)  # type: ignore[index]
+
+    assert _steps(_edited(unknown_key)) == ("verification_failed", "the signingCertificate certHash names another certificate")
 
 
 # ---- What Node reads, read as Node reads it --------------------------------------------------------

@@ -22,6 +22,205 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-17
+
+The verifiers follow the specification as revised on 17 October 2026
+([spec.tzun.ai](https://spec.tzun.ai)): an `rfc3161/1` publication by
+tzun-anchor/1 §10.5 steps 1 to 4 with only the reasons of §10.1, the
+`custody.ledger` row of Verification §4.3, the null slots of Bundle §3.1, and
+item 13 of tzun-anchor/1 §10.4. The RFC 3161 token checks also follow
+tzun-anchor/1 §10.5 steps 1 and 3 as revised, which settle the token rules step
+1 left open and which requirement of step 3 decides first. The minor version
+moves because reason strings and verdicts change: a caller that matches on them
+should read the list below. No digest, record or stored value changes.
+
+### Changed
+
+- **`rfc3161/1` publications** (`verifyAnchor` and `verify_anchor`, and so
+  `verifyBundle()` and the anchor of `verifyAttestation`). Both checks follow
+  tzun-anchor/1 §10.5 in order, whether or not RFC 3161 roots are supplied:
+  `anchor.tsa.token[i]` is steps 1 to 3 (the token is the base64 of a DER
+  `TimeStampResp`, its imprint is SHA-256 over P, its signature, signer
+  binding and timestamping-only extendedKeyUsage hold), which need no root,
+  and `anchor.tsa.trust[i]` is step 4, the path to a supplied root. The
+  earliest step that fails settles the outcome, and the other check is then
+  `blocked_by` it. The TypeScript SDK now checks the token on the record
+  token's path (`verifyRfc3161Steps`), and the Python SDK on its twin
+  (`_rfc3161_steps`). What changes (TypeScript and Python unless one is
+  named):
+  - The reasons `rfc3161_imprint_mismatch` and `rfc3161_signature_invalid`
+    are gone from `AttestationAnchorReason`; §10.1 lists neither. A token over
+    another value, or over P's bytes under another hash, is `false`,
+    **`imprint_mismatch`**. A token whose signature, signer binding or
+    timestamping-only extendedKeyUsage fails is `false`,
+    **`verification_failed`**. A caller that matched the old strings must
+    match the new ones.
+  - With no root supplied, a token that holds steps 1 to 3 has
+    `anchor.tsa.token[i]` `checked-correct`; it was `not-checked`,
+    `blocked_by:anchor.tsa.trust[i]`. The trust check is still `not-checked`,
+    `no_matching_trust_anchor`, and the publication `null`,
+    `publication_not_checked`.
+  - With no root supplied, a token over another value is `false`,
+    `imprint_mismatch`, one whose signature or signer fails is `false`,
+    `verification_failed`, and one that is not DER (a BER encoding of the same
+    values, say) is `false`, `malformed_publication`. Each was `null`,
+    `publication_not_checked`. The anchor is then `false`, with no fact
+    from it (§10.6), where it stood on its other publications before.
+  - With roots supplied (TypeScript), a token that fails step 2 or 3 now has
+    `anchor.tsa.trust[i]` `not-checked`, `blocked_by:anchor.tsa.token[i]`; the
+    trust check was reported beside it, often `checked-correct`. A token over
+    another value is `false` whether or not its path is valid; it was
+    `null`, `no_matching_trust_anchor`, when its path did not validate.
+  - With roots supplied (TypeScript), a path that reaches a supplied root
+    and holds on none (a certificate outside its validity at `genTime`, a
+    certificate the root's key did not sign) is `false`,
+    `verification_failed`, on `anchor.tsa.trust[i]`, and so the anchor is
+    `false`. It was `null`, `no_matching_trust_anchor`.
+  - With roots supplied (Python), `anchor.tsa.token[i]` is decided by steps 1
+    to 3 as above; it was `not-checked`, `missing_dependency`, for every
+    readable token (an unreadable one was already `false`,
+    `malformed_publication`). Once they hold, `anchor.tsa.trust[i]` is `not-checked`,
+    `missing_dependency` (§10.5 step 5): this SDK has no certificate-path
+    verifier, so it never reports an RFC 3161 publication `true`.
+  - An unforeseen failure of the token steps is `anchor_verifier_error`, the
+    verifier's failure (§10.1); it was `missing_dependency`.
+  - A publication's `rfc3161` member (`{ genTime, tsaSubject }`) is read from
+    the token once step 1 holds, whatever the outcome, in both SDKs. Only a
+    `true` publication's `genTime` counts toward `existedBy`, as before.
+- **RFC 3161 tokens: tzun-anchor/1 §10.5 steps 1 and 3 as revised.** Both
+  SDKs' token checks (`readRfc3161Token` and `checkSignatureAndSigner`, and
+  their Python twins in `_rfc3161_steps`) hold every token to them: the
+  record's own token (`ts.record.token`), an `rfc3161/1` publication's
+  (`anchor.tsa.token[i]`), `verifyTimestampToken`, the timestamp of
+  `verifyAttestation`, and the capture check (`timestampConformance`,
+  `timestamp_conformance`). A token that fails step 1 is `malformed_token`,
+  `malformed_publication`, `unparseable_token` or, at capture, `malformed`, as
+  before. What changes:
+  - Step 1 now refuses a token whose `certificates` hold an element that is
+    not a certificate, a tagged `CertificateChoices` of RFC 5652 §10.2.2; it
+    was skipped.
+  - Step 1 now decodes the `TSTInfo` whole (RFC 3161 §2.4.2): after `genTime`,
+    only `accuracy`, `ordering`, `nonce`, `tsa` and `extensions`, each
+    optional, in that order. `millis` and `micros` are each an INTEGER from 1
+    to 999, `tsa` is one GeneralName (its tag and form only), and `extensions`
+    holds at least one extension. Nothing after `genTime` was read, so a token
+    with anything else there, or one of these out of its shape, is now
+    malformed.
+  - Step 1 now refuses a fraction of a second in a certificate's validity
+    (RFC 5280 §4.1.2.5.2); `genTime` keeps its fraction.
+  - Step 1 now reads a year from 0000 to 0099 in a `GeneralizedTime`, in a
+    validity and in `genTime`, with leap years by the Gregorian rule in every
+    year. The TypeScript reader took such a year as 1900 to 1999 and refused the
+    date, and the Python reader refused it to match, so such a token was
+    malformed.
+  - Step 1 now holds what follows a certificate's `subjectPublicKeyInfo` to a
+    primitive `issuerUniqueID` `[1]`, a primitive `subjectUniqueID` `[2]` and a
+    constructed `extensions` `[3]` holding one SEQUENCE, each at most once, in
+    that order. The reader took the first constructed `[3]` from anywhere
+    after the key, and left the rest to OpenSSL's X.509 reader (and the Python
+    reader to its model of it), which read a constructed `issuerUniqueID` or
+    `subjectUniqueID` (BIT STRING segments, say), so a certificate with one was
+    read; it is now malformed. A certificate whose `[3]` is retagged as a
+    constructed `[2]` was already refused by that reader, and is now refused by
+    this rule at step 1.
+  - Step 1 now has the unrestricted CHARACTER STRING (universal 29)
+    constructed, and OID-IRI and RELATIVE-OID-IRI (35, 36) primitive, as X.690
+    encodes them. 29 was required primitive, and 35 and 36 were read in either
+    form.
+  - Step 3: a requirement the verifier can check now decides before one that
+    needs what it lacks. A token whose signer key is left unread (a key
+    algorithm or curve the verifier does not implement), or whose
+    `digestAlgorithm`, `signatureAlgorithm` or `ESSCertIDv2` hash algorithm it
+    does not implement, is `verification_failed` when its signature (under an
+    algorithm the verifier implements), its signer binding or its
+    timestamping-only extendedKeyUsage fails. It was `missing_dependency`, and
+    stays so when every requirement the verifier can check holds.
+  - Unchanged, and now tested at their edges in both SDKs: the decoder bounds
+    of step 1 (constructed elements nested at most 64 deep and at most 100,000
+    elements, in the `TimeStampResp`, the `TSTInfo` and each typed extension
+    value, each on its own), and the signature verified over the signed
+    attributes as the token carries them, never a re-encoding.
+
+  Every stored public authority's token, and every token in `vectors/`, reads
+  as before.
+- **`custody.ledger`** (`verifyBundle()`). This version verifies no custody
+  material, and the row is never `checked-correct` (Verification §4.3,
+  Bundle §6): the report no longer vouches for custody rows, as the
+  specification says it must not.
+  - A `custody` slot with rows, or any slot other than `null` or an object
+    whose `entries` is an empty array, abstains, **`unsupported_artifact`**.
+    It was `checked-correct` when the rows and the envelope's mirror agreed,
+    so such a bundle now exits 4 unless the auditor allows unchecked rows; it
+    exited 0.
+  - The reasons the custody ledger check reported (`row_prev_mismatch`,
+    `row_hash_mismatch`, `digest_moved_since_entry`, `unhashed_after_hashed`,
+    `mirror_hash_mismatch`, `mirror_prev_mismatch`, `mirror_fields_mismatch`,
+    `mirror_entry_missing`, `record_missing`) and
+    `not_in_bundle:custody_entries` no longer appear in a report;
+    Verification §2.3 lists none of them.
+  - A slot that holds no row (`null`, or `entries` empty) beside an envelope
+    whose `custodyChain` holds a mirror entry (an object with a 64-hex
+    `entryHash`) is `checked-wrong`, `mirror_entry_unexpected`, as before,
+    also when another entry fails before it, where the first ledger failure
+    (such as `unhashed_after_hashed`) was reported. Without a mirror entry it
+    is `not-checked`, `not_applicable`, as before.
+  - The store's own checks, the read verdict and the custody trail scan,
+    still verify the rows with `verifyCustodyLedger`.
+
+### Fixed
+
+- **tzun-anchor/1 §10.4 item 13.** When no matching manifest entry is valid at
+  the block time the header source confirmed, the publication is `false`,
+  `evm_sender_mismatch`, on `anchor.evm.tx`, and `anchor.evm.canonical` is now
+  `checked-correct` with the facts of item 14 (`chain`, `namespace` `null`,
+  `network`, `blockTime`, `inclusion`); it was `not-checked`,
+  `blocked_by:anchor.evm.tx`. Only a bundle without a block header reaches
+  this: with one, item 6 decides first and the canonical check is blocked, as
+  before. `EvmPublicationFacts` (`chain`, `namespace`, `network`,
+  `blockTime`) are set whenever the canonical check is `checked-correct`.
+  `existedBy`, `anchorNetwork` and `anchorNamespace` do not move: they come
+  from `true` publications only. Both SDKs (TzunAI/tzun#21).
+- `verifyBundle()` reads a `null` `chain`, `custody`, `anchoring` or
+  `extensions` slot as one with nothing to carry (no chain id and no
+  predecessor, no custody row, no anchoring material, no extension), as
+  Bundle §3.1 allows; it refused each as `malformed_bundle`. It no longer
+  refuses custody `entries` that are not objects, since the `bundle` row does
+  not read custody material (TzunAI/tzun#23).
+
+### Vectors
+
+- `evm-anchor-vectors.json`: the 15 `validityBounds` entries whose `window` is
+  `excludes` now give `expect.noHeader.canonical` as `checked-correct`, where
+  they gave `not-checked`, `blocked_by:anchor.evm.tx` (§10.4 item 13). Nothing
+  else that a verifier reads moves: `header` and `offline` keep `blocked`, and
+  the publication, its block and every other case are as before. The
+  description and four case names cite §9 for statements of §9, not §13, and
+  the description no longer names header-source cases §13 does not list
+  (TzunAI/tzun#21, TzunAI/tzun#22).
+- `checkpoint-vectors.json`: descriptive members only. The `description`
+  cites Anchor §4 to §6, §10.3, §10.6 and §10.7; `format.artifactExpect` says
+  `anchorNamespace` is `'test'` once step 2's shape check holds and the anchor
+  origin begins with `test.`; `format.domainRule` names `test.log.tzun.ai` as
+  the namespace and `test.log.tzun.ai/<deploymentId>` as the domain prefix
+  (TzunAI/tzun#22).
+- `bundle-b1/`:
+  - `custody-ledger`: `custody.ledger` abstains, `unsupported_artifact`; the
+    summary moves one row from `checked-correct` to `abstain`; exit 4 (was 0).
+    Its bundle and inputs are unchanged. `custody-row-removed` and
+    `custody-row-and-mirror-removed` keep their rows and exits
+    (TzunAI/tzun#23).
+  - Four new cases give the record's anchor an `rfc3161/1` publication of its
+    P from a second authority: `anchor-token-trusted` (exit 0),
+    `anchor-token-no-roots` (exit 4), `anchor-token-other-value`
+    (`imprint_mismatch`, exit 1) and `anchor-token-not-der`
+    (`malformed_publication`, exit 1). They are built from the corpus's own
+    bundles; no other case's files change (TzunAI/tzun#24).
+  - `index.json`: the descriptions of `record-token-unreadable-certificate`
+    (tzun-anchor/1 §10.5 step 1; Verification §4.4) and
+    `fabricated-header-offline` (Anchor §10.4, §10.6) cite the sections that
+    state them (TzunAI/tzun#22), and those of the custody cases say what the
+    row now decides.
+
 ## [0.8.4] — 2026-10-15
 
 ### Added

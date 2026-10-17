@@ -393,9 +393,32 @@ describe('the sender, not the recipient', () => {
         manifest: manifestOf(entry(s.publisher, { validUntil: until })),
       });
       expect(v).toMatchObject({ valid: false, reason: 'evm_sender_mismatch' });
-      // A failure is reported once, at the check that decided it (Anchor §10.1).
-      expect(v.checks.tx).toMatchObject({ outcome: 'checked-wrong', reason: 'evm_sender_mismatch' });
-      expect(v.checks.canonical).toMatchObject({ outcome: 'not-checked', reason: 'blocked_by:anchor.evm.tx' });
+      // A failure is reported once, at the check that decided it (Anchor §10.1):
+      // item 13 reports it on anchor.evm.tx, and anchor.evm.canonical, which
+      // has decided what it checks, stays checked-correct with item 14's facts,
+      // its namespace null since no matching entry is valid at the block time.
+      expect(v.checks.tx).toEqual({ id: 'anchor.evm.tx', outcome: 'checked-wrong', value: false, reason: 'evm_sender_mismatch' });
+      expect(v.checks.canonical).toEqual({ id: 'anchor.evm.canonical', outcome: 'checked-correct', value: true });
+      expect(v.facts).toMatchObject({
+        chain: SEPOLIA_CHAIN,
+        namespace: null,
+        network: 'testnet',
+        blockTime: new Date(s.block.timestamp * 1000).toISOString(),
+        inclusion: 'header_source',
+      });
+    });
+
+    it('without a header, matching entries valid at the confirmed block time give the namespace of those alone', async () => {
+      const s = await honest();
+      const { blockHeader, txIndex, txProof, ...bare } = s.input.publication;
+      const before = new Date((s.block.timestamp - 1) * 1000).toISOString();
+      const v = await verifyEvmPublication({
+        ...s.input,
+        publication: bare,
+        manifest: manifestOf(entry(s.publisher, { validUntil: before }), { ...entry(s.publisher), namespace: 'production' }),
+      });
+      expect(v.valid).toBe(true);
+      expect(v.facts.namespace).toBe('production');
     });
 
     it('offline, a window that excludes the header\'s time → false, with no header source at all', async () => {

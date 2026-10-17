@@ -115,6 +115,24 @@ EXPECTED = {
     "signer-eku-non-critical": "verification_failed",
     "signer-eku-tls-server": "verification_failed",
     "signer-eku-second-purpose": "verification_failed",
+    # A requirement of step 3 the verifier can check decides before one that needs a key or
+    # an algorithm it does not implement (tzun-anchor/1 §10.5 step 5).
+    "signer-key-unknown-algorithm-eku-none": "verification_failed",
+    "signer-key-unassigned-curve-eku-none": "verification_failed",
+    "signing-certificate-v2-unknown-hash": "missing_dependency",
+    "signing-certificate-v2-unknown-hash-eku-none": "verification_failed",
+    "signing-certificate-v2-unknown-hash-other-serial": "verification_failed",
+    # The signed attributes out of DER SET OF order, signed as carried.
+    "signed-attrs-reversed": None,
+    # The TSTInfo decodes whole by RFC 3161 §2.4.2 (§10.5 step 1).
+    "tst-info-all": None,
+    "tst-info-member-after-extensions": "malformed",
+    "tst-info-ordering-after-nonce": "malformed",
+    "tst-info-millis-zero": "malformed",
+    "tst-info-micros-1000": "malformed",
+    "tst-info-tsa-empty": "malformed",
+    "tst-info-tsa-dns-name-constructed": "malformed",
+    "tst-info-extensions-empty": "malformed",
     "mock-authority": "malformed",
 }
 
@@ -513,10 +531,10 @@ def _node_reads_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
     malformed_key = {"reason": "malformed", "error": "the certificate's public key does not decode: "}
     not_parsed = {"reason": "malformed", "error": "certificate does not parse: "}
     no_signature = {"reason": "verification_failed", "error": "the signature does not verify under the signer certificate"}
-    unimplemented_curve = {
-        "reason": "missing_dependency",
-        "error": "the signer certificate's elliptic curve is not supported",
-    }
+    # The signer binding names the signer certificate as it was before the edit, and a
+    # requirement of step 3 that fails decides before one that needs a key the verifier
+    # does not read (tzun-anchor/1 §10.5 step 5).
+    binding_fails = {"reason": "verification_failed", "error": "the signingCertificate certHash names another certificate"}
     return {
         # A certificate the token also carries, whose key Node reads and cryptography does not.
         "extra secp224k1": (_freetsa(extra=_with_spki(_spki("secp224k1"))), None),
@@ -533,12 +551,12 @@ def _node_reads_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
         "extra curve no one implements": (_freetsa(extra=_with_spki(_spki("p256", curve="2b81040063"))), None),
         "extra curve OID assigned to no curve": (_freetsa(extra=_with_spki(_spki("p256", curve="2a8648ce3d030163"))), None),
         "extra GOST parameter set": (_freetsa(extra=_with_spki(_spki("p256", curve="2a850302022301"))), None),
-        # ... and the signer's own, which step 3 needs.
+        # ... and the signer's own, which step 3 needs: read too, so the binding decides.
         "signer curve OID assigned to no curve": (
             _freetsa(edit_signer=_with_spki(_spki("p256", curve="2a8648ce3d030163"))),
-            unimplemented_curve,
+            binding_fails,
         ),
-        "signer GOST parameter set": (_freetsa(edit_signer=_with_spki(_spki("p256", curve="2a850302022301"))), unimplemented_curve),
+        "signer GOST parameter set": (_freetsa(edit_signer=_with_spki(_spki("p256", curve="2a850302022301"))), binding_fails),
         # A P-256 point named as on secp224k1: not of that curve's length.
         "extra secp224k1 point of another curve's length": (
             _freetsa(extra=_with_spki(_spki("p256", curve="2b81040020"))),
@@ -562,7 +580,7 @@ def _node_reads_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
         ),
         "signer RSASSA-PSS with NULL parameters": (
             _freetsa(edit_signer=_with_spki(_spki("rsa-pss", params=b"\x05\x00"))),
-            {"reason": "missing_dependency", "error": "the signer certificate's public-key algorithm is not supported"},
+            binding_fails,
         ),
         "signer X9.42 DH": (
             _freetsa(edit_signer=_with_spki(_spki("dhx"))),
@@ -572,19 +590,19 @@ def _node_reads_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
 
 
 def _verifier_limit_cases() -> dict[str, tuple[str, dict[str, Any] | None, dict[str, Any]]]:
-    """Where the SDKs' verdicts differ, each a limit of the Python verifier (§10.1): the
+    """Where the SDKs' answers differ, each a limit of the Python verifier (§10.1): the
     token, the TypeScript verdict and the Python one. A signature under an EC key
     cryptography does not load is not checked, and that key's point is not checked
-    against its curve."""
+    against its curve. A signer certificate edited after the token was signed fails its
+    binding too, so both verdicts are ``verification_failed``: the TypeScript verifier
+    finds the signature first, and the Python one, which sets the signature aside, the
+    binding (tzun-anchor/1 §10.5 step 5)."""
     secp224k1 = _el(bytes.fromhex(SPKI["secp224k1"]))
     point = bytes(secp224k1.children[1].content[1:])  # type: ignore[index]
-    unsupported = {
-        "reason": "missing_dependency",
-        "error": "the signer certificate's elliptic curve is not supported",
-    }
+    binding_fails = {"reason": "verification_failed", "error": "the signingCertificate certHash names another certificate"}
     no_signature = {"reason": "verification_failed", "error": "the signature does not verify under the signer certificate"}
     cases = {
-        "signer secp224k1": (_freetsa(edit_signer=_with_spki(_spki("secp224k1"))), no_signature, unsupported),
+        "signer secp224k1": (_freetsa(edit_signer=_with_spki(_spki("secp224k1"))), no_signature, binding_fails),
         "extra secp224k1 point off the curve": (
             _freetsa(extra=_with_spki(_spki("secp224k1", point=point[:-1] + bytes([point[-1] ^ 1])))),
             {"reason": "malformed", "error": "the certificate's public key does not decode: "},
@@ -593,7 +611,7 @@ def _verifier_limit_cases() -> dict[str, tuple[str, dict[str, Any] | None, dict[
     }
     explicit = _freetsa(edit_signer=_with_spki(_spki("p256-explicit")))
     if not _cryptography_loads_explicit_curves():
-        cases["signer P-256 with explicit parameters"] = (explicit, no_signature, unsupported)
+        cases["signer P-256 with explicit parameters"] = (explicit, no_signature, binding_fails)
     return cases
 
 
@@ -626,6 +644,264 @@ def test_the_python_verifier_limits_are_what_they_are() -> None:
         token, ts_expected, py_expected = cases[name]
         assert (name, comparable(t)) == (name, _verdict(ts_expected))
         assert (name, comparable(python_conformance(token, digest))) == (name, _verdict(py_expected))
+
+
+# ---- Steps 1 and 3 as tzun-anchor/1 §10.5 states them --------------------------------------------
+
+
+def _freetsa_signed_data(edit: Any, token: str | None = None) -> str:
+    """The stored FreeTSA token (or ``token``) with its SignedData's members edited by ``edit``."""
+    resp = _el(base64.b64decode(token or STORED["freetsa"]["tokenBase64"]))
+    edit(resp.children[1].children[1].children[0].children)  # type: ignore[index]
+    return base64.b64encode(resp.der()).decode("ascii")
+
+
+def _signer_info_of(signed_data: list[_El]) -> list[_El]:
+    return signed_data[-1].children[0].children  # type: ignore[index,return-value]
+
+
+def _unsigned_attribute(*values: _El) -> str:
+    """The FreeTSA token with an unsigned attribute of ``values``, which no signature covers."""
+
+    def edit(signed_data: list[_El]) -> None:
+        attribute = _El(b"\x30", children=[_El(b"\x06", bytes.fromhex("2a0304")), _El(b"\x31", children=list(values))])
+        _signer_info_of(signed_data).append(_El(b"\xa1", children=[attribute]))
+
+    return _freetsa_signed_data(edit)
+
+
+def _tst_info_tail(*members: _El, gen_time: str | None = None) -> str:
+    """The FreeTSA token with its TSTInfo's members after genTime replaced by ``members`` (and
+    its genTime by ``gen_time``): its message-digest attribute no longer matches."""
+
+    def edit(signed_data: list[_El]) -> None:
+        octets = signed_data[2].children[1].children[0]  # type: ignore[index]
+        tst = _el(octets.content)
+        tst.children[5:] = list(members)  # type: ignore[index]
+        if gen_time is not None:
+            tst.children[4] = _El(b"\x18", gen_time.encode("latin-1"))  # type: ignore[index]
+        octets.content = tst.der()
+
+    return _freetsa_signed_data(edit)
+
+
+def _with_validity(not_before: str, not_after: str) -> Any:
+    def time(text: str) -> _El:
+        return _El(b"\x17" if len(text) == 13 else b"\x18", text.encode("latin-1"))
+
+    def edit(cert: _El) -> None:
+        fields, i = _tbs(cert)
+        fields[i + 3] = _El(b"\x30", children=[time(not_before), time(not_after)])
+
+    return edit
+
+
+def _after_key(make: Any) -> Any:
+    def edit(cert: _El) -> None:
+        fields, i = _tbs(cert)
+        fields[i + 6 :] = make(fields[i + 6])
+
+    return edit
+
+
+def _revised_rule_cases() -> dict[str, tuple[str, dict[str, Any] | None]]:
+    """Each case: its token, and the verdict both SDKs give (``None``: steps 1 to 3 hold)."""
+    h = bytes.fromhex
+    after_gen_time = {
+        "reason": "malformed",
+        "error": "TSTInfo holds members after genTime other than accuracy, ordering, nonce, tsa and"
+        " extensions, in that order",
+    }
+    accuracy = {"reason": "malformed", "error": "the accuracy's millis or micros is not an INTEGER from 1 to 999"}
+    no_general_name = {"reason": "malformed", "error": "tsa is not one GeneralName"}
+    gen_time = {"reason": "malformed", "error": "genTime is not a GeneralizedTime"}
+    # A TSTInfo step 1 accepts is no longer the one the message-digest attribute is over.
+    digest_fails = {"reason": "verification_failed", "error": "the message-digest attribute is not the digest of the TSTInfo"}
+    after_key = {
+        "reason": "malformed",
+        "error": "tbsCertificate holds fields after its subjectPublicKeyInfo other than a primitive [1],"
+        " a primitive [2] and a constructed [3], in that order",
+    }
+
+    def nested(levels: int) -> _El:
+        inner = _El(b"\x30", children=[])
+        for _ in range(levels - 1):
+            inner = _El(b"\x30", children=[inner])
+        return inner
+
+    def uid(tag: int) -> _El:
+        return _El(bytes([tag]), b"\x00\xab")
+
+    def null() -> _El:
+        return _El(b"\x05")
+
+    count = _count_elements(base64.b64decode(_unsigned_attribute()))
+    extension = _El(b"\x30", children=[_El(b"\x06", h("2a0304")), _El(b"\x01", h("ff")), _El(b"\x04", h("0500"))])
+
+    def set_digest(si: list[_El]) -> None:
+        si[2] = _El(b"\x30", children=[_El(b"\x06", h("60864801650304027f"))])
+
+    def set_signature(si: list[_El]) -> None:
+        si[4] = _El(b"\x30", children=[_El(b"\x06", h("2a8648ce3d04037f"))])
+
+    def flip_signature(si: list[_El]) -> None:
+        si[5] = _El(b"\x04", si[5].content[:-1] + bytes([si[5].content[-1] ^ 0x01]))
+
+    def flip_cert_hash(si: list[_El]) -> None:
+        attribute = next(a for a in si[3].children if a.children[0].content == h("2a864886f70d010910020c"))  # type: ignore[union-attr,index]
+        cert_hash = attribute.children[1].children[0].children[0].children[0].children[0]  # type: ignore[index]
+        cert_hash.content = cert_hash.content[:-1] + bytes([cert_hash.content[-1] ^ 0x01])
+
+    def on_signer_info(*edits: Any) -> str:
+        token = None
+        for edit in edits:
+            token = _freetsa_signed_data(lambda sd, e=edit: e(_signer_info_of(sd)), token)
+        assert token is not None
+        return token
+
+    cases: dict[str, tuple[str, dict[str, Any] | None]] = {}
+    for tag in (0xA0, 0xA1, 0xA2, 0xA3):
+        choice = _El(bytes([tag]), children=[_El(b"\x06", h("2a0304")), null()])
+        cases[f"certificates element [{tag & 0x1F}]"] = (
+            _freetsa_signed_data(lambda sd, c=choice: sd[3].children.append(c)),  # type: ignore[union-attr]
+            {"reason": "malformed", "error": "certificate is not a SEQUENCE"},
+        )
+    cases.update(
+        {
+            "universal 29 constructed": (_unsigned_attribute(_El(b"\x3d", children=[_El(b"\x02", b"\x01")])), None),
+            "universal 35 primitive": (_unsigned_attribute(_El(b"\x1f\x23", b"/tzun")), None),
+            "universal 36 primitive": (_unsigned_attribute(_El(b"\x1f\x24", b"tzun")), None),
+            "universal 29 primitive": (
+                _unsigned_attribute(_El(b"\x1d", b"\x00")),
+                {"reason": "malformed", "error": "primitive form of universal type 29"},
+            ),
+            "universal 35 constructed": (
+                _unsigned_attribute(_El(b"\x3f\x23", children=[])),
+                {"reason": "malformed", "error": "constructed form of universal type 35"},
+            ),
+            "universal 36 constructed": (
+                _unsigned_attribute(_El(b"\x3f\x24", children=[])),
+                {"reason": "malformed", "error": "constructed form of universal type 36"},
+            ),
+            # An attribute's values sit at depth 10.
+            "64 levels deep": (_unsigned_attribute(nested(55)), None),
+            "65 levels deep": (_unsigned_attribute(nested(56)), {"reason": "malformed", "error": "nested too deep"}),
+            "100,000 elements": (_unsigned_attribute(*(null() for _ in range(100_000 - count))), None),
+            "100,001 elements": (
+                _unsigned_attribute(*(null() for _ in range(100_001 - count))),
+                {"reason": "malformed", "error": "too many elements"},
+            ),
+            "TSTInfo with every optional member": (
+                _tst_info_tail(
+                    _El(b"\x30", children=[_El(b"\x02", h("0102030405060708ff")), _El(b"\x80", h("03e7")), _El(b"\x81", h("01"))]),
+                    _El(b"\x01", h("00")),
+                    _El(b"\x02", h("01")),
+                    _El(b"\xa0", children=[_El(b"\xa4", children=[_El(b"\x30", children=[])])]),
+                    _El(b"\xa1", children=[extension]),
+                ),
+                digest_fails,
+            ),
+            "TSTInfo with nothing after genTime": (_tst_info_tail(), digest_fails),
+            "TSTInfo with a member after the last": (_tst_info_tail(_El(b"\xa1", children=[extension]), null()), after_gen_time),
+            "TSTInfo with ordering after the nonce": (_tst_info_tail(_El(b"\x02", h("01")), _El(b"\x01", h("ff"))), after_gen_time),
+            "TSTInfo accuracy millis 0": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("00"))])), accuracy),
+            "TSTInfo accuracy millis not minimal": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("0001"))])), accuracy),
+            "TSTInfo accuracy micros 1000": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x81", h("03e8"))])), accuracy),
+            "TSTInfo accuracy millis -1": (_tst_info_tail(_El(b"\x30", children=[_El(b"\x80", h("ff"))])), accuracy),
+            "TSTInfo tsa empty": (_tst_info_tail(_El(b"\xa0", children=[])), no_general_name),
+            "TSTInfo tsa two GeneralNames": (
+                _tst_info_tail(_El(b"\xa0", children=[_El(b"\x82", b"\x00"), _El(b"\x82", b"\x00")])),
+                no_general_name,
+            ),
+            # Not of the context-specific class, with a tag number from 0 to 8 and the form that
+            # alternative has.
+            "TSTInfo tsa INTEGER": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x02", h("01"))])), no_general_name),
+            "TSTInfo tsa BOOLEAN": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x01", h("ff"))])), no_general_name),
+            "TSTInfo tsa APPLICATION [2]": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x42", h("00"))])), no_general_name),
+            "TSTInfo tsa PRIVATE [0] constructed": (
+                _tst_info_tail(_El(b"\xa0", children=[_El(b"\xe0", children=[])])),
+                no_general_name,
+            ),
+            "TSTInfo tsa dNSName constructed": (
+                _tst_info_tail(_El(b"\xa0", children=[_El(b"\xa2", children=[_El(b"\x16", b"tsa.example")])])),
+                no_general_name,
+            ),
+            "TSTInfo tsa [9]": (_tst_info_tail(_El(b"\xa0", children=[_El(b"\x89", b"\x00")])), no_general_name),
+            "TSTInfo extensions empty": (
+                _tst_info_tail(_El(b"\xa1", children=[])),
+                {"reason": "malformed", "error": "the TSTInfo extensions are not one or more extensions"},
+            ),
+            "genTime 0000-02-29": (_tst_info_tail(gen_time="00000229120000Z"), digest_fails),
+            "genTime 0050-01-01 with a fraction": (_tst_info_tail(gen_time="00500101120000.5Z"), digest_fails),
+            "genTime 0100-02-29": (_tst_info_tail(gen_time="01000229120000Z"), gen_time),
+            "genTime month 13": (_tst_info_tail(gen_time="20261301120000Z"), gen_time),
+            "genTime second 60": (_tst_info_tail(gen_time="20260601120060Z"), gen_time),
+            # A certificate no step needs, added to the token's certificates.
+            "extra validity from 0000-02-29": (_freetsa(extra=_with_validity("00000229000000Z", "99991231235959Z")), None),
+            "extra validity from 0050": (_freetsa(extra=_with_validity("00500101000000Z", "00991231235959Z")), None),
+            "extra validity UTCTime 50 to 49": (_freetsa(extra=_with_validity("500101000000Z", "491231235959Z")), None),
+            "extra validity 0100-02-29": (
+                _freetsa(extra=_with_validity("01000229000000Z", "20400101000000Z")),
+                {"reason": "malformed", "error": "unreadable validity"},
+            ),
+            "extra validity with a fraction": (
+                _freetsa(extra=_with_validity("20260101000000.5Z", "20400101000000Z")),
+                {"reason": "malformed", "error": "unreadable validity"},
+            ),
+            "extra issuerUniqueID and subjectUniqueID": (_freetsa(extra=_after_key(lambda x: [uid(0x81), uid(0x82), x])), None),
+            "extra with no extensions": (_freetsa(extra=_after_key(lambda x: [])), None),
+            "extra extensions retagged [2]": (_freetsa(extra=_after_key(lambda x: [_El(b"\xa2", children=x.children)])), after_key),
+            "extra issuerUniqueID constructed": (
+                _freetsa(extra=_after_key(lambda x: [_El(b"\xa1", children=[_El(b"\x03", b"\x00\xab")]), x])),
+                after_key,
+            ),
+            "extra extensions twice": (_freetsa(extra=_after_key(lambda x: [x, x])), after_key),
+            "extra unique identifiers out of order": (_freetsa(extra=_after_key(lambda x: [uid(0x82), uid(0x81), x])), after_key),
+            "extra extensions holding two": (
+                _freetsa(extra=_after_key(lambda x: [_El(b"\xa3", children=[*(x.children or []), _El(b"\x30", children=[])])])),
+                {"reason": "malformed", "error": "extensions are not one SEQUENCE"},
+            ),
+            # Step 3: FreeTSA signs with ecdsa-with-SHA512, so its signature is checked
+            # whatever the SignerInfo's digestAlgorithm names.
+            "digestAlgorithm unknown": (
+                on_signer_info(set_digest),
+                {"reason": "missing_dependency", "error": "digest algorithm 2.16.840.1.101.3.4.2.127 is not supported"},
+            ),
+            "digestAlgorithm unknown, signature flipped": (
+                on_signer_info(set_digest, flip_signature),
+                {"reason": "verification_failed", "error": "the signature does not verify under the signer certificate"},
+            ),
+            "signatureAlgorithm unknown": (
+                on_signer_info(set_signature),
+                {"reason": "missing_dependency", "error": "signature algorithm 1.2.840.10045.4.3.127 is not supported"},
+            ),
+            "signatureAlgorithm unknown, certHash flipped": (
+                on_signer_info(set_signature, flip_cert_hash),
+                {"reason": "verification_failed", "error": "the signingCertificate certHash names another certificate"},
+            ),
+        }
+    )
+    return cases
+
+
+def _count_elements(der: bytes) -> int:
+    """How many elements ``der`` holds, not looking inside a primitive element."""
+
+    def count(node: _El) -> int:
+        return 1 + sum(count(c) for c in node.children or [])
+
+    return count(_el(der))
+
+
+def test_steps_1_and_3_as_the_anchor_spec_states_them_give_the_same_finding() -> None:
+    cases = _revised_rule_cases()
+    digest = STORED["freetsa"]["digestHex"]
+    names = list(cases)
+    ts = harness({"action": "conformance", "cases": [{"token": cases[n][0], "digest": digest} for n in names]})["results"]
+    for name, t in zip(names, ts, strict=True):
+        p = python_conformance(cases[name][0], digest)
+        assert (name, comparable(p)) == (name, comparable(t))
+        assert (name, comparable(p)) == (name, _verdict(cases[name][1]))
 
 
 # ---- BER the two clients' readers read -------------------------------------------------------------

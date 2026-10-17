@@ -137,6 +137,131 @@ function nameDer(rdns: Rdn[]): Buffer {
   );
 }
 
+/** A DER element to edit and write back: its identifier octets, and its content or, when constructed, its elements. */
+interface El {
+  id: Buffer;
+  content: Buffer;
+  children?: El[];
+}
+
+/** `der`, one definite-length element, as an `El` tree. */
+function el(der: Buffer): El {
+  const one = (pos: number): [El, number] => {
+    let at = pos + 1;
+    if ((der[pos] & 0x1f) === 0x1f) while (der[at++] & 0x80);
+    const id = der.subarray(pos, at);
+    let length = der[at++];
+    if (length & 0x80) {
+      const n = length & 0x7f;
+      length = der.readUIntBE(at, n);
+      at += n;
+    }
+    const content = der.subarray(at, at + length);
+    if ((der[pos] & 0x20) === 0) return [{ id, content }, at + length];
+    const kids: El[] = [];
+    for (let p = at; p < at + length; ) {
+      const [kid, next] = one(p);
+      kids.push(kid);
+      p = next;
+    }
+    return [{ id, content, children: kids }, at + length];
+  };
+  const [root, end] = one(0);
+  if (end !== der.length) throw new Error('bytes after the element');
+  return root;
+}
+
+/** An `El` tree written back as DER. */
+function der(node: El): Buffer {
+  const body = node.children ? Buffer.concat(node.children.map(der)) : node.content;
+  const n = body.length;
+  const bytes: number[] = [];
+  for (let v = n; v > 0; v = Math.floor(v / 256)) bytes.unshift(v & 0xff);
+  const len = n < 0x80 ? Buffer.from([n]) : Buffer.from([0x80 | bytes.length, ...bytes]);
+  return Buffer.concat([node.id, len, body]);
+}
+
+const leaf = (id: number | Buffer, content: Buffer = Buffer.alloc(0)): El => ({ id: typeof id === 'number' ? Buffer.from([id]) : id, content });
+const node = (id: number, ...children: El[]): El => ({ id: Buffer.from([id]), content: Buffer.alloc(0), children });
+
+/** The parts of a token an edit reaches: its SignedData's members, and its one SignerInfo's. */
+function editToken(tokenBase64: string, edit: (parts: { signedData: El[]; signerInfo: El[]; certificates: El }) => void): string {
+  const resp = el(Buffer.from(tokenBase64, 'base64'));
+  const signedData = resp.children![1].children![1].children![0].children!;
+  const certificates = signedData.find((m) => m.id[0] === 0xa0)!;
+  const signerInfo = signedData[signedData.length - 1].children![0].children!;
+  edit({ signedData, signerInfo, certificates });
+  return der(resp).toString('base64');
+}
+
+/** The token with an unsigned attribute of `values` (a SET's elements) added to its SignerInfo, which no signature covers. */
+function withUnsignedAttribute(tokenBase64: string, values: El[]): string {
+  return editToken(tokenBase64, ({ signerInfo }) => {
+    signerInfo.push(node(0xa1, node(0x30, leaf(0x06, Buffer.from('2a0304', 'hex')), node(0x31, ...values))));
+  });
+}
+
+/** The token with its TSTInfo replaced by `edit`'s: the message-digest attribute no longer matches, so a TSTInfo step 1 accepts fails step 3. */
+function withTstInfo(tokenBase64: string, edit: (members: El[]) => void): string {
+  return editToken(tokenBase64, ({ signedData }) => {
+    const octets = signedData[2].children![1].children![0];
+    const tstInfo = el(octets.content);
+    edit(tstInfo.children!);
+    octets.content = der(tstInfo);
+  });
+}
+
+/** The token with `cert` (DER) added to its certificates, which no signature covers. */
+function withCertificate(tokenBase64: string, cert: Buffer | El): string {
+  return editToken(tokenBase64, ({ certificates }) => {
+    certificates.children!.push(Buffer.isBuffer(cert) ? el(cert) : cert);
+  });
+}
+
+/**
+ * `pem`'s certificate with serial number 7, edited by `edit` (its tbsCertificate's
+ * members, and where the serial number is): its signature no longer verifies, which
+ * nothing reads before step 4, and a certificate no path names is not examined there.
+ */
+function editedCertificate(pem: string, edit: (fields: El[], at: number) => void): Buffer {
+  const cert = el(derOfPem(pem));
+  const fields = cert.children![0].children!;
+  const at = fields[0].id[0] === 0xa0 ? 1 : 0;
+  fields[at] = leaf(0x02, Buffer.from([7]));
+  edit(fields, at);
+  return der(cert);
+}
+
+/** `pem`'s certificate with its validity's two times written as `notBefore` and `notAfter` (a UTCTime when 13 characters long, else a GeneralizedTime). */
+function withValidity(pem: string, notBefore: string, notAfter: string): Buffer {
+  const time = (text: string) => leaf(text.length === 13 ? 0x17 : 0x18, Buffer.from(text, 'latin1'));
+  return editedCertificate(pem, (fields, at) => {
+    fields[at + 3] = node(0x30, time(notBefore), time(notAfter));
+  });
+}
+
+/** `pem`'s certificate with what follows its subjectPublicKeyInfo replaced by `after(extensions)`. */
+function withMembersAfterKey(pem: string, after: (extensions: El) => El[]): Buffer {
+  return editedCertificate(pem, (fields, at) => {
+    const extensions = fields[at + 6];
+    fields.splice(at + 6, fields.length - at - 6, ...after(extensions));
+  });
+}
+
+/** How deep the constructed elements of `der` nest, the outermost at depth 1, and how many elements it holds, neither looking inside a primitive element. */
+function shapeOf(der: Buffer): { depth: number; count: number } {
+  let depth = 0;
+  let count = 0;
+  const walk = (node: El, d: number) => {
+    count++;
+    if (!node.children) return;
+    depth = Math.max(depth, d);
+    for (const kid of node.children) walk(kid, d + 1);
+  };
+  walk(el(der), 1);
+  return { depth, count };
+}
+
 /** `token` with the last occurrence of `from` replaced by `to` (same length, so every length stays true). */
 function patchLast(tokenBase64: string, from: string, to: string): string {
   const der = Buffer.from(tokenBase64, 'base64');
@@ -266,6 +391,231 @@ describe('tzun-anchor/1 §10.5 over an RFC 3161 token', () => {
     });
   });
 
+  describe('step 1: the TSTInfo decodes whole (RFC 3161 §2.4.2)', () => {
+    const AFTER_GEN_TIME = 'TSTInfo holds members after genTime other than accuracy, ordering, nonce, tsa and extensions, in that order';
+    const ACCURACY = "the accuracy's millis or micros is not an INTEGER from 1 to 999";
+
+    it('holds with every optional member after genTime, ordering written out as FALSE among them', async () => {
+      const f = await makeTsaFixture({ faults: { tstInfoTail: 'all' } });
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(await verifyTimestampToken(f.tokenBase64, f.digestHex, { trustAnchorsPem: [f.caPem] })).toMatchObject({ valid: true });
+    });
+
+    it.each<[string, NonNullable<TokenFaults['tstInfoTail']>, string]>([
+      ['a member after the last one', 'member-after-extensions', AFTER_GEN_TIME],
+      ['ordering after the nonce', 'ordering-after-nonce', AFTER_GEN_TIME],
+      ['a millis of 0', 'millis-zero', ACCURACY],
+      ['a micros of 1000', 'micros-1000', ACCURACY],
+      ['a tsa holding no GeneralName', 'tsa-empty', 'tsa is not one GeneralName'],
+      ['a tsa whose dNSName is constructed', 'tsa-dns-name-constructed', 'tsa is not one GeneralName'],
+      ['extensions holding none', 'extensions-empty', 'the TSTInfo extensions are not one or more extensions'],
+    ])('refuses %s, in a token signed over it: malformed', async (_label, tstInfoTail, error) => {
+      const f = await makeTsaFixture({ faults: { tstInfoTail } });
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toEqual({ token: 'malformed', error });
+      expect(await verifyTimestampToken(f.tokenBase64, f.digestHex, { trustAnchorsPem: [f.caPem] })).toMatchObject({ valid: false, reason: 'unparseable_token' });
+    });
+
+    it('reads accuracy, tsa and extensions by their shape alone, and the INTEGERs at any width', async () => {
+      const f = await makeTsaFixture();
+      const hex = (h: string) => Buffer.from(h, 'hex');
+      const extension = node(0x30, leaf(0x06, hex('2a0304')), leaf(0x01, hex('ff')), leaf(0x04, hex('0500')));
+      /** The step 1 verdict on the token with `tail` after genTime: its TSTInfo is no longer the one signed, so step 1 holding is verification_failed. */
+      const tail = (...members: El[]) => {
+        const steps = verifyTimestampSteps(withTstInfo(f.tokenBase64, (m) => m.splice(5, m.length - 5, ...members)), f.digestHex, [f.caPem]);
+        return steps.token === 'malformed' ? steps.error : 'step 1 holds';
+      };
+      const accuracy = (...parts: El[]) => node(0x30, ...parts);
+      const tsa = (name: El) => node(0xa0, name);
+      expect([
+        tail(accuracy(leaf(0x02, hex('0102030405060708ff')), leaf(0x80, hex('01')), leaf(0x81, hex('03e7')))),
+        tail(accuracy(leaf(0x80, hex('0080')), leaf(0x81, hex('01')))),
+        tail(accuracy()),
+        tail(leaf(0x01, hex('00')), leaf(0x02, hex('00')), node(0xa1, extension, extension)),
+        // GeneralName: otherName, x400Address, directoryName and ediPartyName constructed, the others primitive.
+        ...[0, 3, 4, 5].map((n) => tail(tsa(node(0xa0 + n)))),
+        ...[1, 2, 6, 7, 8].map((n) => tail(tsa(leaf(0x80 + n, hex('00'))))),
+      ]).toEqual(Array(13).fill('step 1 holds'));
+      expect([
+        tail(accuracy(leaf(0x80, hex('0001')))),
+        tail(accuracy(leaf(0x80, hex('ff')))),
+        tail(accuracy(leaf(0x80, hex('03e8')))),
+        tail(accuracy(leaf(0x81, hex('01')), leaf(0x80, hex('01')))),
+        tail(accuracy(node(0xa0, leaf(0x02, hex('01'))))),
+        tail(accuracy(leaf(0x02, hex('01')), leaf(0x02, hex('01')))),
+        ...[0, 3, 4, 5].map((n) => tail(tsa(leaf(0x80 + n, hex('00'))))),
+        ...[1, 2, 6, 7, 8].map((n) => tail(tsa(node(0xa0 + n)))),
+        tail(tsa(leaf(0x89, hex('00')))),
+        tail(tsa(node(0x30))),
+        // Not of the context-specific class, with a tag number from 0 to 8 and the form that alternative has.
+        tail(tsa(leaf(0x02, hex('01')))),
+        tail(tsa(leaf(0x01, hex('ff')))),
+        tail(tsa(leaf(0x42, hex('00')))),
+        tail(tsa(node(0xe0))),
+        tail(node(0xa0, leaf(0x82, hex('00')), leaf(0x82, hex('00')))),
+        tail(node(0xa1, node(0x30, leaf(0x06, hex('2a0304'))))),
+        tail(leaf(0x02, hex('01')), leaf(0x01, hex('00'))),
+        tail(leaf(0x02, hex('01')), leaf(0x02, hex('01'))),
+      ]).toEqual([
+        ...Array(6).fill(ACCURACY).map((e, i) => (i < 3 ? e : 'accuracy is not seconds, millis and micros, each optional, in that order')),
+        ...Array(16).fill('tsa is not one GeneralName'),
+        'the TSTInfo extensions are not one or more extensions',
+        AFTER_GEN_TIME,
+        AFTER_GEN_TIME,
+      ]);
+    });
+
+    it('holds genTime to the ranges of a validity time, its year 0000 to 9999 by the Gregorian rule, and keeps its fraction', async () => {
+      const f = await makeTsaFixture();
+      /** The token with its genTime written as `text` (the same length), its TSTInfo no longer the one signed. */
+      const at = (text: string) => verifyTimestampSteps(patchLast(f.tokenBase64, Buffer.from('20260601120000Z', 'latin1').toString('hex'), Buffer.from(text, 'latin1').toString('hex')), f.digestHex, [f.caPem]);
+      for (const text of ['00000229120000Z', '20240229120000Z', '99991231235959Z']) {
+        expect([text, at(text).token]).toEqual([text, 'verification_failed']);
+      }
+      for (const text of ['20261301120000Z', '20260001120000Z', '20260631120000Z', '20230229120000Z', '01000229120000Z', '20260601240000Z', '20260601126000Z', '20260601120060Z']) {
+        expect([text, at(text)]).toEqual([text, { token: 'malformed', error: 'genTime is not a GeneralizedTime' }]);
+      }
+      // A genuine token from the year 0000, its fraction kept: steps 1 to 3 hold, and the signer was not valid then.
+      const early = await makeTsaFixture({ genTime: new Date('0000-02-29T12:00:00.5Z') });
+      const steps = verifyTimestampSteps(early.tokenBase64, early.digestHex, [early.caPem]);
+      expect(steps).toMatchObject({ token: 'held', trust: 'reached' });
+      expect(steps.genTime?.toISOString()).toBe('0000-02-29T12:00:00.500Z');
+    });
+  });
+
+  describe('step 1: every element of certificates is an RFC 5280 certificate', () => {
+    const NOT_X509_AFTER_KEY = 'tbsCertificate holds fields after its subjectPublicKeyInfo other than a primitive [1], a primitive [2] and a constructed [3], in that order';
+
+    it('refuses an element of certificates that is not the Certificate choice (RFC 5652 §10.2.2): malformed', async () => {
+      const f = await makeTsaFixture();
+      for (const tag of [0xa0, 0xa1, 0xa2, 0xa3]) {
+        // A CertificateChoices other than certificate: [tag] IMPLICIT, here SEQUENCE { OID 1.2.3.4, NULL } retagged.
+        const choice = node(tag, leaf(0x06, Buffer.from('2a0304', 'hex')), leaf(0x05));
+        expect([tag, verifyTimestampSteps(withCertificate(f.tokenBase64, choice), f.digestHex, [f.caPem])]).toEqual([
+          tag,
+          { token: 'malformed', error: 'certificate is not a SEQUENCE' },
+        ]);
+      }
+    });
+
+    it('reads a validity time with no fraction of a second, a year from 0000 to 9999, a UTCTime\'s year as RFC 5280 maps it, by the Gregorian rule', async () => {
+      const f = await makeTsaFixture();
+      const read = (notBefore: string, notAfter: string) => {
+        const cert = readCertificatePem(pemOfDer(withValidity(f.signerPem, notBefore, notAfter)));
+        return cert && [new Date(cert.notBefore).toISOString(), new Date(cert.notAfter).toISOString()];
+      };
+      expect(read('500101000000Z', '491231235959Z')).toEqual(['1950-01-01T00:00:00.000Z', '2049-12-31T23:59:59.000Z']);
+      expect(read('00000229000000Z', '99991231235959Z')).toEqual(['0000-02-29T00:00:00.000Z', '9999-12-31T23:59:59.000Z']);
+      expect(read('00500101000000Z', '00991231235959Z')).toEqual(['0050-01-01T00:00:00.000Z', '0099-12-31T23:59:59.000Z']);
+      expect(read('20000229000000Z', '24000229000000Z')).toEqual(['2000-02-29T00:00:00.000Z', '2400-02-29T00:00:00.000Z']);
+      for (const [notBefore, notAfter] of [
+        ['01000229000000Z', '20400101000000Z'],
+        ['260101000000Z', '21000229000000Z'],
+        ['230229000000Z', '400101000000Z'],
+        ['260431000000Z', '400101000000Z'],
+        ['20260101000000.5Z', '20400101000000Z'],
+        ['260101000000Z', '20400101000000.25Z'],
+        ['20261301000000Z', '20400101000000Z'],
+        ['260101240000Z', '400101000000Z'],
+        ['260101006000Z', '400101000000Z'],
+        ['260101000060Z', '400101000000Z'],
+      ]) {
+        expect([notBefore, notAfter, read(notBefore, notAfter)]).toEqual([notBefore, notAfter, null]);
+      }
+      // In a token, a certificate no step needs: the year 0050 reads, a fraction does not.
+      const steps = (cert: Buffer) => verifyTimestampSteps(withCertificate(f.tokenBase64, cert), f.digestHex, [f.caPem]);
+      expect(steps(withValidity(f.signerPem, '00500101000000Z', '20400101000000Z'))).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(steps(withValidity(f.signerPem, '20260101000000.5Z', '20400101000000Z'))).toEqual({ token: 'malformed', error: 'unreadable validity' });
+    });
+
+    it('holds what follows subjectPublicKeyInfo to issuerUniqueID, subjectUniqueID and extensions, each in its form, at most once, in that order', async () => {
+      const f = await makeTsaFixture();
+      const uid = (tag: number) => leaf(tag, Buffer.from('00ab', 'hex'));
+      const read = (after: (extensions: El) => El[]) => readCertificatePem(pemOfDer(withMembersAfterKey(f.signerPem, after)));
+      expect([read((x) => [uid(0x81), uid(0x82), x]), read((x) => [uid(0x82), x]), read((x) => [uid(0x81)]), read(() => [])].map((c) => c !== null)).toEqual([
+        true,
+        true,
+        true,
+        true,
+      ]);
+      const refused: Array<[string, (extensions: El) => El[]]> = [
+        ['extensions retagged as a constructed [2]', (x) => [{ ...x, id: Buffer.from([0xa2]) }]],
+        ['a constructed issuerUniqueID', (x) => [node(0xa1, leaf(0x03, Buffer.from('00ab', 'hex'))), x]],
+        ['a primitive extensions', (x) => [leaf(0x83, der(x.children![0]))]],
+        ['subjectUniqueID before issuerUniqueID', (x) => [uid(0x82), uid(0x81), x]],
+        ['issuerUniqueID twice', (x) => [uid(0x81), uid(0x81), x]],
+        ['extensions twice', (x) => [x, x]],
+        ['an element after extensions', (x) => [x, leaf(0x05)]],
+        ['an element of another tag', (x) => [leaf(0x84, Buffer.from('00', 'hex')), x]],
+        ['extensions holding two elements', (x) => [node(0xa3, ...x.children!, node(0x30))]],
+        ['extensions holding none', () => [node(0xa3)]],
+      ];
+      for (const [label, after] of refused) expect([label, read(after)]).toEqual([label, null]);
+      // In a token, a certificate no step needs: refused by this rule, not by any X.509 library.
+      const steps = (cert: Buffer) => verifyTimestampSteps(withCertificate(f.tokenBase64, cert), f.digestHex, [f.caPem]);
+      expect(steps(withMembersAfterKey(f.signerPem, (x) => [uid(0x81), uid(0x82), x]))).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(steps(withMembersAfterKey(f.signerPem, (x) => [{ ...x, id: Buffer.from([0xa2]) }]))).toEqual({ token: 'malformed', error: NOT_X509_AFTER_KEY });
+      expect(steps(withMembersAfterKey(f.signerPem, (x) => [node(0xa3, ...x.children!, node(0x30))]))).toEqual({
+        token: 'malformed',
+        error: 'extensions are not one SEQUENCE',
+      });
+    });
+  });
+
+  describe('step 1: the forms of universal types, and the decoder bounds', () => {
+    it('reads the unrestricted CHARACTER STRING (29) constructed, and OID-IRI and RELATIVE-OID-IRI (35, 36) primitive, as X.690 encodes them', async () => {
+      const f = await makeTsaFixture();
+      const id = (hex: string) => Buffer.from(hex, 'hex');
+      // An unsigned attribute, which no signature covers: the token holds whenever step 1 does.
+      const steps = (value: El) => verifyTimestampSteps(withUnsignedAttribute(f.tokenBase64, [value]), f.digestHex, [f.caPem]);
+      expect(steps({ id: id('3d'), content: Buffer.alloc(0), children: [leaf(0x02, id('01'))] })).toMatchObject({ token: 'held' });
+      expect(steps(leaf(id('1f23'), Buffer.from('/tzun', 'latin1')))).toMatchObject({ token: 'held' });
+      expect(steps(leaf(id('1f24'), Buffer.from('tzun', 'latin1')))).toMatchObject({ token: 'held' });
+      expect(steps(leaf(id('1d'), Buffer.from('00', 'hex')))).toEqual({ token: 'malformed', error: 'primitive form of universal type 29' });
+      expect(steps({ id: id('3f23'), content: Buffer.alloc(0), children: [] })).toEqual({ token: 'malformed', error: 'constructed form of universal type 35' });
+      expect(steps({ id: id('3f24'), content: Buffer.alloc(0), children: [] })).toEqual({ token: 'malformed', error: 'constructed form of universal type 36' });
+    });
+
+    it('holds a TimeStampResp nested exactly 64 deep and of exactly 100,000 elements; one more of either is malformed', async () => {
+      const f = await makeTsaFixture();
+      const tokenDer = (token: string) => Buffer.from(token, 'base64');
+      const nested = (levels: number): El => {
+        let inner = node(0x30);
+        for (let i = 1; i < levels; i++) inner = node(0x30, inner);
+        return inner;
+      };
+      // An attribute's values sit at depth 10: TimeStampResp, ContentInfo, [0], SignedData,
+      // signerInfos, SignerInfo, unsignedAttrs [1], Attribute, its SET.
+      const deep = (depth: number) => withUnsignedAttribute(f.tokenBase64, [nested(depth - 9)]);
+      expect(shapeOf(tokenDer(deep(64))).depth).toBe(64);
+      expect(verifyTimestampSteps(deep(64), f.digestHex, [f.caPem])).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(shapeOf(tokenDer(deep(65))).depth).toBe(65);
+      expect(verifyTimestampSteps(deep(65), f.digestHex, [f.caPem])).toEqual({ token: 'malformed', error: 'nested too deep' });
+
+      const base = shapeOf(tokenDer(withUnsignedAttribute(f.tokenBase64, []))).count;
+      const many = (count: number) => withUnsignedAttribute(f.tokenBase64, Array.from({ length: count - base }, () => leaf(0x05)));
+      expect(shapeOf(tokenDer(many(100_000))).count).toBe(100_000);
+      expect(verifyTimestampSteps(many(100_000), f.digestHex, [f.caPem])).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(verifyTimestampSteps(many(100_001), f.digestHex, [f.caPem])).toEqual({ token: 'malformed', error: 'too many elements' });
+    });
+
+    it('bounds the TSTInfo, carried in an OCTET STRING, as an encoding of its own', async () => {
+      const f = await makeTsaFixture();
+      /** A TSTInfo with a tsa whose otherName holds SEQUENCEs nested down to `depth`, which step 1 does not read past their form. */
+      const tstInfoOfDepth = (depth: number): string =>
+        withTstInfo(f.tokenBase64, (members) => {
+          let inner = node(0x30);
+          for (let d = depth; d > 4; d--) inner = node(0x30, inner);
+          members.push(node(0xa0, node(0xa0, inner)));
+        });
+      const depthOf = (token: string) => shapeOf(el(Buffer.from(token, 'base64')).children![1].children![1].children![0].children![2].children![1].children![0].content).depth;
+      expect(depthOf(tstInfoOfDepth(64))).toBe(64);
+      // Step 1 holds, and the message-digest attribute is over the TSTInfo as it was.
+      expect(verifyTimestampSteps(tstInfoOfDepth(64), f.digestHex, [f.caPem])).toMatchObject({ token: 'verification_failed' });
+      expect(depthOf(tstInfoOfDepth(65))).toBe(65);
+      expect(verifyTimestampSteps(tstInfoOfDepth(65), f.digestHex, [f.caPem])).toEqual({ token: 'malformed', error: 'TSTInfo is not DER: nested too deep' });
+    });
+  });
+
   describe('step 2: SHA-256 over the expected value', () => {
     it('refuses another value, and the same bytes under another hash algorithm, before the signer is looked at', async () => {
       const f = await makeTsaFixture({ faults: { signerEku: 'none' } });
@@ -343,6 +693,88 @@ describe('tzun-anchor/1 §10.5 over an RFC 3161 token', () => {
       const f = await makeTsaFixture({ faults: { signerKey: 'unknown-key-algorithm' } });
       expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toMatchObject({ token: 'missing_dependency' });
       expect(await verifyTimestampToken(f.tokenBase64, f.digestHex, { trustAnchorsPem: [f.caPem] })).toMatchObject({ valid: false, reason: 'missing_dependency' });
+    });
+  });
+
+  describe('step 3: a requirement it can check decides before one it cannot (step 5)', () => {
+    const EKU = 'the signer certificate has no critical extendedKeyUsage whose only purpose is id-kp-timeStamping';
+    const UNKNOWN_SIGNATURE = node(0x30, leaf(0x06, Buffer.from('2a8648ce3d04037f', 'hex'))); // 1.2.840.10045.4.3.127
+    const UNKNOWN_DIGEST = node(0x30, leaf(0x06, Buffer.from('60864801650304027f', 'hex'))); // 2.16.840.1.101.3.4.2.127
+
+    it.each<[string, TokenFaults, string]>([
+      ['a signer key of an algorithm it does not implement, not a timestamping certificate', { signerKey: 'unknown-key-algorithm', signerEku: 'none' }, EKU],
+      ['a signer key on a curve assigned to none, not a timestamping certificate', { signerKey: 'unassigned-curve', signerEku: 'none' }, EKU],
+      [
+        'a signer key on a curve assigned to none, and no signer binding',
+        { signerKey: 'unassigned-curve', signingCertificate: 'none' },
+        'no signingCertificate or signingCertificateV2 attribute binds the signer certificate',
+      ],
+      ['an ESSCertIDv2 hash algorithm it does not implement, not a timestamping certificate', { signingCertificate: 'v2-unknown-hash', signerEku: 'none' }, EKU],
+      [
+        'an ESSCertIDv2 hash algorithm it does not implement, its issuerSerial naming another serial number',
+        { signingCertificate: 'v2-unknown-hash-other-serial' },
+        'the signingCertificate issuerSerial names another certificate',
+      ],
+    ])('%s: verification_failed, not missing_dependency', async (_label, faults, error) => {
+      const f = await makeTsaFixture({ faults });
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toMatchObject({ token: 'verification_failed', error });
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [])).toMatchObject({ token: 'verification_failed', error });
+      expect(await verifyTimestampToken(f.tokenBase64, f.digestHex, { trustAnchorsPem: [f.caPem] })).toMatchObject({
+        valid: false,
+        reason: 'verification_failed',
+        digestMatch: true,
+        signatureValid: false,
+      });
+    });
+
+    it('is missing_dependency for an ESSCertIDv2 hash algorithm it does not implement, when every other requirement holds', async () => {
+      const f = await makeTsaFixture({ faults: { signingCertificate: 'v2-unknown-hash' } });
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toMatchObject({
+        token: 'missing_dependency',
+        error: 'the ESSCertIDv2 hash algorithm is not supported',
+      });
+    });
+
+    it('refuses a token whose signatureAlgorithm it does not implement, when its message digest or its binding fails', async () => {
+      for (const [faults, error] of [
+        [{ messageDigest: 'other' }, 'the message-digest attribute is not the digest of the TSTInfo'],
+        [{ signingCertificate: 'none' }, 'no signingCertificate or signingCertificateV2 attribute binds the signer certificate'],
+        [{ signerEku: 'tls-server' }, EKU],
+      ] as Array<[TokenFaults, string]>) {
+        const f = await makeTsaFixture({ faults });
+        const token = editToken(f.tokenBase64, ({ signerInfo }) => {
+          signerInfo[4] = UNKNOWN_SIGNATURE;
+        });
+        expect(verifyTimestampSteps(token, f.digestHex, [f.caPem])).toMatchObject({ token: 'verification_failed', error });
+      }
+    });
+
+    it('checks the signature under its own algorithm when the digestAlgorithm is one it does not implement', async () => {
+      const f = await makeTsaFixture();
+      const unknownDigest = editToken(f.tokenBase64, ({ signerInfo }) => {
+        signerInfo[2] = UNKNOWN_DIGEST;
+      });
+      expect(verifyTimestampSteps(unknownDigest, f.digestHex, [f.caPem])).toMatchObject({
+        token: 'missing_dependency',
+        error: 'digest algorithm 2.16.840.1.101.3.4.2.127 is not supported',
+      });
+      const broken = editToken(unknownDigest, ({ signerInfo }) => {
+        const signature = Buffer.from(signerInfo[5].content);
+        signature[signature.length - 1] ^= 0x01;
+        signerInfo[5] = leaf(0x04, signature);
+      });
+      expect(verifyTimestampSteps(broken, f.digestHex, [f.caPem])).toMatchObject({ token: 'verification_failed' });
+    });
+
+    it('verifies the signature over the signed attributes as carried, in other than DER SET OF order', async () => {
+      const f = await makeTsaFixture({ faults: { signedAttrsOrder: 'reversed' } });
+      let carried: Buffer[] = [];
+      editToken(f.tokenBase64, ({ signerInfo }) => {
+        carried = signerInfo[3].children!.map(der);
+      });
+      expect([...carried].sort(Buffer.compare)).not.toEqual(carried);
+      expect(verifyTimestampSteps(f.tokenBase64, f.digestHex, [f.caPem])).toMatchObject({ token: 'held', trust: 'valid' });
+      expect(await verifyTimestampToken(f.tokenBase64, f.digestHex, { trustAnchorsPem: [f.caPem] })).toMatchObject({ valid: true });
     });
   });
 

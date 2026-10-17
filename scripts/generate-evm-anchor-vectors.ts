@@ -136,11 +136,15 @@ function expectFor(window: Window, mode: Mode): Expect {
   if (window === 'malformed') {
     return { valid: null, reason: 'publication_not_checked', tx: { outcome: 'not-checked', reason: 'input_not_supplied:publisher_manifest' }, canonical: blocked };
   }
-  // Item 6 (the bundle's header) or item 13 (the block time the source
-  // confirmed): no matching entry valid at the block time. Reported on
-  // anchor.evm.tx, once.
+  // No matching entry valid at the block time: reported on anchor.evm.tx, once.
+  // With the header (header, offline), item 6 decides at the header's time,
+  // before the source is asked, and anchor.evm.canonical is blocked. Without
+  // it (noHeader), item 13 decides at the block time the source confirmed,
+  // and anchor.evm.canonical, having decided what it checks, stays
+  // checked-correct.
   if (window === 'excludes') {
-    return { valid: false, reason: 'evm_sender_mismatch', tx: { outcome: 'checked-wrong', reason: 'evm_sender_mismatch' }, canonical: blocked };
+    const canonical: Check = mode === 'noHeader' ? { outcome: 'checked-correct' } : blocked;
+    return { valid: false, reason: 'evm_sender_mismatch', tx: { outcome: 'checked-wrong', reason: 'evm_sender_mismatch' }, canonical };
   }
   // Offline, the header can make the publication fail but never pass.
   if (mode === 'offline') {
@@ -184,13 +188,13 @@ const cases: Array<{ name: string; bounds: Record<string, unknown> }> = [
   { name: 'validFrom exactly at the block time', bounds: { validFrom: `${utc(T)}Z` } },
   { name: 'validFrom at the block time, a zero fraction', bounds: { validFrom: `${utc(T)}.000Z` } },
   { name: 'validFrom at the block time, twelve zero digits', bounds: { validFrom: `${utc(T)}.000000000000Z` } },
-  { name: 'validFrom half a millisecond after the block time (§9, §13)', bounds: { validFrom: `${utc(T)}.0005Z` } },
+  { name: 'validFrom half a millisecond after the block time (§9)', bounds: { validFrom: `${utc(T)}.0005Z` } },
   { name: 'validFrom a tenth of a nanosecond after the block time', bounds: { validFrom: `${utc(T)}.0000000001Z` } },
   { name: 'validFrom a millisecond after the block time', bounds: { validFrom: `${utc(T)}.001Z` } },
   { name: 'validFrom sixteen nines past the block time', bounds: { validFrom: `${utc(T)}.9999999999999999Z` } },
   { name: 'validFrom a second after the block time', bounds: { validFrom: `${utc(T + 1)}Z` } },
   { name: 'validFrom a second before the block time', bounds: { validFrom: `${utc(T - 1)}Z` } },
-  { name: 'validFrom half a millisecond into the second before the block (§13: a block at the next second holds)', bounds: { validFrom: `${utc(T - 1)}.0005Z` } },
+  { name: 'validFrom half a millisecond into the second before the block (§9: a block at the next second holds)', bounds: { validFrom: `${utc(T - 1)}.0005Z` } },
   { name: 'validFrom 10^-16 s before the block time', bounds: { validFrom: `${utc(T - 1)}.9999999999999999Z` } },
   { name: 'validFrom half a millisecond after the block time, written at +05:30', bounds: { validFrom: localWithFraction(T, '.0005', '+', 5, 30) } },
   { name: 'validFrom exactly at the block time, written at -07:00', bounds: { validFrom: localWithFraction(T, '', '-', 7, 0) } },
@@ -198,13 +202,13 @@ const cases: Array<{ name: string; bounds: Record<string, unknown> }> = [
   { name: 'validFrom half a millisecond before the block time, written at +23:59', bounds: { validFrom: localWithFraction(T - 1, '.9995', '+', 23, 59) } },
 
   // validUntil: inclusive, and a fraction past the block's second still admits it.
-  { name: 'validUntil exactly at the block time (§13: the window\'s end at the block time holds)', bounds: { validUntil: `${utc(T)}Z` } },
+  { name: 'validUntil exactly at the block time (§9: the window\'s end at the block time holds)', bounds: { validUntil: `${utc(T)}Z` } },
   { name: 'validUntil at the block time, a zero fraction', bounds: { validUntil: `${utc(T)}.000Z` } },
   { name: 'validUntil half a millisecond after the block time', bounds: { validUntil: `${utc(T)}.0005Z` } },
   { name: 'validUntil sixteen nines past the block time', bounds: { validUntil: `${utc(T)}.9999999999999999Z` } },
   { name: 'validUntil a tenth of a nanosecond before the block time', bounds: { validUntil: `${utc(T - 1)}.9999999999Z` } },
   { name: 'validUntil half a millisecond before the block time', bounds: { validUntil: `${utc(T - 1)}.9995Z` } },
-  { name: 'validUntil a second before the block time (§13: a sender outside its window)', bounds: { validUntil: `${utc(T - 1)}Z` } },
+  { name: 'validUntil a second before the block time (§9: a sender outside its window)', bounds: { validUntil: `${utc(T - 1)}Z` } },
   { name: 'validUntil a second after the block time', bounds: { validUntil: `${utc(T + 1)}Z` } },
   { name: 'validUntil half a millisecond before the block time, written at -09:30', bounds: { validUntil: localWithFraction(T - 1, '.9995', '-', 9, 30) } },
   { name: 'validUntil exactly at the block time, written at +05:45', bounds: { validUntil: localWithFraction(T, '', '+', 5, 45) } },
@@ -658,8 +662,8 @@ for (const rule of [...RULES, null]) {
 
 const out = {
   description:
-    'The publisher-manifest validity cases of tzun-anchor/1 §9 and §13: a manifest entry for the real publisher whose validFrom or validUntil sits at, just inside or just outside the time of the block that holds the publication, the leap days the format allows and the leap second it refuses, and the verdict of tzun-anchor/1 §10.4 for each, presented three ways. Both ends of a window are inclusive and compared at full precision: a block time is a whole second, so a validFrom with any non-zero fraction admits only a block at a later second, and a validUntil with one still admits a block at its own second. ' +
-    'Then the transaction cases of §10.4 item 2: signed transactions at each edge of the rules item 2 states (Chain id: a typed transaction on chain id 0; Legacy v: a v of 35 or 36, or any other below 37 but 27 and 28; Signature values: r outside [1, n - 1], s outside [1, n/2] or a typed yParity other than 0 or 1; Fees: an EIP-1559 tip above its fee cap; Recovery: a signature from which no public key recovers; Encoding: a rawTransaction that is not the canonical RLP of its fields; Field sizes: a nonce or gasLimit above 2^64 - 1, a chain id, value, gasPrice or fee above 2^256 - 1, or a legacy v above 2 * (2^256 - 1) + 36), each with the transaction just inside the edge where there is one, and the verdict of §10.4 for each, offline. Ethereum mainnet, Sepolia and Hoodi, the chains of the network table of §9, refuse a transaction that breaks one of these rules under the rules they apply today, so no block they produce today holds one. A development chain can be more lenient: anvil, for one, mines a transaction whose s is above n/2. A refused transaction is false, malformed_publication, on any chain, whatever an Ethereum library would recover from it. The header-source cases §13 also lists for this file are not in it.',
+    'The publisher-manifest validity cases of tzun-anchor/1 §9: a manifest entry for the real publisher whose validFrom or validUntil sits at, just inside or just outside the time of the block that holds the publication, the leap days the format allows and the leap second it refuses, and the verdict of tzun-anchor/1 §10.4 for each, presented three ways. Both ends of a window are inclusive and compared at full precision: a block time is a whole second, so a validFrom with any non-zero fraction admits only a block at a later second, and a validUntil with one still admits a block at its own second. ' +
+    'Then the transaction cases of §10.4 item 2: signed transactions at each edge of the rules item 2 states (Chain id: a typed transaction on chain id 0; Legacy v: a v of 35 or 36, or any other below 37 but 27 and 28; Signature values: r outside [1, n - 1], s outside [1, n/2] or a typed yParity other than 0 or 1; Fees: an EIP-1559 tip above its fee cap; Recovery: a signature from which no public key recovers; Encoding: a rawTransaction that is not the canonical RLP of its fields; Field sizes: a nonce or gasLimit above 2^64 - 1, a chain id, value, gasPrice or fee above 2^256 - 1, or a legacy v above 2 * (2^256 - 1) + 36), each with the transaction just inside the edge where there is one, and the verdict of §10.4 for each, offline. Ethereum mainnet, Sepolia and Hoodi, the chains of the network table of §9, refuse a transaction that breaks one of these rules under the rules they apply today, so no block they produce today holds one. A development chain can be more lenient: anvil, for one, mines a transaction whose s is above n/2. A refused transaction is false, malformed_publication, on any chain, whatever an Ethereum library would recover from it.',
   source:
     'Generated by scripts/generate-evm-anchor-vectors.ts, which reads each bound by its own transcription of §9 (full precision, the fraction kept as digits) and states each verdict from §10.4, calling no SDK code. The publication, its block and the publisher are epoch 0 of anchor-e2e-vectors.json, byte for byte: signed and mined on anvil, and checked there by the Go gate with go-ethereum. The transaction cases are signed by the script with the throwaway key of the EIP-155 example (0x46 repeated, RFC 6979 signatures), or carry a signature built to recover a chosen way, and the script reads each against its own transcription of §10.4 item 2. scripts/regenerate-vectors.ts --anvil rewrites this file right after anchor-e2e-vectors.json.',
   format: {

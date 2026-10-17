@@ -1161,7 +1161,9 @@ interface AnchorCheck {
  * trust anchors as the record's own token (`trustAnchorsPem`, `authorities`,
  * or `TZUN_TSA_TRUST_ANCHORS` / `TZUN_TSA_AUTHORITIES`). Unlike the record's
  * token, with none supplied they are not judged against the built-in default
- * roots: they stay `null`, `publication_not_checked`.
+ * roots. Steps 1 to 3 of §10.5 still decide each token: one that fails them is
+ * `false`, and the anchor with it; one that holds stays `null`,
+ * `publication_not_checked`, with `anchor.tsa.trust[i]` `no_matching_trust_anchor`.
  */
 async function verifyAnchorArtifact(
   artifacts: AttestationArtifacts,

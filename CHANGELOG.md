@@ -76,7 +76,8 @@ No digest, record or stored value changes.
     `false`. It was `null`, `no_matching_trust_anchor`.
   - With roots supplied (Python), `anchor.tsa.token[i]` is decided by steps 1
     to 3 as above; it was `not-checked`, `missing_dependency`, for every
-    token. Once they hold, `anchor.tsa.trust[i]` is `not-checked`,
+    readable token (an unreadable one was already `false`,
+    `malformed_publication`). Once they hold, `anchor.tsa.trust[i]` is `not-checked`,
     `missing_dependency` (§10.5 step 5): this SDK has no certificate-path
     verifier, so it never reports an RFC 3161 publication `true`.
   - An unforeseen failure of the token steps is `anchor_verifier_error`, the

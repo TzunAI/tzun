@@ -1,4 +1,4 @@
-"""tzun-sdk — Python SDK for Tzun, the receipt for every AI decision.
+"""tzun-sdk — Python SDK for Tzun (tamper-evident records for AI decisions).
 
 Public API surface:
 

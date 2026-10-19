@@ -43,7 +43,7 @@ from tzun_sdk.storage.sqlite import SqliteAdapter
 
 app = typer.Typer(
     name="tzun",
-    help="Tzun Python SDK CLI — the receipt for every AI decision.",
+    help="Tzun Python SDK CLI — tamper-evident records for AI decisions.",
     add_completion=False,
     no_args_is_help=True,
 )

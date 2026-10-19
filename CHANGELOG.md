@@ -24,10 +24,10 @@ rewritten to the engine's exact version at publish time.
 
 ### Changed
 
-- The Python package description, the Python README, the `tzun --help` text
-  and the demo banner now read "The receipt for every AI decision" and
-  "Tamper-evident records of the human decisions made on AI recommendations".
-  No API, record or stored value changes.
+- The Python package description, the Python README and the demo banner now
+  read "Tamper-evident records for AI decisions", and the Python module
+  docstring and the `tzun --help` text read "The receipt for every AI
+  decision". No API, record or stored value changes.
 
 ## [0.9.0] — 2026-10-17
 

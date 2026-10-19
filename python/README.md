@@ -1,7 +1,6 @@
 # tzun-sdk (Python)
 
-The receipt for every AI decision — Python edition. Tamper-evident records of
-the human decisions made on AI recommendations.
+Tamper-evident records for AI decisions — Python edition.
 
 `tzun-sdk` is the Python port of the TypeScript SDK, `@tzun/sdk`.
 Both SDKs speak the same v1 canonical wire format byte-for-byte: a decision

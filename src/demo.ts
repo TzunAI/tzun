@@ -18,7 +18,7 @@ function separator() {
 function main() {
   console.log();
   console.log('  TZUN EVIDENCE ENGINE — Interactive Demo');
-  console.log('  The receipt for every AI decision');
+  console.log('  Tamper-Evident Records for AI Decisions');
   separator();
 
   // ── 1. Capture a decision ─────────────────────────────────────

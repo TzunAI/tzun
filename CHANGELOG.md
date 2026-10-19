@@ -22,6 +22,15 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-10-19
+
+### Changed
+
+- The Python package description, the Python README, the Python module
+  docstring, the `tzun --help` text and the demo banner now describe Tzun as
+  "tamper-evident records for AI decisions" (title case in the demo banner).
+  No API, record or stored value changes.
+
 ## [0.9.0] — 2026-10-17
 
 The verifiers follow the specification as revised on 17 October 2026

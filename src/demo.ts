@@ -18,7 +18,7 @@ function separator() {
 function main() {
   console.log();
   console.log('  TZUN EVIDENCE ENGINE — Interactive Demo');
-  console.log('  Forensic Evidence Infrastructure for AI Decisions');
+  console.log('  The receipt for every AI decision');
   separator();
 
   // ── 1. Capture a decision ─────────────────────────────────────

@@ -1,4 +1,4 @@
-"""tzun-sdk — Python SDK for Tzun (forensic evidence for AI decisions).
+"""tzun-sdk — Python SDK for Tzun, the receipt for every AI decision.
 
 Public API surface:
 

@@ -22,6 +22,8 @@ rewritten to the engine's exact version at publish time.
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-10-18
+
 ### Changed
 
 - The Python package description, the Python README, the Python module
